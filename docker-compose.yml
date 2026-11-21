@@ -28,6 +28,16 @@ services:
     ports: ['8787:8787']
     volumes: ['plane-bundles:/data/bundles']
 
+  console:
+    build: { context: ., dockerfile: apps/console/Dockerfile }
+    depends_on: [plane]
+    environment:
+      PLANE_URL: http://plane:8787
+      PLANE_TOKEN: ${PLANE_TOKEN:?set PLANE_TOKEN}
+      PLANE_ADMIN_TOKEN: ${PLANE_ADMIN_TOKEN:-}
+      PORT: '8788'
+    ports: ['8788:8788']
+
 volumes:
   plane-db:
   plane-bundles:

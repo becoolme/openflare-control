@@ -20,10 +20,10 @@ definePageMeta({
     </div>
 
     <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px">
-      <UiMetricCard label="Configs"><template #value>2</template><UiMetricFoot>1 managed · 1 external</UiMetricFoot></UiMetricCard>
-      <UiMetricCard label="Cache hit" hint="24h"><template #value>94.1<small> %</small></template><UiMetricFoot>checkumi-pg only</UiMetricFoot></UiMetricCard>
-      <UiMetricCard label="Query p50"><template #value>4<small> ms</small></template><UiMetricFoot>p99 38 ms</UiMetricFoot></UiMetricCard>
-      <UiMetricCard label="Pooled connections"><template #value>38<small> / 60</small></template><UiMetricFoot>2 pools</UiMetricFoot></UiMetricCard>
+      <UiMetricCard label="Configs"><template #value>—</template><UiMetricFoot>no Hyperdrive API</UiMetricFoot></UiMetricCard>
+      <UiMetricCard label="Cache hit" hint="24h"><template #value>—</template><UiMetricFoot>no Hyperdrive metrics API</UiMetricFoot></UiMetricCard>
+      <UiMetricCard label="Query p50"><template #value>—</template><UiMetricFoot>no Hyperdrive metrics API</UiMetricFoot></UiMetricCard>
+      <UiMetricCard label="Pooled connections"><template #value>—</template><UiMetricFoot>no Hyperdrive stats API</UiMetricFoot></UiMetricCard>
     </div>
 
     <section class="card" style="padding: 0">
@@ -36,8 +36,12 @@ definePageMeta({
       <table class="tbl">
         <thead><tr><th>Config</th><th>Origin</th><th>Bound by</th><th>Caching</th><th style="text-align: right">Pool</th><th style="text-align: right">Cache hit</th><th style="text-align: right">Query p50</th><th></th></tr></thead>
         <tbody>
-          <tr><td><div class="nm">checkumi-pg</div><div class="sm">HYPERDRIVE</div></td><td><div class="num">checkumi-prod <span class="dim">· Managed Postgres</span></div><div class="sm">grp3 · pooler :6432 · sslmode=require</div></td><td><span class="wk">rybbit-proxy</span></td><td><UiBadge tone="ok" dot>ON · 60 s</UiBadge></td><td class="num" style="text-align: right">28 / 40</td><td class="num" style="text-align: right">96.2%</td><td class="num" style="text-align: right">3.8 ms</td><td style="text-align: right"><UiIconButton icon="more" :size="15" label="More" /></td></tr>
-          <tr><td><div class="nm">opentin-ro</div><div class="sm">PG_RO</div></td><td><div class="num">opentin-main <span class="dim">· external</span></div><div class="sm">db.opentin.io:5432</div></td><td><span class="wk">opentin-search</span></td><td><UiBadge tone="neu" dot>OFF</UiBadge></td><td class="num" style="text-align: right">10 / 20</td><td class="num dim" style="text-align: right">—</td><td class="num" style="text-align: right">14.1 ms</td><td style="text-align: right"><UiIconButton icon="more" :size="15" label="More" /></td></tr>
+          <tr><td colspan="8" class="muted" style="padding: 22px">
+            The reference plane has no Hyperdrive resource API yet. Hyperdrive bindings can still be
+            declared inside a version (`bindings[].type = "HYPERDRIVE"`), but there is no resource
+            list/create endpoint to drive this page. Add `/api/v1/cells/{cell}/hyperdrive` before
+            enabling this view.
+          </td></tr>
         </tbody>
       </table>
       <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; border-top: 1px solid var(--b1); font-size: 12.5px" class="muted">

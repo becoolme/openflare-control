@@ -43,6 +43,7 @@ vars) for compatibility with existing cells and must not be renamed casually.
 | ------------------ | ------------------------------------------------------------------------------------------------------------------------ |
 | `packages/control` | Portable plane: wire schemas, desired builder, signer, ports, store conformance suite (published as `openflare-control`) |
 | `apps/plane`       | Reference plane: Hono service, Postgres store, filesystem bundle store, migrate/seed/maintain CLI                        |
+| `apps/console`     | Web console: generated Nuxt SPA + same-origin API proxy service ([docs/console.md](docs/console.md))                     |
 | `deploy/k8s`       | Kustomize base, components and an example overlay for one cell                                                           |
 | `scripts`          | Render/invariant gate (`vrt-k8s-check`), image build, pinned workerd fetch, sanitization and sync gates                  |
 | `docs`             | Architecture, Kubernetes, API, operations, conformance and migration notes                                               |
@@ -190,6 +191,10 @@ store conformance cases.
   empty shapes.
 - Assets manifests, DO/workflow management and team quotas: not implemented in
   the reference plane (the port answers 501).
+- Console: list pages (workers, D1, R2, KV, queues, workflows, durable objects)
+  read the live management API through a same-origin proxy; `/kit/api` lists the
+  remaining gaps (metrics, Hyperdrive, queue/D1/R2/DO stats, workflow instances,
+  team/quota).
 - Multi-cell: one plane serves any number of cells keyed by `cellId`; one cell
   is one pod (see the manifests).
 

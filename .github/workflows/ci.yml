@@ -80,6 +80,19 @@ jobs:
       - uses: actions/checkout@v4
       - run: docker build -f apps/plane/Dockerfile -t openflare-plane:ci .
 
+  console:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 9.15.3 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter openflare-console test
+      - run: pnpm --filter openflare-console typecheck
+      - run: pnpm --filter openflare-console build
+
   e2e-docker:
     runs-on: ubuntu-24.04
     env:

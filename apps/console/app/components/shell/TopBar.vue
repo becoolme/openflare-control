@@ -1,10 +1,13 @@
 <script setup lang="ts">
+import { onMounted } from 'vue'
 import { CONSOLE_FIXTURE } from '../../fixtures/console'
 import type { Crumb } from '../../utils/nav'
 import ShellLogo from './Logo.vue'
 
 defineProps<{ crumbs: Crumb[] }>()
-const { team, environment, user, unreadNotifications } = CONSOLE_FIXTURE
+const { team, user, unreadNotifications } = CONSOLE_FIXTURE
+const { cells, cellId, refresh } = useCellSelection()
+onMounted(refresh)
 </script>
 
 <template>
@@ -28,21 +31,19 @@ const { team, environment, user, unreadNotifications } = CONSOLE_FIXTURE
         <path d="m7 9 5-5 5 5M7 15l5 5 5-5" /></svg
     ></button>
     <span class="sep" aria-hidden="true">/</span>
-    <button type="button" class="crumb"
-      ><span class="st ok" style="font-size: 13.5px"><i></i></span>{{ environment }}
-      <svg
-        width="13"
-        height="13"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="#8A8A93"
-        stroke-width="2"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-        aria-hidden="true"
+    <label class="crumb" title="Cell">
+      <span class="st ok" style="font-size: 13.5px"><i></i></span>
+      <select
+        v-model="cellId"
+        aria-label="Cell"
+        style="border: 0; background: transparent; font: inherit; color: inherit; cursor: pointer"
       >
-        <path d="m7 9 5-5 5 5M7 15l5 5 5-5" /></svg
-    ></button>
+        <option v-if="cells.length === 0" :value="null">no cell</option>
+        <option v-for="cell in cells" :key="cell.cellId" :value="cell.cellId">
+          {{ cell.cellId }}
+        </option>
+      </select>
+    </label>
     <template v-for="(crumb, index) in crumbs" :key="index">
       <span class="sep" aria-hidden="true">/</span>
       <span v-if="index === crumbs.length - 1" class="crumb" style="color: var(--t1)">{{

@@ -1,8 +1,21 @@
 <script setup lang="ts">
+import type { D1DatabaseInfo } from '../../composables/useConsoleApi'
 definePageMeta({
   nav: 'D1',
   crumbs: () => [{ label: 'storage', to: '/storage' }, { label: 'd1' }],
 })
+const { activeCell } = useCellSelection()
+const { data, pending, error } = await useAsyncData(
+  () => `d1:${activeCell.value}`,
+  () =>
+    activeCell.value
+      ? consoleApi<{ databases: D1DatabaseInfo[] }>(
+          `/api/v1/cells/${encodeURIComponent(activeCell.value)}/d1/databases`
+        )
+      : Promise.resolve({ databases: [] }),
+  { watch: [activeCell] }
+)
+const databases = computed(() => data.value?.databases ?? [])
 </script>
 
 <template><div class="wrap pg-d1-list" style="display: flex; flex-direction: column; gap: 20px">
@@ -20,10 +33,10 @@ definePageMeta({
     </div>
 
     <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px">
-      <UiMetricCard label="Databases"><template #value>9</template><UiMetricFoot>8 bound · 1 unbound</UiMetricFoot></UiMetricCard>
-      <UiMetricCard label="Storage"><template #value>3.1<small> GB</small></template><UiMetricFoot>412 tables</UiMetricFoot></UiMetricCard>
-      <UiMetricCard label="Rows read / written" hint="24h"><template #value>48.2<small> M / 1.3 M</small></template><UiMetricFoot>checkumi-db 65%</UiMetricFoot></UiMetricCard>
-      <UiMetricCard label="Migrations"><template #value>2<small> pending</small></template><UiMetricFoot><span class="warn">checkumi-db</span></UiMetricFoot></UiMetricCard>
+      <UiMetricCard label="Databases"><template #value>{{ databases.length }}</template><UiMetricFoot>{{ activeCell || 'no cell selected' }}</UiMetricFoot></UiMetricCard>
+      <UiMetricCard label="Storage"><template #value>—</template><UiMetricFoot>no D1 stats API</UiMetricFoot></UiMetricCard>
+      <UiMetricCard label="Rows read / written" hint="24h"><template #value>—</template><UiMetricFoot>no D1 metrics API</UiMetricFoot></UiMetricCard>
+      <UiMetricCard label="Migrations"><template #value>{{ databases.length ? 'API' : '—' }}</template><UiMetricFoot>POST /d1/databases/{id}/migrations</UiMetricFoot></UiMetricCard>
     </div>
 
     <section class="card" style="padding: 0">
@@ -37,13 +50,19 @@ definePageMeta({
       <table class="tbl">
         <thead><tr><th>Database</th><th>Bound by</th><th style="text-align: right">Size</th><th style="text-align: right">Tables</th><th>Migrations</th><th>Node</th><th>Rows read 24h</th><th></th></tr></thead>
         <tbody>
-          <UiLinkRow to="/d1/checkumi-db" class="sel"><td><div class="nm"><NuxtLink to="/d1/checkumi-db">checkumi-db</NuxtLink></div><div class="sm">DB · d1_4be20f7a</div></td><td><div class="bw"><span class="wk">checkumi-edge</span><span class="wk">checkumi-cron</span></div></td><td class="num" style="text-align: right">1.42 GB</td><td class="num" style="text-align: right">38</td><td><UiBadge tone="warn" dot>2 PENDING</UiBadge></td><td class="num muted">fsn · k3s-007</td><td><div style="display: flex; align-items: center; gap: 10px"><span class="num" style="min-width: 44px">31.4M</span><ChartSparkline seed="d1l1" :width="60" :height="18" color="var(--accent)" /></div></td><td style="text-align: right"><UiIconButton icon="more" :size="15" label="More" /></td></UiLinkRow>
-          <tr><td><div class="nm">opentin-index</div><div class="sm">INDEX · d1_b20e771f</div></td><td><div class="bw"><span class="wk">opentin-search</span></div></td><td class="num" style="text-align: right">880 MB</td><td class="num" style="text-align: right">12</td><td><UiBadge tone="ok" dot>UP TO DATE</UiBadge></td><td class="num muted">nbg · k3s-014</td><td><div style="display: flex; align-items: center; gap: 10px"><span class="num" style="min-width: 44px">14.0M</span><ChartSparkline seed="d1l2" :width="60" :height="18" color="var(--t2)" /></div></td><td style="text-align: right"><UiIconButton icon="more" :size="15" label="More" /></td></tr>
-          <tr><td><div class="nm">whois-snapshots</div><div class="sm">WHOIS · d1_0c3d5512</div></td><td><div class="bw"><span class="wk">whois-cron</span></div></td><td class="num" style="text-align: right">412 MB</td><td class="num" style="text-align: right">4</td><td><UiBadge tone="ok" dot>UP TO DATE</UiBadge></td><td class="num muted">hel · k3s-016</td><td><div style="display: flex; align-items: center; gap: 10px"><span class="num" style="min-width: 44px">2.1M</span><ChartSparkline seed="d1l3" :width="60" :height="18" color="var(--t2)" /></div></td><td style="text-align: right"><UiIconButton icon="more" :size="15" label="More" /></td></tr>
-          <tr><td><div class="nm">opentin-search-meta</div><div class="sm">META · d1_77ac0b31</div></td><td><div class="bw"><span class="wk">opentin-search</span></div></td><td class="num" style="text-align: right">186 MB</td><td class="num" style="text-align: right">9</td><td><UiBadge tone="ok" dot>UP TO DATE</UiBadge></td><td class="num muted">nbg · k3s-014</td><td><div style="display: flex; align-items: center; gap: 10px"><span class="num" style="min-width: 44px">408k</span><ChartSparkline seed="d1l4" :width="60" :height="18" color="var(--t2)" /></div></td><td style="text-align: right"><UiIconButton icon="more" :size="15" label="More" /></td></tr>
-          <tr><td><div class="nm">playtown-db</div><div class="sm">DB · d1_5e19f0c8</div></td><td><div class="bw"><span class="wk">playtown-api</span><span class="wk">playtown-hooks</span></div></td><td class="num" style="text-align: right">144 MB</td><td class="num" style="text-align: right">21</td><td><UiBadge tone="ok" dot>UP TO DATE</UiBadge></td><td class="num muted">fsn · k3s-008</td><td><div style="display: flex; align-items: center; gap: 10px"><span class="num" style="min-width: 44px">212k</span><ChartSparkline seed="d1l5" :width="60" :height="18" color="var(--t2)" /></div></td><td style="text-align: right"><UiIconButton icon="more" :size="15" label="More" /></td></tr>
-          <tr><td><div class="nm">checkumi-audit</div><div class="sm">AUDIT · d1_a3f6c220</div></td><td><div class="bw"><span class="wk">checkumi-cron</span></div></td><td class="num" style="text-align: right">61 MB</td><td class="num" style="text-align: right">3</td><td><UiBadge tone="ok" dot>UP TO DATE</UiBadge></td><td class="num muted">fsn · k3s-007</td><td><div style="display: flex; align-items: center; gap: 10px"><span class="num" style="min-width: 44px">1.2k</span><ChartSparkline seed="d1l6" :width="60" :height="18" color="var(--t2)" /></div></td><td style="text-align: right"><UiIconButton icon="more" :size="15" label="More" /></td></tr>
-          <tr class="dim"><td><div class="nm">opentin-staging</div><div class="sm">unbound · d1_19d0e44a</div></td><td><span class="muted" style="font-size: 12.5px">—</span></td><td class="num" style="text-align: right">24 MB</td><td class="num" style="text-align: right">12</td><td><UiBadge tone="neu" dot>NO MIGRATIONS</UiBadge></td><td class="num muted">fsn · k3s-007</td><td><span class="num">0</span></td><td style="text-align: right"><UiIconButton icon="more" :size="15" label="More" /></td></tr>
+          <tr v-if="pending"><td colspan="8" class="muted" style="padding: 18px">Loading databases…</td></tr>
+          <tr v-else-if="error"><td colspan="8" style="padding: 18px; color: var(--err)">{{ error.message }}</td></tr>
+          <tr v-else-if="databases.length === 0"><td colspan="8" class="muted" style="padding: 18px">No D1 databases.</td></tr>
+          <UiLinkRow v-for="db in databases" :key="db.database_id" :to="`/d1/${encodeURIComponent(db.name)}`">
+            <td><div class="nm"><NuxtLink :to="`/d1/${encodeURIComponent(db.name)}`">{{ db.name }}</NuxtLink></div><div class="sm">{{ db.database_id }}</div></td>
+            <td><span class="wk">{{ db.team_id }}</span></td>
+            <td class="num dim" style="text-align: right">—</td>
+            <td class="num dim" style="text-align: right">—</td>
+            <td><UiBadge tone="neu" dot>API</UiBadge></td>
+            <td class="num muted">{{ db.cluster_id }}</td>
+            <td class="num dim">—</td>
+            <td style="text-align: right"><UiIconButton icon="more" :size="15" label="More" /></td>
+          </UiLinkRow>
         </tbody>
       </table>
       <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; border-top: 1px solid var(--b1); font-size: 12.5px" class="muted">

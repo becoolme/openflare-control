@@ -1,5 +1,17 @@
 # Changelog
 
+## 2026-11-21 — console service + live API
+
+- `apps/console` now ships as a service: Nuxt static SPA plus
+  `server/main.mjs`, which proxies `/api/v1` and `/api/internal` to the plane
+  with the admin token injected server-side. Docker Compose starts it on 8788.
+- Cell selection in the top bar; workers/D1/R2/KV/queues/workflows/DO list
+  pages read live management API data with loading/error/empty states.
+- `/kit/api` probes the live API and lists missing surfaces (metrics,
+  Hyperdrive, D1/R2/queue/DO stats, workflow instances, team/quota).
+- Docker and kind e2e now assert the console HTML and proxied API, in addition
+  to the plane lifecycle.
+
 ## 2026-11-21 — real kind e2e
 
 - `scripts/e2e-kind.sh` + CI `e2e-kind` job: kind cluster, locally loaded plane

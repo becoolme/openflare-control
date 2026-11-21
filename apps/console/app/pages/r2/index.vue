@@ -1,8 +1,21 @@
 <script setup lang="ts">
+import type { R2BucketInfo } from '../../composables/useConsoleApi'
 definePageMeta({
   nav: 'R2',
   crumbs: () => [{ label: 'storage', to: '/storage' }, { label: 'r2' }],
 })
+const { activeCell } = useCellSelection()
+const { data, pending, error } = await useAsyncData(
+  () => `r2:${activeCell.value}`,
+  () =>
+    activeCell.value
+      ? consoleApi<{ buckets: R2BucketInfo[] }>(
+          `/api/v1/cells/${encodeURIComponent(activeCell.value)}/r2/buckets`
+        )
+      : Promise.resolve({ buckets: [] }),
+  { watch: [activeCell] }
+)
+const buckets = computed(() => data.value?.buckets ?? [])
 </script>
 
 <template><div class="wrap pg-r2-list" style="display: flex; flex-direction: column; gap: 20px">
@@ -20,10 +33,10 @@ definePageMeta({
     </div>
 
     <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px">
-      <UiMetricCard label="Buckets"><template #value>5</template><UiMetricFoot>4 bound · 1 unbound</UiMetricFoot></UiMetricCard>
-      <UiMetricCard label="Objects"><template #value>184<small> k</small></template><UiMetricFoot>61.7 GB stored</UiMetricFoot></UiMetricCard>
-      <UiMetricCard label="Class A / B ops" hint="24h"><template #value>412<small> k / 6.8 M</small></template><UiMetricFoot>writes / reads</UiMetricFoot></UiMetricCard>
-      <UiMetricCard label="Public buckets"><template #value>0</template><UiMetricFoot><span class="miss"><UiIcon name="warn" :size="10" />public URL API</span></UiMetricFoot></UiMetricCard>
+      <UiMetricCard label="Buckets"><template #value>{{ buckets.length }}</template><UiMetricFoot>{{ activeCell || 'no cell selected' }}</UiMetricFoot></UiMetricCard>
+      <UiMetricCard label="Objects"><template #value>—</template><UiMetricFoot>no bucket stats API</UiMetricFoot></UiMetricCard>
+      <UiMetricCard label="Class A / B ops" hint="24h"><template #value>—</template><UiMetricFoot>no R2 metrics API</UiMetricFoot></UiMetricCard>
+      <UiMetricCard label="Public buckets"><template #value>—</template><UiMetricFoot><span class="miss"><UiIcon name="warn" :size="10" />no public URL API</span></UiMetricFoot></UiMetricCard>
     </div>
 
     <section class="card" style="padding: 0">
@@ -36,11 +49,20 @@ definePageMeta({
       <table class="tbl">
         <thead><tr><th>Bucket</th><th>Bound by</th><th style="text-align: right">Objects</th><th style="text-align: right">Size</th><th>Public access</th><th style="text-align: right">Class A / B 24h</th><th>Node</th><th>Created</th><th></th></tr></thead>
         <tbody>
-          <UiLinkRow to="/r2/checkumi-assets/objects" class="sel"><td><div class="nm"><NuxtLink to="/r2/checkumi-assets/objects">checkumi-assets</NuxtLink></div><div class="sm">ASSETS</div></td><td><div class="bw"><span class="wk">checkumi-edge</span></div></td><td class="num" style="text-align: right">128,402</td><td class="num" style="text-align: right">42.8 GB</td><td><UiBadge tone="neu" dot>PRIVATE</UiBadge></td><td class="num" style="text-align: right">288k / 5.1M</td><td class="num muted">fsn · k3s-009</td><td class="num muted">Aug 30</td><td style="text-align: right"><UiIconButton icon="more" :size="15" label="More" /></td></UiLinkRow>
-          <tr><td><div class="nm">whois-archive</div><div class="sm">ARCHIVE</div></td><td><div class="bw"><span class="wk">whois-cron</span></div></td><td class="num" style="text-align: right">51,040</td><td class="num" style="text-align: right">18.4 GB</td><td><UiBadge tone="neu" dot>PRIVATE</UiBadge></td><td class="num" style="text-align: right">96 / 1.4k</td><td class="num muted">fsn · k3s-009</td><td class="num muted">Oct 02</td><td style="text-align: right"><UiIconButton icon="more" :size="15" label="More" /></td></tr>
-          <tr><td><div class="nm">opentin-uploads</div><div class="sm">UPLOADS</div></td><td><div class="bw"><span class="wk">opentin-search</span></div></td><td class="num" style="text-align: right">4,912</td><td class="num" style="text-align: right">512 MB</td><td><UiBadge tone="neu" dot>PRIVATE</UiBadge></td><td class="num" style="text-align: right">124k / 1.3M</td><td class="num muted">fsn · k3s-009</td><td class="num muted">Nov 02</td><td style="text-align: right"><UiIconButton icon="more" :size="15" label="More" /></td></tr>
-          <tr><td><div class="nm">playtown-replays</div><div class="sm">REPLAYS</div></td><td><div class="bw"><span class="wk">playtown-hooks</span></div></td><td class="num" style="text-align: right">2,206</td><td class="num" style="text-align: right">31 MB</td><td><UiBadge tone="neu" dot>PRIVATE</UiBadge></td><td class="num" style="text-align: right">412 / 2.8k</td><td class="num muted">fsn · k3s-009</td><td class="num muted">Nov 09</td><td style="text-align: right"><UiIconButton icon="more" :size="15" label="More" /></td></tr>
-          <tr class="dim"><td><div class="nm">import-scratch</div><div class="sm">unbound</div></td><td><span class="muted" style="font-size: 12.5px">—</span></td><td class="num" style="text-align: right">0</td><td class="num" style="text-align: right">0 B</td><td><UiBadge tone="neu" dot>PRIVATE</UiBadge></td><td class="num" style="text-align: right">0 / 0</td><td class="num muted">fsn · k3s-009</td><td class="num muted">Sep 28</td><td style="text-align: right"><UiIconButton icon="more" :size="15" label="More" /></td></tr>
+          <tr v-if="pending"><td colspan="9" class="muted" style="padding: 18px">Loading buckets…</td></tr>
+          <tr v-else-if="error"><td colspan="9" style="padding: 18px; color: var(--err)">{{ error.message }}</td></tr>
+          <tr v-else-if="buckets.length === 0"><td colspan="9" class="muted" style="padding: 18px">No R2 buckets.</td></tr>
+          <UiLinkRow v-for="b in buckets" :key="b.bucket_name" :to="`/r2/${encodeURIComponent(b.bucket_name)}/objects`">
+            <td><div class="nm"><NuxtLink :to="`/r2/${encodeURIComponent(b.bucket_name)}/objects`">{{ b.bucket_name }}</NuxtLink></div><div class="sm">{{ b.bucket_id }}</div></td>
+            <td><span class="wk">{{ b.team_id }}</span></td>
+            <td class="num dim" style="text-align: right">—</td>
+            <td class="num dim" style="text-align: right">—</td>
+            <td><UiBadge tone="neu" dot>PRIVATE</UiBadge></td>
+            <td class="num dim" style="text-align: right">—</td>
+            <td class="num muted">{{ b.cluster_id }}</td>
+            <td class="num muted">{{ new Date(b.created_at).toLocaleDateString() }}</td>
+            <td style="text-align: right"><UiIconButton icon="more" :size="15" label="More" /></td>
+          </UiLinkRow>
         </tbody>
       </table>
       <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; border-top: 1px solid var(--b1); font-size: 12.5px" class="muted">

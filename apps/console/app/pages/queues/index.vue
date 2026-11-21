@@ -1,8 +1,21 @@
 <script setup lang="ts">
+import type { QueueInfo } from '../../composables/useConsoleApi'
 definePageMeta({
   nav: 'Queues',
   crumbs: () => [{ label: 'storage', to: '/storage' }, { label: 'queues' }],
 })
+const { activeCell } = useCellSelection()
+const { data, pending, error } = await useAsyncData(
+  () => `queues:${activeCell.value}`,
+  () =>
+    activeCell.value
+      ? consoleApi<{ queues: QueueInfo[] }>(
+          `/api/v1/cells/${encodeURIComponent(activeCell.value)}/queues`
+        )
+      : Promise.resolve({ queues: [] }),
+  { watch: [activeCell] }
+)
+const queues = computed(() => data.value?.queues ?? [])
 </script>
 
 <template><div class="wrap pg-queue-list" style="display: flex; flex-direction: column; gap: 20px">
@@ -20,10 +33,10 @@ definePageMeta({
     </div>
 
     <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px">
-      <UiMetricCard label="Queues"><template #value>7</template><UiMetricFoot>1 lagging · 1 dead-letter</UiMetricFoot></UiMetricCard>
-      <UiMetricCard label="Backlog"><template #value>1,284</template><UiMetricFoot><span class="warn">playtown-events 1,204</span></UiMetricFoot></UiMetricCard>
-      <UiMetricCard label="Delivered" hint="24h"><template #value>2.2<small> M</small></template><UiMetricFoot>retries 0.4%</UiMetricFoot></UiMetricCard>
-      <UiMetricCard label="In DLQ" value-style="color: var(--err)"><template #value>3</template><UiMetricFoot>playtown-events-dlq</UiMetricFoot></UiMetricCard>
+      <UiMetricCard label="Queues"><template #value>{{ queues.length }}</template><UiMetricFoot>{{ activeCell || 'no cell selected' }}</UiMetricFoot></UiMetricCard>
+      <UiMetricCard label="Backlog"><template #value>—</template><UiMetricFoot>no queue metrics API</UiMetricFoot></UiMetricCard>
+      <UiMetricCard label="Delivered" hint="24h"><template #value>—</template><UiMetricFoot>no queue metrics API</UiMetricFoot></UiMetricCard>
+      <UiMetricCard label="In DLQ" value-style="color: var(--err)"><template #value>—</template><UiMetricFoot>no queue metrics API</UiMetricFoot></UiMetricCard>
     </div>
 
     <section class="card" style="padding: 0">
@@ -37,13 +50,20 @@ definePageMeta({
       <table class="tbl">
         <thead><tr><th>Queue</th><th>Status</th><th>Producers</th><th>Consumer</th><th style="text-align: right">Backlog</th><th>Delivered 24h</th><th style="text-align: right">Oldest</th><th style="text-align: right">DLQ</th><th></th></tr></thead>
         <tbody>
-          <UiLinkRow to="/queues/playtown-events" class="sel"><td><div class="nm"><NuxtLink to="/queues/playtown-events">playtown-events</NuxtLink></div><div class="sm">batch 50 · 3 retries</div></td><td><UiBadge tone="warn" dot>LAGGING</UiBadge></td><td><div class="bw"><span class="wk">playtown-api</span><span class="wk">playtown-hooks</span></div></td><td><span class="wk">playtown-hooks</span></td><td class="num warn" style="text-align: right">1,204</td><td><div style="display: flex; align-items: center; gap: 10px"><span class="num" style="min-width: 44px">1.41M</span><ChartSparkline seed="ql1" :width="60" :height="18" color="var(--warn)" /></div></td><td class="num warn" style="text-align: right">6 m 12 s</td><td class="num err" style="text-align: right">3</td><td style="text-align: right"><UiIconButton icon="more" :size="15" label="More" /></td></UiLinkRow>
-          <tr><td><div class="nm">checkumi-jobs</div><div class="sm">batch 10 · 5 retries</div></td><td><UiBadge tone="ok" dot>ACTIVE</UiBadge></td><td><div class="bw"><span class="wk">checkumi-edge</span></div></td><td><span class="wk">checkumi-cron</span></td><td class="num" style="text-align: right">72</td><td><div style="display: flex; align-items: center; gap: 10px"><span class="num" style="min-width: 44px">604k</span><ChartSparkline seed="ql2" :width="60" :height="18" color="var(--t2)" /></div></td><td class="num" style="text-align: right">4 s</td><td class="num" style="text-align: right">0</td><td style="text-align: right"><UiIconButton icon="more" :size="15" label="More" /></td></tr>
-          <tr><td><div class="nm">rybbit-ingest</div><div class="sm">batch 100 · 3 retries</div></td><td><UiBadge tone="ok" dot>ACTIVE</UiBadge></td><td><div class="bw"><span class="wk">rybbit-proxy</span></div></td><td><span class="wk">rybbit-proxy</span></td><td class="num" style="text-align: right">0</td><td><div style="display: flex; align-items: center; gap: 10px"><span class="num" style="min-width: 44px">188k</span><ChartSparkline seed="ql3" :width="60" :height="18" color="var(--t2)" /></div></td><td class="num dim" style="text-align: right">—</td><td class="num" style="text-align: right">0</td><td style="text-align: right"><UiIconButton icon="more" :size="15" label="More" /></td></tr>
-          <tr><td><div class="nm">whois-fetch</div><div class="sm">batch 5 · 10 retries</div></td><td><UiBadge tone="ok" dot>ACTIVE</UiBadge></td><td><div class="bw"><span class="wk">whois-cron</span></div></td><td><span class="wk">whois-cron</span></td><td class="num" style="text-align: right">8</td><td><div style="display: flex; align-items: center; gap: 10px"><span class="num" style="min-width: 44px">9.6k</span><ChartSparkline seed="ql4" :width="60" :height="18" color="var(--t2)" /></div></td><td class="num" style="text-align: right">41 s</td><td class="num" style="text-align: right">0</td><td style="text-align: right"><UiIconButton icon="more" :size="15" label="More" /></td></tr>
-          <tr><td><div class="nm">opentin-reindex</div><div class="sm">batch 20 · 3 retries</div></td><td><UiBadge tone="ok" dot>ACTIVE</UiBadge></td><td><div class="bw"><span class="wk">opentin-search</span></div></td><td><span class="wk">opentin-search</span></td><td class="num" style="text-align: right">0</td><td><div style="display: flex; align-items: center; gap: 10px"><span class="num" style="min-width: 44px">2.4k</span><ChartSparkline seed="ql5" :width="60" :height="18" color="var(--t2)" /></div></td><td class="num dim" style="text-align: right">—</td><td class="num" style="text-align: right">0</td><td style="text-align: right"><UiIconButton icon="more" :size="15" label="More" /></td></tr>
-          <tr><td><div class="nm">playtown-events-dlq</div><div class="sm">dead-letter for playtown-events</div></td><td><UiBadge tone="err" dot>DEAD-LETTER</UiBadge></td><td><span class="muted" style="font-size: 12.5px">from playtown-events</span></td><td><span class="muted" style="font-size: 12.5px">—</span></td><td class="num err" style="text-align: right">3</td><td><span class="num dim">—</span></td><td class="num" style="text-align: right">2 h</td><td class="num dim" style="text-align: right">—</td><td style="text-align: right"><UiIconButton icon="more" :size="15" label="More" /></td></tr>
-          <tr class="dim"><td><div class="nm">checkumi-email</div><div class="sm">batch 10 · 3 retries</div></td><td><UiBadge tone="neu" dot>NO CONSUMER</UiBadge></td><td><div class="bw"><span class="wk">checkumi-edge</span></div></td><td><span class="muted" style="font-size: 12.5px">—</span></td><td class="num" style="text-align: right">0</td><td><span class="num">0</span></td><td class="num dim" style="text-align: right">—</td><td class="num" style="text-align: right">0</td><td style="text-align: right"><UiIconButton icon="more" :size="15" label="More" /></td></tr>
+          <tr v-if="pending"><td colspan="9" class="muted" style="padding: 18px">Loading queues…</td></tr>
+          <tr v-else-if="error"><td colspan="9" style="padding: 18px; color: var(--err)">{{ error.message }}</td></tr>
+          <tr v-else-if="queues.length === 0"><td colspan="9" class="muted" style="padding: 18px">No queues.</td></tr>
+          <UiLinkRow v-for="q in queues" :key="q.queue_id" :to="`/queues/${encodeURIComponent(q.name)}`">
+            <td><div class="nm"><NuxtLink :to="`/queues/${encodeURIComponent(q.name)}`">{{ q.name }}</NuxtLink></div><div class="sm">{{ q.queue_id }}</div></td>
+            <td><UiBadge tone="ok" dot>ACTIVE</UiBadge></td>
+            <td><span class="wk">{{ q.team_id }}</span></td>
+            <td class="num dim">—</td>
+            <td class="num dim" style="text-align: right">—</td>
+            <td class="num dim">—</td>
+            <td class="num dim" style="text-align: right">—</td>
+            <td class="num">{{ q.delivery_delay_seconds ?? 0 }} s delay</td>
+            <td style="text-align: right"><UiIconButton icon="more" :size="15" label="More" /></td>
+          </UiLinkRow>
         </tbody>
       </table>
       <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; border-top: 1px solid var(--b1); font-size: 12.5px" class="muted">

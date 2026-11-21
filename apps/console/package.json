@@ -12,7 +12,8 @@
     "preview": "nuxi preview",
     "postinstall": "nuxi prepare",
     "typecheck": "nuxi typecheck",
-    "test": "vitest run"
+    "test": "vitest run",
+    "start": "node server/main.mjs"
   },
   "dependencies": {
     "nuxt": "^4.6.4",

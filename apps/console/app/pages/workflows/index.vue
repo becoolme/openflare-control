@@ -1,8 +1,21 @@
 <script setup lang="ts">
+import type { ServiceCatalog } from '../../composables/useConsoleApi'
 definePageMeta({
   nav: 'Workflows',
   crumbs: () => [{ label: 'workers', to: '/workers' }, { label: 'workflows' }],
 })
+const { activeCell } = useCellSelection()
+const { data, pending, error } = await useAsyncData(
+  () => `workflows:${activeCell.value}`,
+  () =>
+    activeCell.value
+      ? consoleApi<ServiceCatalog>(
+          `/api/v1/cells/${encodeURIComponent(activeCell.value)}/services`
+        )
+      : Promise.resolve({ workflows: [] } as unknown as ServiceCatalog),
+  { watch: [activeCell] }
+)
+const workflows = computed(() => data.value?.workflows ?? [])
 </script>
 
 <template><div class="wrap pg-workflows-list" style="display: flex; flex-direction: column; gap: 20px">
@@ -19,10 +32,10 @@ definePageMeta({
     </div>
 
     <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px">
-      <UiMetricCard label="Workflows"><template #value>6</template><UiMetricFoot>across 5 workers</UiMetricFoot></UiMetricCard>
-      <UiMetricCard label="Running / waiting"><template #value>14<small> / 36</small></template><UiMetricFoot>2 paused</UiMetricFoot></UiMetricCard>
-      <UiMetricCard label="Complete" hint="24h"><template #value>4,903</template><UiMetricFoot>p50 1 m 48 s</UiMetricFoot></UiMetricCard>
-      <UiMetricCard label="Errored" hint="24h" value-style="color: var(--err)"><template #value>18</template><UiMetricFoot><span class="warn">order-fulfillment 17</span></UiMetricFoot></UiMetricCard>
+      <UiMetricCard label="Workflows"><template #value>{{ workflows.length }}</template><UiMetricFoot>{{ activeCell || 'no cell selected' }}</UiMetricFoot></UiMetricCard>
+      <UiMetricCard label="Running / waiting"><template #value>—</template><UiMetricFoot>no workflow metrics API</UiMetricFoot></UiMetricCard>
+      <UiMetricCard label="Complete" hint="24h"><template #value>—</template><UiMetricFoot>no workflow metrics API</UiMetricFoot></UiMetricCard>
+      <UiMetricCard label="Errored" hint="24h" value-style="color: var(--err)"><template #value>—</template><UiMetricFoot>no workflow metrics API</UiMetricFoot></UiMetricCard>
     </div>
 
     <section class="card" style="padding: 0">
@@ -42,12 +55,20 @@ definePageMeta({
       <table class="tbl">
         <thead><tr><th>Workflow</th><th>Worker</th><th>Class</th><th style="text-align: right">Running</th><th style="text-align: right">Waiting</th><th style="text-align: right">Complete 24h</th><th style="text-align: right">Errored 24h</th><th>Last run</th><th></th></tr></thead>
         <tbody>
-          <UiLinkRow to="/workflows/order-fulfillment" class="sel"><td><div class="nm"><NuxtLink to="/workflows/order-fulfillment">order-fulfillment</NuxtLink></div><div class="sm">4 steps · v42</div></td><td><span class="wk">checkumi-edge</span></td><td class="num muted">OrderWorkflow</td><td class="num" style="text-align: right; color: var(--warn)">12</td><td class="num" style="text-align: right">31</td><td class="num" style="text-align: right">4,208</td><td class="num" style="text-align: right; color: var(--err)">17</td><td class="num">8 s ago</td><td style="text-align: right"><UiIcon name="chevr" /></td></UiLinkRow>
-          <tr><td><div class="nm">match-settlement</div><div class="sm">3 steps · v9</div></td><td><span class="wk">playtown-hooks</span></td><td class="num muted">SettleWorkflow</td><td class="num" style="text-align: right">2</td><td class="num" style="text-align: right">5</td><td class="num" style="text-align: right">612</td><td class="num" style="text-align: right; color: var(--err)">1</td><td class="num">41 s ago</td><td style="text-align: right"><UiIcon name="chevr" /></td></tr>
-          <tr><td><div class="nm">refund-review</div><div class="sm">5 steps · v42</div></td><td><span class="wk">checkumi-edge</span></td><td class="num muted">RefundWorkflow</td><td class="num dim" style="text-align: right">0</td><td class="num" style="text-align: right">0</td><td class="num" style="text-align: right">38</td><td class="num dim" style="text-align: right">0</td><td class="num">12 m ago</td><td style="text-align: right"><UiIcon name="chevr" /></td></tr>
-          <tr><td><div class="nm">whois-rescan</div><div class="sm">2 steps · v6</div></td><td><span class="wk">whois-cron</span></td><td class="num muted">RescanWorkflow</td><td class="num dim" style="text-align: right">0</td><td class="num dim" style="text-align: right">0</td><td class="num" style="text-align: right">44</td><td class="num dim" style="text-align: right">0</td><td class="num">14:45 UTC</td><td style="text-align: right"><UiIcon name="chevr" /></td></tr>
-          <tr><td><div class="nm">nightly-digest</div><div class="sm">3 steps · v31</div></td><td><span class="wk">playtown-api</span></td><td class="num muted">DigestWorkflow</td><td class="num dim" style="text-align: right">0</td><td class="num dim" style="text-align: right">0</td><td class="num" style="text-align: right">1</td><td class="num dim" style="text-align: right">0</td><td class="num">03:00 UTC</td><td style="text-align: right"><UiIcon name="chevr" /></td></tr>
-          <tr class="dim"><td><div class="nm">user-export</div><div class="sm">4 steps · v27</div></td><td><span class="wk">opentin-search</span></td><td class="num muted">ExportWorkflow</td><td class="num" style="text-align: right">0</td><td class="num" style="text-align: right">0</td><td class="num" style="text-align: right">0</td><td class="num" style="text-align: right">0</td><td class="num muted">Nov 08</td><td style="text-align: right"><UiIcon name="chevr" /></td></tr>
+          <tr v-if="pending"><td colspan="9" class="muted" style="padding: 18px">Loading workflows…</td></tr>
+          <tr v-else-if="error"><td colspan="9" style="padding: 18px; color: var(--err)">{{ error.message }}</td></tr>
+          <tr v-else-if="workflows.length === 0"><td colspan="9" class="muted" style="padding: 18px">No workflows.</td></tr>
+          <tr v-for="w in workflows" :key="w.workflowId">
+            <td><div class="nm">{{ w.name }}</div><div class="sm">{{ w.workflowId }}</div></td>
+            <td><span class="wk">{{ w.workerId }}</span></td>
+            <td class="num muted">{{ w.className }}</td>
+            <td class="num dim" style="text-align: right">—</td>
+            <td class="num dim" style="text-align: right">—</td>
+            <td class="num dim" style="text-align: right">—</td>
+            <td class="num dim" style="text-align: right">—</td>
+            <td class="num muted">{{ w.teamId }}</td>
+            <td style="text-align: right"><UiIcon name="chevr" /></td>
+          </tr>
         </tbody>
       </table>
       <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; border-top: 1px solid var(--b1); font-size: 12.5px" class="muted">

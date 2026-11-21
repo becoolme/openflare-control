@@ -18,6 +18,7 @@ const PAGE_FOR: Record<string, string> = {
   '/durable-objects': 'durable-objects/index.vue',
   '/hyperdrive': 'hyperdrive/index.vue',
   '/storage': 'storage.vue',
+  '/kit/api': 'kit/api.vue',
   '/workers/checkumi-edge/logs': 'workers/[name]/logs.vue',
   '/workers/checkumi-edge/settings': 'workers/[name]/settings.vue',
 }

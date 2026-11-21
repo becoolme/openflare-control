@@ -64,6 +64,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
 
 /** Side navigation below the CLI card. */
 export const NAV_FOOTER: readonly NavItem[] = [
+  { key: 'Metrics', label: 'API coverage', to: '/kit/api' },
   { key: 'Tokens', label: 'API Tokens' },
   { key: 'Settings', label: 'Settings' },
 ]

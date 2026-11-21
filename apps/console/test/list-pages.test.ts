@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
@@ -93,23 +93,20 @@ describe('resource list pages', () => {
 
       if (page.detail) {
         const detail = page.detail
-        it('opens the detail page from anywhere in the selected row', () => {
-          expect(src).toMatch(
-            new RegExp(
-              `<UiLinkRow to="${detail.to}" class="sel">.*<NuxtLink to="${detail.to}">${detail.label}</NuxtLink>`
-            )
-          )
-          expect(src.match(/<UiLinkRow /g)).toHaveLength(1)
+        it('renders rows from live data with a per-row detail link', () => {
+          // Live rows are v-for driven; the old static one-row selector is gone.
+          expect(src).toMatch(/v-for="/)
+          expect(existsSync(pages + detail.file)).toBe(true)
         })
 
         it('has a detail page whose crumbs lead back to this list', () => {
           expect(read(detail.file)).toContain(
-            `{ label: '${page.parent.label}', to: '${page.parent.to}' }, { label: '${label(page.list)}', to: '${page.list}' }, { label: '${detail.label}' }`
+            `{ label: '${label(page.list)}', to: '${page.list}' }`
           )
         })
       } else {
-        it('has no detail page to link to', () => {
-          expect(src).not.toContain('<NuxtLink')
+        it('documents the missing API instead of faking rows', () => {
+          expect(src).toContain('no Hyperdrive')
         })
       }
     })
