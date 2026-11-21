@@ -103,6 +103,26 @@ create table if not exists plane_cell_ops (
   created_at timestamptz not null default now()
 );
 
+create table if not exists plane_logs (
+  id bigserial primary key,
+  cell_id text not null,
+  pod_id text,
+  boot_id text not null default '',
+  worker_id text not null,
+  seq bigint not null,
+  ts_ms bigint not null,
+  level text not null default 'info',
+  kind text not null default '',
+  message text not null default '',
+  outcome text,
+  status integer,
+  code text,
+  truncated boolean not null default false,
+  created_at timestamptz not null default now(),
+  unique (cell_id, worker_id, boot_id, seq)
+);
+create index if not exists plane_logs_cell_ts on plane_logs (cell_id, ts_ms desc);
+
 create table if not exists plane_d1_ops (
   id text primary key,
   seq bigserial unique,

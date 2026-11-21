@@ -178,8 +178,11 @@ store conformance cases.
 ## Status
 
 - Cell channel: desired, ACK, render-inputs, bundles — implemented.
-- D1, generic cell-op and log channels: answered with empty shapes (never a
-  false success); they land with the resource manager.
+- Management API (`/api/v1`): cells, workers, versions, vars, secrets,
+  hostnames, bundles, publish/publications, D1 ops, generic cell ops, logs and
+  retention prune — implemented ([docs/management-api.md](docs/management-api.md)).
+- D1, generic cell-op and log channels: implemented (pull/ACK/ingest), not just
+  empty shapes.
 - Assets manifests, DO/workflow management and team quotas: not implemented in
   the reference plane (the port answers 501).
 - Multi-cell: one plane serves any number of cells keyed by `cellId`; one cell

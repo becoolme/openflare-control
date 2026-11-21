@@ -12,12 +12,18 @@ import {
 } from 'openflare-control'
 import { collectRenderInputs } from './renderInputs.js'
 import type { Pool } from 'pg'
+import type { SnapshotSigningContext } from 'openflare-control'
+import { createAdminApp } from './adminRoutes.js'
 
 export interface AppDeps {
   store: VrtControlStore
   pool: Pool
   bundleStore: BundleStore
   token: string
+  /** Management API token; falls back to `token` for single-token setups. */
+  adminToken?: string
+  /** Needed by the management publish endpoint. */
+  signing?: SnapshotSigningContext
   /** Refuse to buffer a bundle larger than this (default 128 MiB). */
   maxBundleBytes?: number
 }
@@ -159,25 +165,189 @@ export function createApp(deps: AppDeps): Hono {
     }
   })
 
-  // Channels the reference plane does not implement yet: answer the shape a
-  // cell polls, but never pretend an operation was applied.
-  const emptyOps = (c: Context): Response => {
-    auth(c, deps.token)
-    return c.json({ data: { ops: [] } })
-  }
-  const emptyAck = (c: Context): Response => {
-    auth(c, deps.token)
-    return c.json({ data: { acked: 0, malformed: 0 } })
-  }
-  const emptyLogs = (c: Context): Response => {
-    auth(c, deps.token)
-    return c.json({ data: { accepted: 0, dropped: 0 } })
-  }
-  app.get('/api/internal/clusters/:clusterId/vrt/d1-ops', emptyOps)
-  app.post('/api/internal/clusters/:clusterId/vrt/d1-ops/ack', emptyAck)
-  app.get('/api/internal/clusters/:clusterId/vrt/cell-ops', emptyOps)
-  app.post('/api/internal/clusters/:clusterId/vrt/cell-ops/ack', emptyAck)
-  app.post('/api/internal/clusters/:clusterId/vrt/logs', emptyLogs)
+  // D1 ops: PENDING, unexpired rows in SERIAL order. The cell dedupes by id;
+  // the ACK moves the row terminal.
+  app.get('/api/internal/clusters/:clusterId/vrt/d1-ops', async (c) => {
+    try {
+      const cellId = auth(c, deps.token)
+      const { rows } = await deps.pool.query(
+        `select id, seq, database_id, kind, payload, expires_at
+           from plane_d1_ops
+          where cell_id=$1 and status='PENDING'
+            and (expires_at is null or expires_at > now())
+          order by seq limit 100`,
+        [cellId]
+      )
+      return c.json({
+        data: {
+          ops: rows.map((r) => ({
+            id: r.id,
+            seq: Number(r.seq),
+            databaseId: r.database_id,
+            kind: r.kind,
+            payload: r.payload,
+            expiresAt: r.expires_at ? Math.floor(new Date(r.expires_at).getTime() / 1000) : null,
+          })),
+        },
+      })
+    } catch (error) {
+      return errorResponse(c, error)
+    }
+  })
+
+  app.post('/api/internal/clusters/:clusterId/vrt/d1-ops/ack', async (c) => {
+    try {
+      const cellId = auth(c, deps.token)
+      const body = (await readJson(c, 2 * 1024 * 1024)) as { acks?: unknown }
+      const acks = Array.isArray(body.acks) ? body.acks : []
+      let acked = 0
+      let malformed = 0
+      for (const raw of acks.slice(0, 500)) {
+        const ack = raw as { seq?: unknown; status?: unknown; result?: unknown; error?: unknown }
+        const seq = Number(ack.seq)
+        const status = ack.status
+        if (!Number.isSafeInteger(seq) || seq < 0 || (status !== 'DONE' && status !== 'FAILED')) {
+          malformed++
+          continue
+        }
+        const r = await deps.pool.query(
+          `update plane_d1_ops set status=$1, result=$2, error=$3
+            where cell_id=$4 and seq=$5 and status='PENDING'`,
+          [
+            status,
+            ack.result ?? null,
+            typeof ack.error === 'string' ? ack.error.slice(0, 2048) : null,
+            cellId,
+            seq,
+          ]
+        )
+        acked += r.rowCount ?? 0
+      }
+      return c.json({ data: { acked, malformed } })
+    } catch (error) {
+      return errorResponse(c, error)
+    }
+  })
+
+  app.get('/api/internal/clusters/:clusterId/vrt/cell-ops', async (c) => {
+    try {
+      const cellId = auth(c, deps.token)
+      const { rows } = await deps.pool.query(
+        `select id, seq, worker_id, resource_key, kind, payload, expires_at
+           from plane_cell_ops
+          where cell_id=$1 and status='PENDING'
+            and (expires_at is null or expires_at > now())
+          order by seq limit 100`,
+        [cellId]
+      )
+      return c.json({
+        data: {
+          ops: rows.map((r) => ({
+            id: r.id,
+            seq: Number(r.seq),
+            kind: r.kind,
+            workerId: r.worker_id ?? '',
+            resourceKey: r.resource_key ?? '',
+            payload: r.payload,
+            expiresAt: r.expires_at ? Math.floor(new Date(r.expires_at).getTime() / 1000) : null,
+          })),
+        },
+      })
+    } catch (error) {
+      return errorResponse(c, error)
+    }
+  })
+
+  app.post('/api/internal/clusters/:clusterId/vrt/cell-ops/ack', async (c) => {
+    try {
+      const cellId = auth(c, deps.token)
+      const body = (await readJson(c, 2 * 1024 * 1024)) as { acks?: unknown }
+      const acks = Array.isArray(body.acks) ? body.acks : []
+      let acked = 0
+      let malformed = 0
+      const statuses = new Set(['DONE', 'FAILED', 'EXPIRED'])
+      for (const raw of acks.slice(0, 500)) {
+        const ack = raw as { seq?: unknown; status?: unknown; result?: unknown; error?: unknown }
+        const seq = Number(ack.seq)
+        const status = ack.status
+        if (
+          !Number.isSafeInteger(seq) ||
+          seq < 0 ||
+          typeof status !== 'string' ||
+          !statuses.has(status)
+        ) {
+          malformed++
+          continue
+        }
+        const r = await deps.pool.query(
+          `update plane_cell_ops set status=$1, result=$2, error=$3
+            where cell_id=$4 and seq=$5 and status='PENDING'`,
+          [
+            status,
+            ack.result ?? null,
+            typeof ack.error === 'string' ? ack.error.slice(0, 2048) : null,
+            cellId,
+            seq,
+          ]
+        )
+        acked += r.rowCount ?? 0
+      }
+      return c.json({ data: { acked, malformed } })
+    } catch (error) {
+      return errorResponse(c, error)
+    }
+  })
+
+  // Log ingest: dedupe by (cell, worker, boot, seq), never fail the cell's
+  // push because of one malformed record.
+  app.post('/api/internal/clusters/:clusterId/vrt/logs', async (c) => {
+    try {
+      const cellId = auth(c, deps.token)
+      const body = (await readJson(c, 2 * 1024 * 1024)) as {
+        podId?: unknown
+        bootId?: unknown
+        records?: unknown
+      }
+      const records = Array.isArray(body.records) ? body.records.slice(0, 500) : []
+      const podId = typeof body.podId === 'string' ? body.podId.slice(0, 128) : null
+      const bootId = typeof body.bootId === 'string' ? body.bootId.slice(0, 128) : ''
+      let accepted = 0
+      for (const raw of records) {
+        const r = raw as Record<string, unknown>
+        const worker = typeof r.workerId === 'string' ? r.workerId : ''
+        const seq = Number(r.seq)
+        if (!worker || !Number.isSafeInteger(seq) || seq < 0) continue
+        const insert = await deps.pool.query(
+          `insert into plane_logs
+             (cell_id, pod_id, boot_id, worker_id, seq, ts_ms, level, kind, message, outcome, status, code, truncated)
+           values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+           on conflict (cell_id, worker_id, boot_id, seq) do nothing`,
+          [
+            cellId,
+            podId,
+            bootId,
+            worker,
+            seq,
+            Number.isFinite(Number(r.tsMs)) ? Math.trunc(Number(r.tsMs)) : Date.now(),
+            String(r.level ?? 'info').slice(0, 16),
+            String(r.kind ?? '').slice(0, 32),
+            String(r.message ?? '').slice(0, 4096),
+            typeof r.outcome === 'string' ? r.outcome.slice(0, 32) : null,
+            Number.isInteger(Number(r.status)) ? Number(r.status) : null,
+            typeof r.code === 'string' ? r.code.slice(0, 64) : null,
+            r.truncated === true,
+          ]
+        )
+        accepted += insert.rowCount ?? 0
+      }
+      return c.json({ data: { accepted, dropped: records.length - accepted } })
+    } catch (error) {
+      return errorResponse(c, error)
+    }
+  })
+
+  // Management API (cells/workers/versions/vars/secrets/hostnames/bundles/publish/ops/logs).
+  app.route('/', createAdminApp(deps))
 
   return app
 }

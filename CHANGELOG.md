@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-11-21 — management API + cell ops/logs
+
+- Added `/api/v1` management API: cell/worker/version/vars/secrets/hostnames/
+  bundle CRUD, publish/publications, D1 and generic cell-op enqueue/list, log
+  query and retention prune. `PLANE_ADMIN_TOKEN` is the management token
+  (falls back to `PLANE_TOKEN`).
+- Implemented the cell `d1-ops`, `cell-ops` and `logs` channels: PENDING pull,
+  seq ACK, and log ingest deduped by `(workerId,bootId,seq)`; added the
+  `plane_logs` table.
+- `apps/plane/src/api.e2e.test.ts` drives the full lifecycle over HTTP against
+  Postgres (create → bundle → version → publish → desired → ACK → ops → logs →
+  delete) and runs in CI.
+
 ## 2026-11-21 — package consumption integration test
 
 - `pnpm run check:package-consumption` builds and packs the package, installs
