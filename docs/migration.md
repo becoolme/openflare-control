@@ -1,26 +1,29 @@
 # Migrating Vibeploy onto this repository
 
-During the split, Vibeploy keeps a byte-identical copy at
-`server/src/vrt-control`. `scripts/check-vibeploy-sync.mjs` fails if the two
-diverge; `--write` propagates this repository into Vibeploy.
+Vibeploy now consumes this repository as a **Git dependency** and no longer
+carries a copy:
+
+```json
+"openflare-control": "github:becoolme/openflare-control#v0.2.1&path:packages/control"
+```
+
+`scripts/check-vibeploy-sync.mjs` verifies the dependency is declared and that
+`server/src/vrt-control` is gone (fail closed if both exist):
 
 ```sh
 VIBEPLOY_DIR=../vibeploy node scripts/check-vibeploy-sync.mjs
 ```
 
-The remaining steps need the repository to exist on a remote (push it first):
+The remaining steps:
 
-1. **Publish the package.** Push a `v*` tag; `release-npm.yml` builds
-   `openflare-control` and publishes it. Then Vibeploy adds
-   `"openflare-control": "^0.1.0"` and replaces relative imports of
-   `server/src/vrt-control/*` with the package. The existing `export *` shims
-   make that mechanical: change each shim to `export * from 'openflare-control'`,
-   delete the copied sources once typecheck and tests are green.
+1. **Optional: switch Git to npm.** `release-npm.yml` publishes on a manual
+   workflow run with `NPM_TOKEN`. Once published, change the dependency to
+   `"openflare-control": "^0.2.1"`; no import changes are needed.
 2. **Use the manifests as a remote base.** In Vibeploy's private overlay:
 
    ```yaml
    resources:
-     - github.com/becoolme/openflare-control//deploy/k8s/base?ref=v0.1.0
+     - github.com/becoolme/openflare-control//deploy/k8s/base?ref=v0.2.1
    ```
 
    Delete `server/tools/vrt-platform/k8s/{base,components,overlays/example}`;
@@ -35,5 +38,5 @@ The remaining steps need the repository to exist on a remote (push it first):
    renders its own overlay, and OpenFlare's `deploy_toml` tests can point at
    it.
 
-Until step 1 lands, treat this repository as the source of truth for the
-portable files and run the sync gate in review.
+This repository remains the source of truth for the portable files; the sync
+gate still runs in review to catch a reintroduced copy.

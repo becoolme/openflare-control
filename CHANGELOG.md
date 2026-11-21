@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-11-21 — Vibeploy consumes the package
+
+- Vibeploy switched from the byte-identical `server/src/vrt-control` copy to
+  the git dependency
+  `github:becoolme/openflare-control#v0.2.1&path:packages/control`.
+  The package's `prepare` script builds `dist/` during install.
+- `check-vibeploy-sync.mjs` now verifies the dependency is declared and fails if
+  the old copy is reintroduced; it no longer byte-compares sources.
+- `docs/migration.md` records the Git interim and the optional npm switch.
+
 ## 2026-11-21 — runtime contract dependency + capability coverage
 
 - Added `scripts/check-openflare-contract.mjs` and a CI step that check out
