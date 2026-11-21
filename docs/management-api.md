@@ -44,6 +44,7 @@ Workers are addressed by `(teamId, name)`; the stored id is `teamId:name`.
 | GET    | `/api/v1/cells/{cell}/workers?teamId=`             | list workers                                             |
 | POST   | `/api/v1/cells/{cell}/workers`                     | `{teamId,name,entrypoint?,compatibilityDate?}`           |
 | GET    | `/api/v1/cells/{cell}/teams/{team}/workers/{name}` | worker + versions + vars + secret keys + hostnames       |
+| GET    | `.../workers/{name}/durable-objects`               | active version's exported classes + `DO` bindings        |
 | PATCH  | `.../workers/{name}`                               | `{entrypoint?,compatibilityDate?,status?}`               |
 | DELETE | `/api/v1/cells/{cell}/teams/{team}/workers/{name}` | delete worker (cascades versions/vars/secrets/hostnames) |
 | GET    | `.../versions`                                     | version history                                          |
@@ -65,6 +66,8 @@ Version body:
   "quotas": { "cpuMs": 10000, "memoryMb": 128, "subrequests": 50, "outboundConnections": 6 },
   "vars": { "GREETING": "hi" },
   "bindings": [],
+  "queueConsumers": [{ "queueId": "<26>", "queueName": "jobs", "maxBatchSize": 10 }],
+  "exportedClassNames": ["MyDO"],
   "assetsRouting": null,
   "assetsRunWorkerFirst": []
 }

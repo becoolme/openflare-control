@@ -152,6 +152,34 @@ maybe('service resource API e2e', () => {
     })
     expect(patched.body.data.queue.delivery_delay_seconds).toBe(10)
 
+    // Queue consumer + DO classes travel with the version.
+    const version = await call(
+      'POST',
+      `/api/v1/cells/${cell}/teams/${team}/workers/${worker}/versions`,
+      {
+        versionId: `svc-${suffix}`,
+        bundleSha256: 'f'.repeat(64),
+        vars: {},
+        queueConsumers: [{ queueId, queueName: 'jobs', maxBatchSize: 10 }],
+        exportedClassNames: ['MyDO'],
+      }
+    )
+    expect(version.status).toBe(201)
+    expect(
+      (
+        await call(
+          'POST',
+          `/api/v1/cells/${cell}/teams/${team}/workers/${worker}/versions/svc-${suffix}/activate`,
+          {}
+        )
+      ).status
+    ).toBe(200)
+    const dos = await call(
+      'GET',
+      `/api/v1/cells/${cell}/teams/${team}/workers/${worker}/durable-objects`
+    )
+    expect(dos.body.data.classes).toEqual(['MyDO'])
+
     // Workflow declaration + instance op
     const wf = await call(
       'POST',

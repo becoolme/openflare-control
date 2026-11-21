@@ -5,6 +5,7 @@ import {
   bundleKeyFor,
   type VrtBindingRecord,
   type VrtCreateVersionInput,
+  type VrtQueueConsumerDraft,
 } from 'openflare-control'
 import {
   type AdminDeps,
@@ -37,6 +38,27 @@ const versionBody = z
     quotas: quotas.optional(),
     vars: z.record(key, z.string()).default({}),
     bindings: z.array(z.record(z.unknown())).default([]),
+    queueConsumers: z
+      .array(
+        z
+          .object({
+            queueId: z.string().regex(/^[a-z0-9]{26}$/),
+            queueName: z.string().regex(/^[A-Za-z0-9_.:-]{1,64}$/),
+            maxBatchSize: z.number().int().min(1).max(100).nullable().optional(),
+            maxBatchTimeoutMs: z.number().int().min(0).max(60_000).nullable().optional(),
+            maxRetries: z.number().int().min(0).max(100).nullable().optional(),
+            retryDelaySeconds: z.number().int().min(0).max(3600).nullable().optional(),
+            deadLetterQueueId: z
+              .string()
+              .regex(/^[a-z0-9]{26}$/)
+              .nullable()
+              .optional(),
+            maxConcurrency: z.number().int().min(1).max(1000).nullable().optional(),
+          })
+          .strict()
+      )
+      .max(100)
+      .optional(),
     assetsRouting: z.enum(['ASSETS_FIRST', 'WORKER_FIRST']).nullable().optional(),
     assetsRunWorkerFirst: z.array(z.string()).optional(),
     exportedClassNames: z.array(z.string()).optional(),
@@ -121,6 +143,29 @@ export function registerWorkers(app: Hono, deps: AdminDeps): void {
         vars,
         secretKeys: secrets.map((r) => r.key),
         hostnames: hosts,
+      },
+    })
+  })
+
+  app.get('/api/v1/cells/:cellId/teams/:teamId/workers/:name/durable-objects', async (c) => {
+    const { cellId: cell, teamId: team, name } = c.req.param()
+    const id = workerId(team, name)
+    const [worker] = await rows(
+      deps,
+      'select active_version_id from plane_workers where id=$1 and cluster_id=$2',
+      [id, cell]
+    )
+    if (!worker) throw new VrtControlError(404, 'Worker not found')
+    const versionId = worker.active_version_id as string | null
+    if (!versionId) return c.json({ data: { classes: [], bindings: [] } })
+    const version = await deps.store.getVersionByVersionId(id, versionId)
+    if (!version) throw new VrtControlError(404, 'Active version not found')
+    const bindings = (version.bindings ?? []).filter((b) => b.type === 'DO')
+    return c.json({
+      data: {
+        versionId,
+        classes: version.exportedClassNames ?? [],
+        bindings,
       },
     })
   })
@@ -215,6 +260,7 @@ export function registerWorkers(app: Hono, deps: AdminDeps): void {
       bindingsFingerprint: fp,
       runtimeConfigDigest: fp,
       bindings: body.bindings as unknown as readonly VrtBindingRecord[],
+      queueConsumers: body.queueConsumers as unknown as readonly VrtQueueConsumerDraft[],
       assetsRouting: body.assetsRouting ?? null,
       assetsRunWorkerFirst: body.assetsRunWorkerFirst ?? [],
       exportedClassNames: body.exportedClassNames,
