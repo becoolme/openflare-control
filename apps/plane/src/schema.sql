@@ -103,6 +103,74 @@ create table if not exists plane_cell_ops (
   created_at timestamptz not null default now()
 );
 
+create table if not exists plane_d1_databases (
+  database_id text primary key,
+  team_id text not null,
+  cluster_id text not null,
+  name text not null,
+  created_at timestamptz not null default now(),
+  unique (team_id, cluster_id, name)
+);
+
+create table if not exists plane_r2_buckets (
+  bucket_name text primary key,
+  bucket_id text not null unique,
+  team_id text not null,
+  cluster_id text not null,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists plane_kv_namespaces (
+  namespace_id text primary key,
+  physical_id text not null unique,
+  team_id text not null,
+  cluster_id text not null,
+  title text not null,
+  created_at timestamptz not null default now(),
+  unique (team_id, cluster_id, title)
+);
+
+create table if not exists plane_queues (
+  queue_id text primary key,
+  team_id text not null,
+  cluster_id text not null,
+  name text not null,
+  delivery_delay_seconds integer check (delivery_delay_seconds between 0 and 86400),
+  created_at timestamptz not null default now(),
+  unique (team_id, cluster_id, name)
+);
+
+create table if not exists plane_workflows (
+  workflow_id text primary key,
+  worker_id text not null references plane_workers(id) on delete cascade,
+  team_id text not null,
+  cluster_id text not null,
+  name text not null,
+  class_name text not null,
+  created_at timestamptz not null default now(),
+  unique (worker_id, name)
+);
+
+create table if not exists plane_logs (
+  id bigserial primary key,
+  cell_id text not null,
+  pod_id text,
+  boot_id text not null default '',
+  worker_id text not null,
+  seq bigint not null,
+  ts_ms bigint not null,
+  level text not null default 'info',
+  kind text not null default '',
+  message text not null default '',
+  outcome text,
+  status integer,
+  code text,
+  truncated boolean not null default false,
+  created_at timestamptz not null default now(),
+  unique (cell_id, worker_id, boot_id, seq)
+);
+create index if not exists plane_logs_cell_ts on plane_logs (cell_id, ts_ms desc);
+
 create table if not exists plane_d1_ops (
   id text primary key,
   seq bigserial unique,

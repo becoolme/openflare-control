@@ -26,6 +26,9 @@ COPY --from=build /src/apps/plane/package.json ./apps/plane/package.json
 COPY --from=build /src/apps/plane/node_modules ./apps/plane/node_modules
 COPY --from=build /src/apps/plane/dist ./apps/plane/dist
 COPY --from=build /src/apps/plane/src/schema.sql ./apps/plane/dist/schema.sql
+# The default bundle volume is initialized from this directory; root-owned
+# `/data` would make every bundle PUT fail with EACCES for the `node` user.
+RUN mkdir -p /data/bundles && chown -R node:node /data
 WORKDIR /app/apps/plane
 USER node
 EXPOSE 8787

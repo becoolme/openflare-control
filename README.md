@@ -164,6 +164,10 @@ pnpm run check:package                      # publint (exports/files)
 OPENFLARE_DIR=../openflare pnpm run check:openflare-contract  # checks the pinned runtime revision
 pnpm run check:package-consumption          # pack + install + import in an empty project
 pnpm run check:sanitized                    # no private refs in deploy/
+# real container + real Postgres (requires docker compose):
+PLANE_TOKEN=... pnpm test:e2e:docker
+# real kind cluster + Postgres (requires kind/kubectl):
+PLANE_TOKEN=... PLANE_SIGNING_SECRET=... pnpm test:e2e:kind
 OPENFLARE_DIR=../openflare node scripts/vrt-k8s-check.mjs --template deploy/k8s/overlays/example
 ```
 
@@ -178,8 +182,12 @@ store conformance cases.
 ## Status
 
 - Cell channel: desired, ACK, render-inputs, bundles — implemented.
-- D1, generic cell-op and log channels: answered with empty shapes (never a
-  false success); they land with the resource manager.
+- Management API (`/api/v1`): cells, workers, versions, vars, secrets,
+  hostnames, bundles, publish/publications, D1/R2/KV/queue/workflow resources,
+  D1/cell ops, logs and retention prune — implemented
+  ([docs/management-api.md](docs/management-api.md)).
+- D1, generic cell-op and log channels: implemented (pull/ACK/ingest), not just
+  empty shapes.
 - Assets manifests, DO/workflow management and team quotas: not implemented in
   the reference plane (the port answers 501).
 - Multi-cell: one plane serves any number of cells keyed by `cellId`; one cell
