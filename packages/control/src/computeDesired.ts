@@ -323,11 +323,6 @@ export function serializeBinding(
       }
       return out
     }
-    case 'WORKER_LOADER':
-      // Dynamic Workers loader: no resource reference; the live-worker cap is a
-      // platform constant rendered by the cell. The capability bit gates old
-      // cells that cannot parse the workerd `workerLoader` capnp slot.
-      return { type: 'workerLoader', name }
     case 'DO': {
       // P3c-1: resourceId encodes `<declaringWorkerId>:<className>` —
       // minted + ownership-checked at deploy; re-parse fail-closed.

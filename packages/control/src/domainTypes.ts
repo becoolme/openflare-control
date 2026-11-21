@@ -23,7 +23,6 @@ export interface VrtBindingRecord {
     | 'DO'
     | 'HYPERDRIVE'
     | 'RATELIMIT'
-    | 'WORKER_LOADER'
   readonly resourceId: string
   readonly permissionRead: boolean
   readonly permissionWrite: boolean

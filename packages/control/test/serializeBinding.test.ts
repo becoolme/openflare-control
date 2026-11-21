@@ -137,13 +137,6 @@ describe('serializeBinding', () => {
     }
   })
 
-  it('WORKER_LOADER emits only the binding name', () => {
-    expect(binding({ type: 'WORKER_LOADER', resourceId: '' })).toEqual({
-      type: 'workerLoader',
-      name: 'B',
-    })
-  })
-
   it('DO names the declaring worker only for cross-worker classes', () => {
     expect(binding({ type: 'DO', resourceId: 'w2:Klass' })).toEqual({
       type: 'durableObject',
