@@ -1,0 +1,55 @@
+/* Ported verbatim from the v3 console design. Do not hand-edit; regenerate. */
+:where(.pg-kv) .kt td {
+  padding: 9px 10px;
+}
+:where(.pg-kv) .kk {
+  font-family: 'Geist Mono', monospace;
+  font-size: 12.5px;
+  color: var(--t1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 330px;
+  display: block;
+}
+:where(.pg-kv) .kk .pf {
+  color: var(--t4);
+}
+:where(.pg-kv) .mt {
+  font-family: 'Geist Mono', monospace;
+  font-size: 11.5px;
+  color: var(--t3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 170px;
+  display: block;
+}
+:where(.pg-kv) .ed {
+  background: var(--bg);
+  border: 1px solid var(--b1);
+  border-radius: 10px;
+  font-family: 'Geist Mono', monospace;
+  font-size: 12px;
+  line-height: 1.7;
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  overflow: hidden;
+}
+:where(.pg-kv) .ed .ln {
+  color: var(--t4);
+  text-align: right;
+  padding: 10px 6px 10px 0;
+  border-right: 1px solid var(--b1);
+  background: var(--s1);
+  white-space: pre;
+}
+:where(.pg-kv) .ed .tx {
+  padding: 10px 12px;
+  white-space: pre;
+  overflow: hidden;
+}
+:where(.pg-kv) .ed.on {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}

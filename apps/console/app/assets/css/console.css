@@ -1,0 +1,16 @@
+/* Ported verbatim from the v3 console design. Do not hand-edit; regenerate. */
+@import './shell.css';
+@import './base.css';
+@import './v3.css';
+@import './pages/d1.css';
+@import './pages/durable-objects.css';
+@import './pages/kv.css';
+@import './pages/queue.css';
+@import './pages/r2.css';
+@import './pages/storage.css';
+@import './pages/worker.css';
+@import './pages/worker-deploys.css';
+@import './pages/worker-logs.css';
+@import './pages/worker-settings.css';
+@import './pages/ops.css';
+@import './pages/workflows.css';

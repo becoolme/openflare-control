@@ -1,0 +1,109 @@
+/* Ported verbatim from the v3 console design. Do not hand-edit; regenerate. */
+:where(.pg-d1) .tside {
+  border-right: 1px solid var(--b1);
+  padding: 10px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+:where(.pg-d1) .tside .ti {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 7px;
+  font-family: 'Geist Mono', monospace;
+  font-size: 12.5px;
+  color: var(--t2);
+}
+:where(.pg-d1) .tside .ti .c {
+  margin-left: auto;
+  color: var(--t4);
+  font-size: 11.5px;
+}
+:where(.pg-d1) .tside .ti.on {
+  background: var(--s2);
+  color: var(--t1);
+}
+:where(.pg-d1) .tside .gh {
+  font-size: 11px;
+  color: var(--t4);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 8px 8px 4px;
+}
+:where(.pg-d1) .sqled {
+  background: var(--bg);
+  font-family: 'Geist Mono', monospace;
+  font-size: 12.5px;
+  line-height: 1.75;
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  border-bottom: 1px solid var(--b1);
+}
+:where(.pg-d1) .sqled .ln {
+  color: var(--t4);
+  text-align: right;
+  padding: 12px 8px 12px 0;
+  white-space: pre;
+  border-right: 1px solid var(--b1);
+}
+:where(.pg-d1) .sqled .tx {
+  padding: 12px 14px;
+  white-space: pre;
+}
+:where(.pg-d1) .rg td {
+  font-family: 'Geist Mono', monospace;
+  font-size: 12px;
+  padding: 7px 10px;
+  white-space: nowrap;
+}
+:where(.pg-d1) .rg th {
+  font-family: 'Geist Mono', monospace;
+  font-size: 11.5px;
+}
+:where(.pg-d1) .rg th small {
+  color: var(--t4);
+  font-weight: 400;
+  margin-left: 4px;
+}
+:where(.pg-d1) .nul {
+  color: var(--t4);
+  font-style: italic;
+}
+:where(.pg-d1) .mig {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 9px 0;
+  border-top: 1px solid var(--b1);
+  font-size: 12.5px;
+}
+:where(.pg-d1) .mig:first-of-type {
+  border-top: 0;
+}
+:where(.pg-d1) .mig .n {
+  font-family: 'Geist Mono', monospace;
+  color: var(--t1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+:where(.pg-d1) .qh {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 70px 60px;
+  gap: 10px;
+  padding: 8px 0;
+  border-top: 1px solid var(--b1);
+  font-size: 12px;
+  align-items: center;
+}
+:where(.pg-d1) .qh .q {
+  font-family: 'Geist Mono', monospace;
+  color: var(--t2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

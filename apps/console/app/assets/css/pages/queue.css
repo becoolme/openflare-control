@@ -1,0 +1,17 @@
+/* Ported verbatim from the v3 console design. Do not hand-edit; regenerate. */
+:where(.pg-queue) .qh {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+:where(.pg-queue) .cons td {
+  font-size: 13px;
+}
+:where(.pg-queue) .dlg.inl {
+  position: relative;
+  left: auto;
+  top: auto;
+  transform: none;
+  width: auto;
+  z-index: auto;
+}
