@@ -93,10 +93,13 @@ describe('resource list pages', () => {
 
       if (page.detail) {
         const detail = page.detail
-        it('links the selected row to the detail page', () => {
+        it('opens the detail page from anywhere in the selected row', () => {
           expect(src).toMatch(
-            new RegExp(`<tr class="sel">.*<NuxtLink to="${detail.to}">${detail.label}</NuxtLink>`)
+            new RegExp(
+              `<UiLinkRow to="${detail.to}" class="sel">.*<NuxtLink to="${detail.to}">${detail.label}</NuxtLink>`
+            )
           )
+          expect(src.match(/<UiLinkRow /g)).toHaveLength(1)
         })
 
         it('has a detail page whose crumbs lead back to this list', () => {

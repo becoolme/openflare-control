@@ -57,7 +57,7 @@ const overlays = useOverlays(['create', 'row'] as const)
       <table class="tbl">
         <thead><tr><th>Worker</th><th>Status</th><th>Deployment</th><th>Bindings</th><th>Requests 24h</th><th>Errors</th><th>CPU p99</th><th></th></tr></thead>
         <tbody>
-          <tr class="sel">
+          <UiLinkRow to="/workers/checkumi-edge" class="sel">
             <td><div class="nm"><NuxtLink to="/workers/checkumi-edge">checkumi-edge</NuxtLink></div><div class="sm">w-checkumi-edge.example.dev</div></td>
             <td><UiBadge tone="ok" dot>LIVE</UiBadge></td>
             <td><div class="num">v42 <span class="dim">90%</span> · v43 <span class="warn">10%</span></div><div class="split" style="width: 120px; margin-top: 6px"><span style="width: 90%; background: var(--t3)"></span><span style="width: 10%; background: var(--warn)"></span></div><div class="sm">2m · alex</div></td>
@@ -66,7 +66,7 @@ const overlays = useOverlays(['create', 'row'] as const)
             <td class="num">0.08%</td>
             <td class="num">3.1 ms</td>
             <td style="text-align: right"><UiIconButton icon="more" :size="15" label="More actions" /></td>
-          </tr>
+          </UiLinkRow>
           <tr>
             <td><div class="nm">rybbit-proxy</div><div class="sm">w-rybbit-proxy.example.dev</div></td>
             <td><UiBadge tone="ok" dot>LIVE</UiBadge></td>
