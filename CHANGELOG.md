@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-11-21 — real Docker e2e
+
+- `scripts/e2e-docker.mjs` + CI `e2e-docker` job: build and start the real
+  plane container + Postgres via compose, migrate, then drive the API over HTTP
+  (cell/worker/bundle/version/publish/desired/ACK/ops/logs/services/delete).
+- Fixed the image's `/data/bundles` ownership (root-owned volume made every
+  bundle PUT fail with EACCES) and added a Postgres healthcheck to compose.
+- Clarified test layers: `api.e2e`/`services.e2e` are in-process + Postgres;
+  Docker job is deployment-level; the k8s job is a render gate, not a cluster
+  deployment.
+
 ## 2026-11-21 — service APIs and router split
 
 - Split the management API into focused modules (`admin/cells|workers|config|bundles|publications|ops|logs` and `admin/services/*`); `context.ts` owns auth, parsing and wire mappers.

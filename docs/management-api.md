@@ -169,3 +169,24 @@ side.
 R2/KV ops (scope injection rejection), queue delay updates, workflow
 declarations + instance ops, the service catalog, unified op polling, and
 validation/missing-resource branches.
+
+These two files call Hono's `app.request()` in-process against a real Postgres
+(CI `plane` job) — they are API/integration tests, not deployment tests.
+
+## Real deployment e2e (Docker)
+
+`scripts/e2e-docker.mjs` talks to the **built `openflare-plane` container over
+HTTP** with a real Postgres behind it:
+
+```sh
+PLANE_TOKEN=... docker compose up -d --build
+docker compose exec -T plane node dist/migrate.js
+PLANE_TOKEN=... pnpm test:e2e:docker
+```
+
+CI's `e2e-docker` job runs exactly that sequence (compose up, migrate, script,
+logs on failure, compose down). It covers the same lifecycle plus a real
+content-addressed bundle volume, real HTTP routing and the signed publish path.
+
+The `k8s` CI job is a **manifest/render gate** (`vrt-k8s-check` + template
+tests); it does not deploy a cluster. A kind/cluster e2e is a separate step.

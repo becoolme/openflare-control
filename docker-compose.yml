@@ -7,10 +7,17 @@ services:
       POSTGRES_DB: vrt_plane
     ports: ['5432:5432']
     volumes: ['plane-db:/var/lib/postgresql/data']
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U vrt -d vrt_plane']
+      interval: 2s
+      timeout: 3s
+      retries: 30
 
   plane:
     build: { context: ., dockerfile: apps/plane/Dockerfile }
-    depends_on: [postgres]
+    depends_on:
+      postgres:
+        condition: service_healthy
     environment:
       DATABASE_URL: postgresql://vrt:vrt@postgres:5432/vrt_plane
       PLANE_TOKEN: ${PLANE_TOKEN:?set PLANE_TOKEN}
