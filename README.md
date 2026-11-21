@@ -166,6 +166,8 @@ pnpm run check:package-consumption          # pack + install + import in an empt
 pnpm run check:sanitized                    # no private refs in deploy/
 # real container + real Postgres (requires docker compose):
 PLANE_TOKEN=... pnpm test:e2e:docker
+# real kind cluster + Postgres (requires kind/kubectl):
+PLANE_TOKEN=... PLANE_SIGNING_SECRET=... pnpm test:e2e:kind
 OPENFLARE_DIR=../openflare node scripts/vrt-k8s-check.mjs --template deploy/k8s/overlays/example
 ```
 

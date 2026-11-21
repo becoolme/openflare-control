@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-11-21 — real kind e2e
+
+- `scripts/e2e-kind.sh` + CI `e2e-kind` job: kind cluster, locally loaded plane
+  image, Postgres/plane Deployments + Secret, rollout, migrations,
+  port-forward, then the same HTTP lifecycle.
+- Scope is the plane on real Kubernetes networking; the four runtime cell images
+  and workerd stay outside this repository's cluster e2e.
+
 ## 2026-11-21 — real Docker e2e
 
 - `scripts/e2e-docker.mjs` + CI `e2e-docker` job: build and start the real

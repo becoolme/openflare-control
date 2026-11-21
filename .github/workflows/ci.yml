@@ -98,6 +98,25 @@ jobs:
       - if: always()
         run: docker compose down -v
 
+  e2e-kind:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      PLANE_TOKEN: kind-e2e-token
+      PLANE_ADMIN_TOKEN: kind-e2e-token
+      PLANE_SIGNING_SECRET: kind-e2e-signing-secret
+      KIND_CLUSTER: openflare-e2e
+      PLANE_E2E_PORT: '18787'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - uses: helm/kind-action@v1
+        with:
+          cluster_name: openflare-e2e
+          wait: 120s
+      - run: bash scripts/e2e-kind.sh
+
   k8s:
     runs-on: ubuntu-24.04
     steps:

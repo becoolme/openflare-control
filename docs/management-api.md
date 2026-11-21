@@ -188,5 +188,18 @@ CI's `e2e-docker` job runs exactly that sequence (compose up, migrate, script,
 logs on failure, compose down). It covers the same lifecycle plus a real
 content-addressed bundle volume, real HTTP routing and the signed publish path.
 
-The `k8s` CI job is a **manifest/render gate** (`vrt-k8s-check` + template
-tests); it does not deploy a cluster. A kind/cluster e2e is a separate step.
+## Real Kubernetes e2e (kind)
+
+`scripts/e2e-kind.sh` creates (or reuses) a kind cluster, builds and loads the
+plane image, applies `deploy/k8s/e2e/plane.yaml` (Postgres + plane + Secret),
+waits for rollout, runs migrations, port-forwards the Service and executes the
+same HTTP lifecycle as the Docker e2e.
+
+```sh
+PLANE_TOKEN=... PLANE_SIGNING_SECRET=... pnpm test:e2e:kind
+```
+
+CI's `e2e-kind` job runs this on `ubuntu-24.04` with `helm/kind-action`. Scope:
+the **plane** on real Kubernetes networking. It does not deploy the four
+openflare runtime images or a workerd cell; the production cell overlay remains
+a render gate (`k8s` job) plus `vrt-k8s-check`.
