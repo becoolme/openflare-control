@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-11-21 — package consumption integration test
+
+- `pnpm run check:package-consumption` builds and packs the package, installs
+  the tarball into an empty project, and imports/uses the public exports. This
+  is the integration gate for `files`/`exports`/`dist` mistakes that in-repo
+  source tests cannot catch. Wired into the `control` CI job.
+
 ## 2026-11-21 — Vibeploy consumes the package
 
 - Vibeploy switched from the byte-identical `server/src/vrt-control` copy to

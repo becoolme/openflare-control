@@ -11,6 +11,7 @@
     "format:check": "prettier --check .",
     "check:package": "publint --strict packages/control",
     "check:openflare-contract": "node scripts/check-openflare-contract.mjs",
+    "check:package-consumption": "node scripts/check-package-consumption.mjs",
     "sync:openflare-contract": "node scripts/check-openflare-contract.mjs --write",
     "check:sanitized": "node scripts/check-sanitized.mjs",
     "test:scripts": "node --test scripts/test/*.test.mjs"
