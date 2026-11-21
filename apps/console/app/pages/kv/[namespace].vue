@@ -1,7 +1,7 @@
 <script setup lang="ts">
 definePageMeta({
   nav: 'KV',
-  crumbs: () => [{ label: 'kv', to: '/storage' }, { label: 'CHECKUMI_CACHE' }],
+  crumbs: () => [{ label: 'storage', to: '/storage' }, { label: 'kv', to: '/kv' }, { label: 'CHECKUMI_CACHE' }],
   validate: (route) => (route.params as Record<string, unknown>).namespace === 'CHECKUMI_CACHE',
 })
 </script>

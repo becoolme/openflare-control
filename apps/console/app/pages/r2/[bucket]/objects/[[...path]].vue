@@ -1,7 +1,7 @@
 <script setup lang="ts">
 definePageMeta({
   nav: 'R2',
-  crumbs: () => [{ label: 'r2', to: '/storage' }, { label: 'checkumi-assets' }],
+  crumbs: () => [{ label: 'storage', to: '/storage' }, { label: 'r2', to: '/r2' }, { label: 'checkumi-assets' }],
   validate: (route) => (route.params as Record<string, unknown>).bucket === 'checkumi-assets',
 })
 </script>

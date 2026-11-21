@@ -28,18 +28,18 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     heading: 'Compute',
     items: [
       { key: 'Workers', label: 'Workers', count: 27, to: '/workers' },
-      { key: 'Workflows', label: 'Workflows', count: 6, to: '/workflows/order-fulfillment' },
+      { key: 'Workflows', label: 'Workflows', count: 6, to: '/workflows' },
     ],
   },
   {
     heading: 'Storage & Databases',
     items: [
-      { key: 'KV', label: 'KV', count: 14, to: '/kv/CHECKUMI_CACHE' },
-      { key: 'D1', label: 'D1 SQL', count: 9, to: '/d1/checkumi-db' },
-      { key: 'R2', label: 'R2 Object Storage', count: 5, to: '/r2/checkumi-assets/objects' },
-      { key: 'Queues', label: 'Queues', count: 7, to: '/queues/playtown-events' },
-      { key: 'DurableObjects', label: 'Durable Objects', count: 4, to: '/durable-objects/RoomDO' },
-      { key: 'Hyperdrive', label: 'Hyperdrive', count: 2, to: '/storage' },
+      { key: 'KV', label: 'KV', count: 14, to: '/kv' },
+      { key: 'D1', label: 'D1 SQL', count: 9, to: '/d1' },
+      { key: 'R2', label: 'R2 Object Storage', count: 5, to: '/r2' },
+      { key: 'Queues', label: 'Queues', count: 7, to: '/queues' },
+      { key: 'DurableObjects', label: 'Durable Objects', count: 4, to: '/durable-objects' },
+      { key: 'Hyperdrive', label: 'Hyperdrive', count: 2, to: '/hyperdrive' },
     ],
   },
   {

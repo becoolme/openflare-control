@@ -1,7 +1,7 @@
 <script setup lang="ts">
 definePageMeta({
   nav: 'Workflows',
-  crumbs: () => [{ label: 'workflows', to: '/workflows' }, { label: 'order-fulfillment' }],
+  crumbs: () => [{ label: 'workers', to: '/workers' }, { label: 'workflows', to: '/workflows' }, { label: 'order-fulfillment' }],
   validate: (route) => (route.params as Record<string, unknown>).name === 'order-fulfillment',
 })
 const overlays = useOverlays(['instance'] as const)
@@ -12,30 +12,21 @@ const overlays = useOverlays(['instance'] as const)
     <div style="display: flex; align-items: flex-end; justify-content: space-between; gap: 16px">
       <div>
         <div class="gl" style="margin-bottom: 6px">Compute · Workflows</div>
-        <h1 style="margin: 0; font-size: 26px; font-weight: 600; letter-spacing: -0.03em">Workflows</h1>
-        <p class="muted" style="margin: 8px 0 0; font-size: 13.5px">Durable multi-step runs declared with <span class="mono" style="color: var(--t2)">[[workflows]]</span>. Each step is checkpointed; failed steps retry with backoff.</p>
+        <div style="display: flex; align-items: center; gap: 12px">
+          <span class="pico" style="color: #F5A623"><UiIcon name="redo" :size="16" /></span>
+          <h1 style="margin: 0; font-size: 26px; font-weight: 600; letter-spacing: -0.03em" class="mono">order-fulfillment</h1>
+          <UiBadge tone="neu" dot>v42 · 4 steps</UiBadge>
+        </div>
+        <p class="muted" style="margin: 8px 0 0; font-size: 13.5px; display: flex; gap: 14px; align-items: center"><span>class <span class="mono" style="color: var(--t2)">OrderWorkflow</span> in <span class="mono" style="color: var(--t2)">checkumi-edge</span></span><span>12 running · 31 waiting · 17 errored 24h</span><span>last run 8 s ago</span></p>
       </div>
       <div style="display: flex; gap: 8px">
-        <UiButton variant="secondary"><UiIcon name="term" :size="13" />vrt workflows list</UiButton>
+        <UiButton variant="secondary"><UiIcon name="term" :size="13" />vrt workflows instances list</UiButton>
         <UiButton variant="secondary" disabled style="opacity: .6"><UiIcon name="play" :size="13" />Trigger instance<span class="miss" style="margin-left: 6px">no create API</span></UiButton>
       </div>
     </div>
 
-    <section class="card" style="padding: 0">
-      <table class="tbl">
-        <thead><tr><th>Workflow</th><th>Worker</th><th>Class</th><th style="text-align: right">Running</th><th style="text-align: right">Waiting</th><th style="text-align: right">Complete 24h</th><th style="text-align: right">Errored 24h</th><th>Last run</th><th></th></tr></thead>
-        <tbody>
-          <tr class="sel"><td><div class="nm">order-fulfillment</div></td><td class="num">checkumi-edge</td><td class="num muted">OrderWorkflow</td><td class="num" style="text-align: right; color: var(--warn)">12</td><td class="num" style="text-align: right">31</td><td class="num" style="text-align: right">4,208</td><td class="num" style="text-align: right; color: var(--err)">17</td><td class="num">8 s ago</td><td style="text-align: right"><UiIcon name="chevr" /></td></tr>
-          <tr><td><div class="nm">nightly-digest</div></td><td class="num">playtown-api</td><td class="num muted">DigestWorkflow</td><td class="num dim" style="text-align: right">0</td><td class="num dim" style="text-align: right">0</td><td class="num" style="text-align: right">1</td><td class="num dim" style="text-align: right">0</td><td class="num">03:00 UTC</td><td style="text-align: right"><UiIcon name="chevr" /></td></tr>
-          <tr><td><div class="nm">match-settlement</div></td><td class="num">playtown-hooks</td><td class="num muted">SettleWorkflow</td><td class="num" style="text-align: right">2</td><td class="num" style="text-align: right">5</td><td class="num" style="text-align: right">612</td><td class="num" style="text-align: right">1</td><td class="num">41 s ago</td><td style="text-align: right"><UiIcon name="chevr" /></td></tr>
-        </tbody>
-      </table>
-    </section>
-
     <div style="display: flex; align-items: center; gap: 12px">
-      <span class="pico" style="color: #F5A623"><UiIcon name="redo" :size="16" /></span>
-      <h2 style="margin: 0; font-size: 20px; font-weight: 600; letter-spacing: -0.02em" class="mono">order-fulfillment</h2>
-      <UiBadge tone="neu" dot>v42 · 4 steps</UiBadge>
+      <h2 style="margin: 0; font-size: 15px; font-weight: 600">Instances</h2>
       <div style="flex: 1"></div>
       <UiSegmented role="group" aria-label="Status"><UiSegment pressed>All</UiSegment><UiSegment>Running 12</UiSegment><UiSegment>Waiting 31</UiSegment><UiSegment>Paused 2</UiSegment><UiSegment>Errored 17</UiSegment><UiSegment>Complete</UiSegment></UiSegmented>
     </div>

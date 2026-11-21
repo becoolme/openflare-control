@@ -19,8 +19,8 @@ const overlays = useOverlays(['create'] as const)
         <UiMenu v-if="overlays.isOpen('create')" style="right: 0; top: 40px; width: 280px">
           <UiMenuLabel>New resource</UiMenuLabel>
           <UiMenuItem hint="K" highlighted><ResourceBindingChip kind="kv" />KV namespace</UiMenuItem>
-          <UiMenuItem to="/d1/checkumi-db" hint="D"><ResourceBindingChip kind="d1" />D1 database</UiMenuItem>
-          <UiMenuItem to="/r2/checkumi-assets/objects" hint="R"><ResourceBindingChip kind="r2" />R2 bucket</UiMenuItem>
+          <UiMenuItem to="/d1" hint="D"><ResourceBindingChip kind="d1" />D1 database</UiMenuItem>
+          <UiMenuItem to="/r2" hint="R"><ResourceBindingChip kind="r2" />R2 bucket</UiMenuItem>
           <UiMenuItem hint="Q"><ResourceBindingChip kind="q" />Queue</UiMenuItem>
           <UiMenuItem hint="H"><ResourceBindingChip kind="hd" />Hyperdrive config</UiMenuItem>
           <UiMenuSeparator />
@@ -49,7 +49,7 @@ const overlays = useOverlays(['create'] as const)
 
     <!-- KV -->
     <section class="card" style="padding: 0">
-      <div class="lh"><ResourceBindingChip kind="kv" /><span class="t">KV namespaces</span><span class="d">14 · eventually consistent key-value</span><div style="flex: 1"></div><UiButton variant="secondary" size="sm"><UiIcon name="plus" :size="12" />New namespace</UiButton><UiButton variant="secondary" size="sm" to="/kv/CHECKUMI_CACHE">View all →</UiButton></div>
+      <div class="lh"><ResourceBindingChip kind="kv" /><span class="t">KV namespaces</span><span class="d">14 · eventually consistent key-value</span><div style="flex: 1"></div><UiButton variant="secondary" size="sm"><UiIcon name="plus" :size="12" />New namespace</UiButton><UiButton variant="secondary" size="sm" to="/kv">View all →</UiButton></div>
       <table class="tbl">
         <thead><tr><th>Namespace</th><th>Bound by</th><th style="text-align: right">Keys</th><th style="text-align: right">Size</th><th style="text-align: right">Reads 24h</th><th style="text-align: right">Writes 24h</th><th>Updated</th><th></th></tr></thead>
         <tbody>
@@ -63,11 +63,11 @@ const overlays = useOverlays(['create'] as const)
 
     <!-- D1 -->
     <section class="card" style="padding: 0">
-      <div class="lh"><ResourceBindingChip kind="d1" /><span class="t">D1 databases</span><span class="d">9 · SQLite at the edge</span><div style="flex: 1"></div><UiButton variant="secondary" size="sm"><UiIcon name="plus" :size="12" />New database</UiButton><UiButton variant="secondary" size="sm" to="/d1/checkumi-db">View all →</UiButton></div>
+      <div class="lh"><ResourceBindingChip kind="d1" /><span class="t">D1 databases</span><span class="d">9 · SQLite at the edge</span><div style="flex: 1"></div><UiButton variant="secondary" size="sm"><UiIcon name="plus" :size="12" />New database</UiButton><UiButton variant="secondary" size="sm" to="/d1">View all →</UiButton></div>
       <table class="tbl">
         <thead><tr><th>Database</th><th>Bound by</th><th style="text-align: right">Size</th><th style="text-align: right">Tables</th><th>Migrations</th><th>Node</th><th style="text-align: right">Rows read 24h</th><th></th></tr></thead>
         <tbody>
-          <tr><td><div class="nm"><NuxtLink to="/d1/checkumi-db">checkumi-db</NuxtLink></div><div class="sm">DB · d1_4a1c09e7</div></td><td><div class="bw"><span class="wk">checkumi-edge</span><span class="wk">checkumi-cron</span></div></td><td class="num" style="text-align: right">1.42 GB</td><td class="num" style="text-align: right">38</td><td><UiBadge tone="warn" dot>2 PENDING</UiBadge></td><td class="num muted">fsn · k3s-007</td><td class="num" style="text-align: right">31.4M</td><td style="text-align: right"><UiIconButton icon="more" :size="15" label="More" /></td></tr>
+          <tr><td><div class="nm"><NuxtLink to="/d1/checkumi-db">checkumi-db</NuxtLink></div><div class="sm">DB · d1_4be20f7a</div></td><td><div class="bw"><span class="wk">checkumi-edge</span><span class="wk">checkumi-cron</span></div></td><td class="num" style="text-align: right">1.42 GB</td><td class="num" style="text-align: right">38</td><td><UiBadge tone="warn" dot>2 PENDING</UiBadge></td><td class="num muted">fsn · k3s-007</td><td class="num" style="text-align: right">31.4M</td><td style="text-align: right"><UiIconButton icon="more" :size="15" label="More" /></td></tr>
           <tr><td><div class="nm">opentin-index</div><div class="sm">INDEX · d1_b20e771f</div></td><td><div class="bw"><span class="wk">opentin-search</span></div></td><td class="num" style="text-align: right">880 MB</td><td class="num" style="text-align: right">12</td><td><UiBadge tone="ok" dot>UP TO DATE</UiBadge></td><td class="num muted">nbg · k3s-014</td><td class="num" style="text-align: right">14.0M</td><td style="text-align: right"><UiIconButton icon="more" :size="15" label="More" /></td></tr>
           <tr><td><div class="nm">whois-snapshots</div><div class="sm">WHOIS · d1_0c3d5512</div></td><td><div class="bw"><span class="wk">whois-cron</span></div></td><td class="num" style="text-align: right">412 MB</td><td class="num" style="text-align: right">4</td><td><UiBadge tone="ok" dot>UP TO DATE</UiBadge></td><td class="num muted">hel · k3s-016</td><td class="num" style="text-align: right">2.1M</td><td style="text-align: right"><UiIconButton icon="more" :size="15" label="More" /></td></tr>
           <tr><td><div class="nm">opentin-staging</div><div class="sm">unbound</div></td><td><span class="muted" style="font-size: 12.5px">—</span></td><td class="num" style="text-align: right">24 MB</td><td class="num" style="text-align: right">12</td><td><UiBadge tone="neu" dot>NO MIGRATIONS</UiBadge></td><td class="num muted">fsn · k3s-007</td><td class="num" style="text-align: right">0</td><td style="text-align: right"><UiIconButton icon="more" :size="15" label="More" /></td></tr>
@@ -77,11 +77,11 @@ const overlays = useOverlays(['create'] as const)
 
     <!-- R2 -->
     <section class="card" style="padding: 0">
-      <div class="lh"><ResourceBindingChip kind="r2" /><span class="t">R2 buckets</span><span class="d">5 · S3-compatible object storage</span><div style="flex: 1"></div><UiButton variant="secondary" size="sm"><UiIcon name="plus" :size="12" />New bucket</UiButton><UiButton variant="secondary" size="sm" to="/r2/checkumi-assets/objects">View all →</UiButton></div>
+      <div class="lh"><ResourceBindingChip kind="r2" /><span class="t">R2 buckets</span><span class="d">5 · S3-compatible object storage</span><div style="flex: 1"></div><UiButton variant="secondary" size="sm"><UiIcon name="plus" :size="12" />New bucket</UiButton><UiButton variant="secondary" size="sm" to="/r2">View all →</UiButton></div>
       <table class="tbl">
         <thead><tr><th>Bucket</th><th>Bound by</th><th style="text-align: right">Objects</th><th style="text-align: right">Size</th><th>Public access</th><th style="text-align: right">Class A / B 24h</th><th>Created</th><th></th></tr></thead>
         <tbody>
-          <tr><td><div class="nm"><NuxtLink to="/r2/checkumi-assets/objects">checkumi-assets</NuxtLink></div><div class="sm">ASSETS_BUCKET</div></td><td><div class="bw"><span class="wk">checkumi-edge</span></div></td><td class="num" style="text-align: right">128,402</td><td class="num" style="text-align: right">42.8 GB</td><td><UiBadge tone="neu" dot>PRIVATE</UiBadge> <span class="miss">public URL</span></td><td class="num" style="text-align: right">288k / 5.1M</td><td class="num muted">Sep 12</td><td style="text-align: right"><UiIconButton icon="more" :size="15" label="More" /></td></tr>
+          <tr><td><div class="nm"><NuxtLink to="/r2/checkumi-assets/objects">checkumi-assets</NuxtLink></div><div class="sm">ASSETS</div></td><td><div class="bw"><span class="wk">checkumi-edge</span></div></td><td class="num" style="text-align: right">128,402</td><td class="num" style="text-align: right">42.8 GB</td><td><UiBadge tone="neu" dot>PRIVATE</UiBadge> <span class="miss">public URL</span></td><td class="num" style="text-align: right">288k / 5.1M</td><td class="num muted">Aug 30</td><td style="text-align: right"><UiIconButton icon="more" :size="15" label="More" /></td></tr>
           <tr><td><div class="nm">whois-archive</div><div class="sm">ARCHIVE</div></td><td><div class="bw"><span class="wk">whois-cron</span></div></td><td class="num" style="text-align: right">51,040</td><td class="num" style="text-align: right">18.4 GB</td><td><UiBadge tone="neu" dot>PRIVATE</UiBadge></td><td class="num" style="text-align: right">96 / 1.4k</td><td class="num muted">Oct 02</td><td style="text-align: right"><UiIconButton icon="more" :size="15" label="More" /></td></tr>
           <tr><td><div class="nm">opentin-uploads</div><div class="sm">UPLOADS</div></td><td><div class="bw"><span class="wk">opentin-search</span></div></td><td class="num" style="text-align: right">4,912</td><td class="num" style="text-align: right">512 MB</td><td><UiBadge tone="neu" dot>PRIVATE</UiBadge></td><td class="num" style="text-align: right">124k / 1.3M</td><td class="num muted">Nov 02</td><td style="text-align: right"><UiIconButton icon="more" :size="15" label="More" /></td></tr>
         </tbody>
@@ -91,7 +91,7 @@ const overlays = useOverlays(['create'] as const)
     <div style="display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; align-items: start">
       <!-- Queues -->
       <section class="card" style="padding: 0">
-        <div class="lh"><ResourceBindingChip kind="q" /><span class="t">Queues</span><span class="d">7</span><div style="flex: 1"></div><UiButton variant="secondary" size="sm"><UiIcon name="plus" :size="12" />New queue</UiButton><UiButton variant="secondary" size="sm" to="/queues/playtown-events">View all →</UiButton></div>
+        <div class="lh"><ResourceBindingChip kind="q" /><span class="t">Queues</span><span class="d">7</span><div style="flex: 1"></div><UiButton variant="secondary" size="sm"><UiIcon name="plus" :size="12" />New queue</UiButton><UiButton variant="secondary" size="sm" to="/queues">View all →</UiButton></div>
         <table class="tbl">
           <thead><tr><th>Queue</th><th style="text-align: right">Backlog</th><th>Consumer</th><th style="text-align: right">DLQ</th><th></th></tr></thead>
           <tbody>
@@ -103,11 +103,11 @@ const overlays = useOverlays(['create'] as const)
       </section>
       <!-- DO -->
       <section class="card" style="padding: 0">
-        <div class="lh"><ResourceBindingChip kind="do" /><span class="t">Durable Objects</span><span class="d">4 classes</span><div style="flex: 1"></div><UiButton variant="secondary" size="sm" to="/durable-objects/RoomDO">View all →</UiButton></div>
+        <div class="lh"><ResourceBindingChip kind="do" /><span class="t">Durable Objects</span><span class="d">4 classes</span><div style="flex: 1"></div><UiButton variant="secondary" size="sm" to="/durable-objects">View all →</UiButton></div>
         <table class="tbl">
           <thead><tr><th>Class</th><th>Worker</th><th style="text-align: right">Instances</th><th style="text-align: right">Storage</th><th></th></tr></thead>
           <tbody>
-            <tr><td><div class="nm"><NuxtLink to="/durable-objects/RoomDO">RoomState</NuxtLink></div><div class="sm">SQLite · v3 migration</div></td><td><span class="wk">checkumi-edge</span></td><td class="num" style="text-align: right">8,412</td><td class="num" style="text-align: right">590 MB</td><td style="text-align: right"><UiIconButton icon="more" :size="15" label="More" /></td></tr>
+            <tr><td><div class="nm"><NuxtLink to="/durable-objects/RoomDO">RoomDO</NuxtLink></div><div class="sm">ROOMS · SQLite · v3</div></td><td><span class="wk">checkumi-edge</span></td><td class="num" style="text-align: right">8,412</td><td class="num" style="text-align: right">590 MB</td><td style="text-align: right"><UiIconButton icon="more" :size="15" label="More" /></td></tr>
             <tr><td><div class="nm">RateLimiter</div><div class="sm">KV storage</div></td><td><span class="wk">rybbit-proxy</span></td><td class="num" style="text-align: right">488</td><td class="num" style="text-align: right">42 MB</td><td style="text-align: right"><UiIconButton icon="more" :size="15" label="More" /></td></tr>
             <tr><td><div class="nm">GameLobby</div><div class="sm">SQLite · v1</div></td><td><span class="wk">playtown-hooks</span></td><td class="num" style="text-align: right">12</td><td class="num" style="text-align: right">8 MB</td><td style="text-align: right"><UiIconButton icon="more" :size="15" label="More" /></td></tr>
           </tbody>

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 definePageMeta({
   nav: 'Queues',
-  crumbs: () => [{ label: 'queues', to: '/storage' }, { label: 'playtown-events' }],
+  crumbs: () => [{ label: 'storage', to: '/storage' }, { label: 'queues', to: '/queues' }, { label: 'playtown-events' }],
   validate: (route) => (route.params as Record<string, unknown>).name === 'playtown-events',
 })
 </script>

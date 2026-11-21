@@ -1,7 +1,7 @@
 <script setup lang="ts">
 definePageMeta({
   nav: 'DurableObjects',
-  crumbs: () => [{ label: 'durable-objects', to: '/storage' }, { label: 'RoomDO' }],
+  crumbs: () => [{ label: 'storage', to: '/storage' }, { label: 'durable-objects', to: '/durable-objects' }, { label: 'RoomDO' }],
   validate: (route) => (route.params as Record<string, unknown>).class === 'RoomDO',
 })
 const overlays = useOverlays(['instance'] as const)

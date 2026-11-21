@@ -14,3 +14,10 @@
 @import './pages/worker-settings.css';
 @import './pages/ops.css';
 @import './pages/workflows.css';
+@import './pages/workflows-list.css';
+@import './pages/kv-list.css';
+@import './pages/d1-list.css';
+@import './pages/r2-list.css';
+@import './pages/queue-list.css';
+@import './pages/do-list.css';
+@import './pages/hyperdrive-list.css';

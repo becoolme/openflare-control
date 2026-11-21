@@ -25,7 +25,7 @@ const overlays = useOverlays(['create', 'row'] as const)
           <UiMenuItem icon="term" hint="copy cmd">Deploy with vrt CLI</UiMenuItem>
           <UiMenuSeparator />
           <UiMenuLabel>Other</UiMenuLabel>
-          <UiMenuItem to="/workflows/order-fulfillment" icon="redo" hint="needs a worker">Workflow</UiMenuItem>
+          <UiMenuItem to="/workflows" icon="redo" hint="needs a worker">Workflow</UiMenuItem>
           <UiMenuItem icon="clock" hint="on a worker">Cron trigger</UiMenuItem>
         </UiMenu>
       </div>
@@ -42,7 +42,7 @@ const overlays = useOverlays(['create', 'row'] as const)
     <section class="card" style="padding: 0; position: relative">
       <UiTabs style="padding: 0 10px">
         <UiTab active>Workers <span class="mono dim">27</span></UiTab>
-        <UiTab to="/workflows/order-fulfillment">Workflows <span class="mono dim">6</span></UiTab>
+        <UiTab to="/workflows">Workflows <span class="mono dim">6</span></UiTab>
         <UiTab>Cron triggers <span class="mono dim">9</span></UiTab>
         <UiTab>Queue consumers <span class="mono dim">5</span></UiTab>
       </UiTabs>

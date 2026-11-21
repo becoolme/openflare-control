@@ -1,7 +1,7 @@
 <script setup lang="ts">
 definePageMeta({
   nav: 'D1',
-  crumbs: () => [{ label: 'd1', to: '/storage' }, { label: 'checkumi-db' }],
+  crumbs: () => [{ label: 'storage', to: '/storage' }, { label: 'd1', to: '/d1' }, { label: 'checkumi-db' }],
   validate: (route) => (route.params as Record<string, unknown>).db === 'checkumi-db',
 })
 </script>
