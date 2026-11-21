@@ -3,6 +3,10 @@ WORKDIR /src
 RUN corepack enable
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
 COPY packages/control/package.json packages/control/
+# The package's `prepare` script builds itself for git/tarball consumers, so
+# its tsconfigs and sources must exist in the dependency-install layer.
+COPY packages/control/tsconfig.json packages/control/tsconfig.build.json packages/control/
+COPY packages/control/src packages/control/src
 COPY apps/plane/package.json apps/plane/
 RUN pnpm install --frozen-lockfile --prod=false
 COPY packages/control packages/control
