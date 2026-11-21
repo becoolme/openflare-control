@@ -59,6 +59,23 @@ export const COMPUTE_DESIRED_SCHEMA_VERSION = 1
 export const computeDesiredKind = 'compute.desired' as const
 export const computeDesiredScope = (cellId: string) => `cell:${cellId}`
 
+/** Cloudflare `services[].props` bound (Rust `MAX_SERVICE_PROPS_BYTES`). */
+export const VRT_MAX_SERVICE_PROPS_BYTES = 8 * 1024
+/** Cloudflare queue-level `delivery_delay` bound (Rust
+ * `MAX_QUEUE_DELIVERY_DELAY_SECS`). */
+export const VRT_MAX_QUEUE_DELIVERY_DELAY_SECONDS = 86_400
+
+/** Plain JSON object (no arrays/classes/null prototypes) — `ctx.props` shape. */
+function isPlainProps(value: unknown): value is Record<string, unknown> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false
+  const proto = Object.getPrototypeOf(value)
+  return proto === Object.prototype || proto === null
+}
+
+function servicePropsBytes(props: Record<string, unknown>): number {
+  return Buffer.byteLength(JSON.stringify(props), 'utf8')
+}
+
 import {
   MAX_WORKFLOWS_PER_WORKER,
   MAX_WORKFLOW_STEPS,
@@ -221,12 +238,26 @@ export function serializeBinding(
       // `$`, so it must never flow into this field — emit the
       // server-minted queueId (always a valid identifier).
       if (!/^[a-z0-9]{26}$/.test(resourceId)) throw invalid('bindings.queueId')
-      return {
-        type: 'queue',
-        name,
-        queueId: resourceId,
-        queueName: resourceId,
-        permissions: { read: binding.permissionRead, write: binding.permissionWrite },
+      {
+        const out: Record<string, unknown> = {
+          type: 'queue',
+          name,
+          queueId: resourceId,
+          queueName: resourceId,
+          permissions: { read: binding.permissionRead, write: binding.permissionWrite },
+        }
+        if (binding.deliveryDelaySeconds != null) {
+          if (
+            !Number.isInteger(binding.deliveryDelaySeconds) ||
+            binding.deliveryDelaySeconds < 0 ||
+            binding.deliveryDelaySeconds > VRT_MAX_QUEUE_DELIVERY_DELAY_SECONDS
+          ) {
+            throw invalid('bindings.deliveryDelaySeconds')
+          }
+          // 0 is a real value (explicit "no queue default"), so emit it.
+          out.deliveryDelaySeconds = binding.deliveryDelaySeconds
+        }
+        return out
       }
     case 'PG': {
       // P1: `vrtpg:<databaseTenantId>` — slug/endpoint/token arrive via
@@ -274,13 +305,29 @@ export function serializeBinding(
       if (limit > 1_000_000) throw invalid('bindings.limit')
       return { type: 'ratelimit', name, namespaceId: m[1], limit, period: Number(m[3]) }
     }
-    case 'SERVICE':
+    case 'SERVICE': {
       // Target membership in the same tenant is checked in build() where the
-      // tenant worker set is known. The entrypoint is emitted only when set,
+      // tenant worker set is known. Optional fields are emitted only when set,
       // so default-export bindings keep their exact signed bytes.
-      if (binding.entrypoint == null) return { type: 'service', name, workerId: resourceId }
-      if (!validVrtServiceEntrypoint(binding.entrypoint)) throw invalid('bindings.entrypoint')
-      return { type: 'service', name, workerId: resourceId, entrypoint: binding.entrypoint }
+      const out: Record<string, unknown> = { type: 'service', name, workerId: resourceId }
+      if (binding.entrypoint != null) {
+        if (!validVrtServiceEntrypoint(binding.entrypoint)) throw invalid('bindings.entrypoint')
+        out.entrypoint = binding.entrypoint
+      }
+      if (binding.props != null) {
+        if (!isPlainProps(binding.props)) throw invalid('bindings.props')
+        if (servicePropsBytes(binding.props) > VRT_MAX_SERVICE_PROPS_BYTES) {
+          throw invalid('bindings.props')
+        }
+        out.props = binding.props
+      }
+      return out
+    }
+    case 'WORKER_LOADER':
+      // Dynamic Workers loader: no resource reference; the live-worker cap is a
+      // platform constant rendered by the cell. The capability bit gates old
+      // cells that cannot parse the workerd `workerLoader` capnp slot.
+      return { type: 'workerLoader', name }
     case 'DO': {
       // P3c-1: resourceId encodes `<declaringWorkerId>:<className>` —
       // minted + ownership-checked at deploy; re-parse fail-closed.
@@ -453,8 +500,24 @@ function serviceCycleMembers(workers: readonly WorkerDesired[]): Set<string> {
  * typed `invalid()` the per-worker catch converts into an exclusion. */
 function assertBindingWireShape(b: Record<string, unknown>): void {
   if (typeof b.name !== 'string' || !validVrtBindingName(b.name)) throw invalid('bindings.name')
-  if (b.type === 'queue' && !validVrtIdentifier(String(b.queueName))) {
-    throw invalid('bindings.queueName')
+  if (b.type === 'queue') {
+    if (!validVrtIdentifier(String(b.queueName))) throw invalid('bindings.queueName')
+    if (b.deliveryDelaySeconds !== undefined) {
+      const d = b.deliveryDelaySeconds
+      if (
+        typeof d !== 'number' ||
+        !Number.isInteger(d) ||
+        d < 0 ||
+        d > VRT_MAX_QUEUE_DELIVERY_DELAY_SECONDS
+      ) {
+        throw invalid('bindings.deliveryDelaySeconds')
+      }
+    }
+  }
+  if (b.type === 'service' && b.props !== undefined) {
+    if (!isPlainProps(b.props) || servicePropsBytes(b.props) > VRT_MAX_SERVICE_PROPS_BYTES) {
+      throw invalid('bindings.props')
+    }
   }
   if (b.type === 'durableObject') {
     if (typeof b.className !== 'string' || !validDoClassName(b.className)) {

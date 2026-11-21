@@ -97,6 +97,53 @@ describe('serializeBinding', () => {
     )
   })
 
+  it('SERVICE props is an object bounded to 8 KiB and omitted when absent', () => {
+    expect(
+      binding({ type: 'SERVICE', resourceId: 'w2', entrypoint: 'E', props: { a: 1, b: 'x' } })
+    ).toMatchObject({ entrypoint: 'E', props: { a: 1, b: 'x' } })
+    expect(binding({ type: 'SERVICE', resourceId: 'w2', props: null })).toEqual({
+      type: 'service',
+      name: 'B',
+      workerId: 'w2',
+    })
+    for (const bad of [[], 'x', 1, true]) {
+      expect(() =>
+        binding({
+          type: 'SERVICE',
+          resourceId: 'w2',
+          props: bad as unknown as Record<string, unknown>,
+        })
+      ).toThrow(/props/)
+    }
+    expect(() =>
+      binding({ type: 'SERVICE', resourceId: 'w2', props: { big: 'x'.repeat(8193) } })
+    ).toThrow(/props/)
+  })
+
+  it('QUEUE emits deliveryDelaySeconds only when declared, including 0', () => {
+    expect(binding({ type: 'QUEUE', resourceId: 'b'.repeat(26) })).not.toHaveProperty(
+      'deliveryDelaySeconds'
+    )
+    expect(
+      binding({ type: 'QUEUE', resourceId: 'b'.repeat(26), deliveryDelaySeconds: 0 })
+    ).toMatchObject({ deliveryDelaySeconds: 0 })
+    expect(
+      binding({ type: 'QUEUE', resourceId: 'b'.repeat(26), deliveryDelaySeconds: 86_400 })
+    ).toMatchObject({ deliveryDelaySeconds: 86_400 })
+    for (const bad of [-1, 86_401, 1.5]) {
+      expect(() =>
+        binding({ type: 'QUEUE', resourceId: 'b'.repeat(26), deliveryDelaySeconds: bad })
+      ).toThrow(/deliveryDelaySeconds/)
+    }
+  })
+
+  it('WORKER_LOADER emits only the binding name', () => {
+    expect(binding({ type: 'WORKER_LOADER', resourceId: '' })).toEqual({
+      type: 'workerLoader',
+      name: 'B',
+    })
+  })
+
   it('DO names the declaring worker only for cross-worker classes', () => {
     expect(binding({ type: 'DO', resourceId: 'w2:Klass' })).toEqual({
       type: 'durableObject',

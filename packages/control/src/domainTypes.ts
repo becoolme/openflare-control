@@ -23,11 +23,19 @@ export interface VrtBindingRecord {
     | 'DO'
     | 'HYPERDRIVE'
     | 'RATELIMIT'
+    | 'WORKER_LOADER'
   readonly resourceId: string
   readonly permissionRead: boolean
   readonly permissionWrite: boolean
   /** SERVICE only: named `WorkerEntrypoint` export; null/absent = default. */
   readonly entrypoint?: string | null
+  /** SERVICE only: JSON object exposed to the callee as `ctx.props`.
+   * Absent/null keeps the signed bytes unchanged; arrays/scalars are rejected
+   * (Cloudflare documents an object). Max 8 KiB compact JSON. */
+  readonly props?: Record<string, unknown> | null
+  /** QUEUE only: queue-level default delivery delay in seconds
+   * (0..86400). Absent = no default; explicit `0` is a real value. */
+  readonly deliveryDelaySeconds?: number | null
 }
 
 /** P3c-1: a DO class DECLARED by the worker — the rowset member the

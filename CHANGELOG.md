@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-11-21 — runtime contract dependency + capability coverage
+
+- Added `scripts/check-openflare-contract.mjs` and a CI step that check out
+  `becoolme/openflare` and fail if the vendored `desired/ack` fixtures drift.
+  The runtime is now an enforced contract dependency, not a manual copy.
+- Synced the fixtures and accepted the runtime's newer ACK capability bits
+  `quotas` and `workerLoader`; without this, a cell reporting either bit would
+  have its whole ACK rejected by the strict schema.
+- Added capability keys `serviceProps`, `queueDeliveryDelay`, `workerLoader`,
+  `quotas` and the matching optional binding fields
+  (`services[].props`, queue `deliveryDelaySeconds`, `WORKER_LOADER` bindings)
+  so the plane can gate new wire fields on cells that report support.
+
 ## 2026-11-21 — rename to openflare-control
 
 - Repository, package and image names unified with the runtime: the library is
