@@ -1,0 +1,73 @@
+# cell-controller — desired pull/ack, envelope+assignment delivery,
+# render-inputs materialization, cron leadership. Keys are ProdConfig
+# serde field names verbatim (snake_case — deny_unknown_fields).
+#
+# `VRT_CELL_ID` env (shared vrt-cell ConfigMap) overrides cell_id at
+# load — the ONE manifest source for cell identity.
+cell_id = "REPLACE_ME_CELL_ID"
+control_plane_url = "https://REPLACE_ME_CP_HOST"
+# Render-inputs channel → vars/secrets (0600) + pg-credentials.json
+# for the host and provider in this pod.
+render_inputs_dir = "/run/vrt/render-inputs"
+token_file = "/run/vrt/secrets/cell-token"
+health_listen = "0.0.0.0:9090"
+metrics_listen = "0.0.0.0:9495"
+poll_interval_secs = 10
+cron_holder = "vrt-cell-controller"
+fence_file = "/cell-data/fence.json"
+cron_state_dir = "/cell-data"
+replicas = 1
+# The production binary wires NO ManifestApplier (manifests = None in
+# prod::build_controller) — egress_required=true would mark the cell
+# permanently NotReady (egress-policy-unavailable). Tenant egress is
+# bounded by the namespace NetworkPolicy manifests instead; flip to
+# true only when a real applier lands.
+egress_required = false
+trusted_keys = [
+  { keyId = "REPLACE_ME_KEY_ID", publicKey = "REPLACE_ME_PUBLIC_KEY" },
+]
+
+# Bug 2: vrt-sql is a SEPARATE Pod (Service vrt-sql:8082), so D1/queue
+# capability needs the in-cluster endpoint. The controller accepts only
+# loopback or `<svc>.<ns>.svc[.cluster.local]` (http, explicit port, no
+# userinfo/path/query; never a public host - d1ops::validate_data_plane_endpoint)
+# and every request is HMAC-signed with the shared secret that vrt-init
+# copied (0600) into /run/vrt/secrets. NetworkPolicy vrt-host-egress /
+# vrt-sql-ingress already admit exactly this edge. Absent => d1/queue
+# capability false and queue-bound deploys fail VRT_CAPABILITY_UNSUPPORTED.
+[d1sql]
+endpoint = "http://vrt-sql.openflare-system.svc:8082"
+auth_secret_file = "/run/vrt/secrets/vrt-sql-auth-secret"
+timeout_secs = 5
+
+# KV1: storage backends — the SAME Kvrocks as vrt-provider.toml [kvrocks]
+# (both read VRT_KVROCKS_URL; vrt-k8s-check asserts the configs stay in
+# lockstep). Wires STORAGE_PURGE for KV namespaces AND the KV data
+# cell-ops executor; on a connect failure at startup the executor stays
+# absent and the cell reports kv=false (fail closed, structured error).
+[storage_purge.kvrocks]
+urlEnv = "VRT_KVROCKS_URL"
+timeoutMs = 5000
+connectTimeoutMs = 5000
+
+# FileEnvelopePodChannel — pods MUST be in this pod's filesystem:
+# `dir` must be absolute, existing, 0700, owned by our uid; `readyz`
+# must be loopback HTTP. The vrt-host in the same pod is the only
+# delivery target possible under this contract.
+
+# R2: the SAME object store as vrt-provider.toml [s3] (every key must
+# match — vrt-k8s-check asserts lockstep). Wires STORAGE_PURGE for R2
+# buckets and the R2 data cell-ops; absent => r2 capability false.
+[storage_purge.s3]
+endpoint = "https://REPLACE_ME_S3_ENDPOINT"
+region = "REPLACE_ME_S3_REGION"
+bucket = "REPLACE_ME_S3_BUCKET"
+accessKeyEnv = "VRT_R2_BINDING_ACCESS_KEY"
+secretKeyEnv = "VRT_R2_BINDING_SECRET_KEY"
+multipartTtlMs = 604800000
+conditionalWrites = true
+
+[[pods]]
+id = "pod-0"
+dir = "/run/vrt/pod-delivery"
+readyz = "http://127.0.0.1:9091"

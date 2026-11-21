@@ -1,0 +1,85 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base
+# This overlay pins storageClassName: local-path, which ignores fsGroup;
+# the component adds the minimal root chown init and lowers the namespace
+# to Pod Security `baseline` (audit/warn stay restricted). Remove it when
+# switching to an fsGroup-capable class (Longhorn, ...).
+components:
+  - ../../components/local-path-perms
+# Example overlay — a FILLED-IN copy of the base for documentation.
+# One cell-host pod (host + provider + controller). A second cron
+# controller never exists in this topology: the controller delivers
+# into its own pod's filesystem, so there is exactly one per pod and
+# the in-process memory lease is always correct — [cron_lease] type
+# "kubernetes" is only meaningful if a future topology runs several
+# controller pods (it would also need the SA swap noted in
+# vrt-host.yaml).
+configMapGenerator:
+  - name: vrt-host
+    namespace: openflare-system
+    behavior: replace
+    files:
+      - config/vrt-host.toml
+  - name: vrt-provider
+    namespace: openflare-system
+    behavior: replace
+    files:
+      - config/vrt-provider.toml
+  - name: vrt-cell-controller
+    namespace: openflare-system
+    behavior: replace
+    files:
+      - config/cell-controller.toml
+  - name: vrt-sql
+    namespace: openflare-system
+    behavior: replace
+    files:
+      - config/vrt-sql.toml
+# RV-R55: name-suffix hashing stays ON (see base/kustomization.yaml).
+images:
+  - name: REPLACE_ME_REGISTRY/openflare-host
+    newName: REPLACE_ME_REGISTRY/openflare-host
+    digest: sha256:REPLACE_ME_DIGEST
+  - name: REPLACE_ME_REGISTRY/openflare-provider
+    newName: REPLACE_ME_REGISTRY/openflare-provider
+    digest: sha256:REPLACE_ME_DIGEST
+  - name: REPLACE_ME_REGISTRY/openflare-cell-controller
+    newName: REPLACE_ME_REGISTRY/openflare-cell-controller
+    digest: sha256:REPLACE_ME_DIGEST
+  - name: REPLACE_ME_REGISTRY/openflare-sql
+    newName: REPLACE_ME_REGISTRY/openflare-sql
+    digest: sha256:REPLACE_ME_DIGEST
+patches:
+  - target: { kind: ConfigMap, name: vrt-cell }
+    patch: |
+      - op: replace
+        path: /data/cell_id
+        value: prod-cell-1
+  - target: { kind: Ingress, name: vrt-workers }
+    patch: |
+      - op: replace
+        path: /spec/rules/0/host
+        value: "*.workers.example.com"
+      - op: replace
+        path: /spec/tls/0/hosts/0
+        value: "*.workers.example.com"
+      - op: replace
+        path: /spec/tls/0/secretName
+        value: workers-wildcard-tls
+  - target: { kind: PersistentVolumeClaim, name: vrt-host-state }
+    patch: |
+      - op: add
+        path: /spec/storageClassName
+        value: local-path
+  - target: { kind: PersistentVolumeClaim, name: vrt-sql-state }
+    patch: |
+      - op: add
+        path: /spec/storageClassName
+        value: local-path
+  - target: { kind: PersistentVolumeClaim, name: vrt-cell-controller-state }
+    patch: |
+      - op: add
+        path: /spec/storageClassName
+        value: local-path

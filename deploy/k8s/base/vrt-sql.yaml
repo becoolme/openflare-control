@@ -1,0 +1,222 @@
+# vrt-sql — D1 data plane (DO-backed SQLite). Deployment (not
+# StatefulSet): DO state lives on the PVC keyed by cell, and the
+# control plane re-delivers pending ops via seq cursor — a pod name
+# change does not affect correctness. 1 replica: D1 correctness is
+# fenced by the desired revision, not by local leadership.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vrt-sql
+  namespace: openflare-system
+  labels:
+    app.kubernetes.io/name: vrt-sql
+    app.kubernetes.io/part-of: openflare-control
+spec:
+  replicas: 1
+  # RV-R191: Recreate — the state PVC is RWO and the cell identity is static,
+  # so old and new pods must never overlap.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vrt-sql
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vrt-sql
+        app.kubernetes.io/part-of: openflare-control
+        openflare.io/component: vrt-sql
+      annotations:
+        # RV-R55: bump to force a Recreate after rotating `vrt-secrets`.
+        openflare.io/secret-generation: '1'
+    spec:
+      # RV-R191: drain(30 s) + lease release(5 s) + 10 s margin = 45 s; 50 s.
+      terminationGracePeriodSeconds: 50
+      serviceAccountName: vrt-host
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        # Bug 1: see vrt-host.yaml - skip kubelet's per-start recursive chmod.
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        # Same 0600 normalization as the host pod — K8s Secret mounts
+        # cannot express 0600, and ServiceConfig validates
+        # bookmarkSecretFile/authSecretFile modes fail-closed.
+        - name: vrt-init
+          image: REPLACE_ME_REGISTRY/openflare-sql:VRT_IMAGE_TAG
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              set -eu
+              # ---- PV hygiene (Bug 1) --------------------------------------
+              # Pod fsGroup + `fsGroupChangePolicy: OnRootMismatch` makes
+              # kubelet skip its recursive chgrp/chmod once the volume ROOT
+              # already carries gid=fsGroup + setgid + g+rwx. A tree already
+              # damaged by the old `Always` default (kubelet only ever ADDS
+              # group rwx + setgid; every securefs-validated entry has NO
+              # group bits) is healed here: strip them again. Non-root: this
+              # uid owns everything it created (kubelet never chowns the
+              # owner). The root itself (mindepth 1) is deliberately kept.
+              # Entries we do not own (per-tenant-uid isolation) cannot be
+              # chmod'd: warn, never mask — securefs still fails closed.
+              for r in /data; do
+                find "$r" -xdev -mindepth 1 -name lost+found -prune -o \( -type d -o -type f -o -type s \) -perm /2070 \
+                  -exec chmod g-rwxs {} + || echo "vrt-init: WARN pv-heal-incomplete root=$r" >&2
+              done
+              mkdir -p /run/vrt/secrets
+              chmod 0700 /run/vrt/secrets
+              chmod g-s /run/vrt/secrets
+              for k in vrt-sql-auth-secret vrt-sql-bookmark-secret s3-access-key s3-secret-key; do
+                src="/var/run/secrets/vrt/$k"
+                dst="/run/vrt/secrets/$k"
+                if [ -f "$src" ]; then cp "$src" "$dst"; else : > "$dst"; fi
+                chmod 0600 "$dst"
+              done
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            capabilities:
+              drop: ['ALL']
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 50m
+              memory: 32Mi
+              ephemeral-storage: 64Mi
+          volumeMounts:
+            - name: state
+              mountPath: /data
+            - name: run-vrt
+              mountPath: /run/vrt
+            - name: secrets-raw
+              mountPath: /var/run/secrets/vrt
+              readOnly: true
+      containers:
+        - name: vrt-sql
+          image: REPLACE_ME_REGISTRY/openflare-sql:VRT_IMAGE_TAG
+          imagePullPolicy: IfNotPresent
+          args: ['/usr/local/bin/vrt-sql', '/etc/vrt/vrt-sql.toml']
+          env:
+            - name: RUST_LOG
+              value: info
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            capabilities:
+              drop: ['ALL']
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+              ephemeral-storage: 64Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+              ephemeral-storage: 512Mi
+          ports:
+            - name: data
+              containerPort: 8082
+            - name: metrics
+              containerPort: 9492
+          # MIG-9: the self-check retries in-process (60s default budget)
+          # while the port is unbound and connections are refused. Only
+          # startupProbe may cover that window: a liveness probe would kill
+          # the process before the check succeeds and cause a permanent
+          # CrashLoop whenever budget > failureThreshold*period.
+          # 10s*15 = 150s covers the 60s budget plus cold start; raising
+          # selfCheckBudgetMs requires raising failureThreshold too
+          # (vrt-k8s-check enforces the lower bound).
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: data
+            periodSeconds: 10
+            failureThreshold: 15
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: data
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: data
+            periodSeconds: 5
+            failureThreshold: 3
+          volumeMounts:
+            - name: state
+              mountPath: /data
+            - name: config
+              mountPath: /etc/vrt
+              readOnly: true
+            - name: run-vrt
+              mountPath: /run/vrt
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: state
+          persistentVolumeClaim:
+            claimName: vrt-sql-state
+        - name: config
+          configMap:
+            name: vrt-sql
+        - name: run-vrt
+          emptyDir:
+            sizeLimit: 64Mi
+        - name: secrets-raw
+          secret:
+            secretName: vrt-secrets
+            defaultMode: 0400
+            items:
+              - { key: vrt-sql-auth-secret, path: vrt-sql-auth-secret }
+              - { key: vrt-sql-bookmark-secret, path: vrt-sql-bookmark-secret }
+              # [persistence.s3] accessKeyFile/secretKeyFile.
+              - { key: s3-access-key, path: s3-access-key }
+              - { key: s3-secret-key, path: s3-secret-key }
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vrt-sql
+  namespace: openflare-system
+  labels:
+    app.kubernetes.io/name: vrt-sql
+spec:
+  selector:
+    app.kubernetes.io/name: vrt-sql
+  ports:
+    - { name: data, port: 8082, targetPort: data }
+    - { name: metrics, port: 9492, targetPort: metrics }
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: vrt-sql-state
+  namespace: openflare-system
+spec:
+  accessModes: ['ReadWriteOnce']
+  # storageClassName intentionally unset in base — overlays set the
+  # cluster's class (see testing-and-real-e2e.md storage notes).
+  resources:
+    requests:
+      storage: 1Gi

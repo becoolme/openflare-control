@@ -1,0 +1,33 @@
+# Least privilege: exactly the verbs the KubernetesLeaseStore uses on
+# exactly the resource it uses, namespaced — no wildcards, no cluster
+# scope. `watch`/`list` are NOT granted: the store polls GET only.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: vrt-cron-lease
+  namespace: openflare-system
+rules:
+  - apiGroups: ['coordination.k8s.io']
+    resources: ['leases']
+    verbs: ['get', 'create', 'update']
+    # resourceNames narrows to the single Lease object we use.
+    # NOTE: `create` cannot be constrained by resourceNames (name is
+    # not yet bound) — k8s RBAC ignores resourceNames on create.
+    resourceNames: ['vrt-cron-leader']
+  - apiGroups: ['coordination.k8s.io']
+    resources: ['leases']
+    verbs: ['create']
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: vrt-cron-lease
+  namespace: openflare-system
+subjects:
+  - kind: ServiceAccount
+    name: vrt-cell-controller
+    namespace: openflare-system
+roleRef:
+  kind: Role
+  name: vrt-cron-lease
+  apiGroup: rbac.authorization.k8s.io

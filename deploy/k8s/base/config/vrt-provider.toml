@@ -1,0 +1,78 @@
+# vrt-provider — binding-backend sidecar (per-tenant unix sockets).
+# Keys map 1:1 onto vrt-provider::config::ProviderConfig
+# (rename_all="camelCase" + deny_unknown_fields).
+#
+# NOTE: unlike vrt-host/cell-controller, the provider does NOT honor
+# VRT_CELL_ID — cellId below must equal the vrt-cell ConfigMap value
+# (the manifest cross-asserts this).
+cellId = "REPLACE_ME_CELL_ID"
+# Per-tenant unix sockets <listenerDir>/<seg(tenant)>.sock — pod-local
+# emptyDir shared with vrt-host (the only caller is the same pod's
+# tenant workerds). 0700 + sockets 0600 in the shared-uid model;
+# under [isolation] the dir becomes 0711 and sockets 0666 gated by
+# SO_PEERCRED (see workers-runtime-provider.md).
+listenerDir = "/run/vrt/listeners"
+metricsListen = "0.0.0.0:9493"
+# 0600 file — normalized by the initContainer (K8s Secret mounts are
+# never 0600-compatible; the raw mount lives at
+# /var/run/secrets/vrt).
+cursorSecretFile = "/run/vrt/secrets/cursor-secret"
+operationTimeoutMs = 30000
+tenantConcurrency = 64
+globalConcurrency = 512
+bodyReadTimeoutMs = 30000
+drainTimeoutMs = 30000
+
+[desired]
+# The SAME signed envelope file the host reads — one delivery
+# directory, one revision source.
+path = "/run/vrt/pod-delivery/envelope.json"
+reloadMs = 1000
+graceVersions = 1
+trustedKeys = [
+  { keyId = "REPLACE_ME_KEY_ID", publicKey = "REPLACE_ME_PUBLIC_KEY" },
+]
+
+[kvrocks]
+urlEnv = "VRT_KVROCKS_URL"
+timeoutMs = 5000
+connectTimeoutMs = 5000
+
+[s3]
+endpoint = "https://REPLACE_ME_S3_ENDPOINT"
+region = "REPLACE_ME_S3_REGION"
+bucket = "REPLACE_ME_S3_BUCKET"
+accessKeyEnv = "VRT_R2_BINDING_ACCESS_KEY"
+secretKeyEnv = "VRT_R2_BINDING_SECRET_KEY"
+multipartTtlMs = 604800000
+conditionalWrites = true
+
+[vrtSql]
+addr = "http://vrt-sql:8082"
+authSecretFile = "/run/vrt/secrets/vrt-sql-auth-secret"
+
+[assets]
+# Bug 3: the host materializes static assets into /data/assets; the provider
+# serves them from the SAME dir (its /data mount is readOnly - vrt-init
+# pre-creates it 0700). Absent => every ASSETS route is 503 ASSETS_ROUTE_UNAVAILABLE.
+dir = "/data/assets"
+
+[pg]
+# Written 0600 by the cell-controller's render-inputs channel into
+# the pod-shared dir — the provider is its only reader.
+credentialsFile = "/run/vrt/render-inputs/pg-credentials.json"
+
+[pgProxy]
+# MIG-15: pg-wire proxy for synthetic Hyperdrive targets. Loopback is a
+# hard invariant — vrt-provider fails closed on a non-loopback listen.
+# The egress facade reaches it via the INTERNAL_NET service binding
+# (internal-network allow=["local"]); port MUST equal
+# vrt-config::egress::PG_PROXY_PORT (capnp emits it as every
+# internalTcpTargets upstreamPort).
+listen = "127.0.0.1:19543"
+
+
+# [isolation] intentionally ABSENT — must mirror vrt-host's
+# `[isolation]` base/span exactly if enabled (shared
+# vrt_securefs::tenant_uid derivation); a mismatch rejects every
+# tenant connection (fail closed, loud).

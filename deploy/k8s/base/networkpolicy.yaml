@@ -1,0 +1,309 @@
+# Default-deny everything in the namespace; explicit allows follow.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: openflare-system
+spec:
+  podSelector: {}
+  policyTypes: ['Ingress', 'Egress']
+---
+# vrt-host pod = vrt-host + vrt-provider + cell-controller (one pod,
+# one policy — K8s NetworkPolicy cannot scope rules to a container;
+# the union below is the honest minimum and the widened-by-necessity
+# rules are called out). The host control listener (:9091) appears in
+# NO rule: it binds 127.0.0.1 and is unreachable off-loopback by
+# construction.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: vrt-host
+  namespace: openflare-system
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: vrt-host
+  policyTypes: ['Ingress', 'Egress']
+  ingress:
+    # tenant ingress — ONLY the front proxy (k3s Traefik). Anything else
+    # in the pod CIDR is denied so an arbitrary pod cannot reach :8080
+    # and forge the `x-forwarded-proto`/`x-forwarded-for`/`cf-*` headers
+    # that [ingress] forwardedProtoTrusted / [ingress.clientIp]
+    # trustedCidrs honor (see vrt-host.toml: the trusted CIDR list must
+    # cover exactly the source range this rule admits — on disagreement
+    # THIS policy is authoritative). A peer is
+    # namespaceSelector+podSelector so overlays can retarget the proxy
+    # (e.g. ingress-nginx) in one patch without touching other rules.
+    # MIG-9: when the proxy runs hostNetwork (k3s Traefik DaemonSet)
+    # pod selectors NEVER match its traffic — the source is the node IP
+    # cross-node or the node's flannel/cni0 gateway (10.42.x.1) on the
+    # same node. Such overlays must patch `from:` to additionally carry
+    # /32 (or /128) ipBlock entries for the node IPs and gateway IPs —
+    # single addresses only, each inside the toml trusted CIDRs
+    # (vrt-k8s-check enforces both).
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik
+      ports:
+        - { port: 8080, protocol: TCP }
+    # cell-controller health port — kubelet probes (node-level, not
+    # pod-labeled).
+    - ports:
+        - { port: 9090, protocol: TCP }
+    # B12: metrics scrape — vmagent only, never tenant or public pods.
+    # Host :9494, provider :9493, controller :9495.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: vrt-monitoring
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: vmagent
+      ports:
+        - { port: 9494, protocol: TCP }
+        - { port: 9493, protocol: TCP }
+        - { port: 9495, protocol: TCP }
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - { port: 53, protocol: UDP }
+        - { port: 53, protocol: TCP }
+    # MIG-10/MIG-14: tenant-worker outbound fetch() + raw-TCP connect()
+    # (vrt-egress worker -> workerd outbound-network) — PUBLIC internet
+    # only, TCP 43+80+443 (the egress policy's default
+    # tcpAllowedPorts + allowedPorts — WHOIS/HTTP/HTTPS). `except` lists every
+    # CIDR of vrt-config egress.rs IPV4/IPV6_DENY_RANGES (plus the
+    # embedded-IPv4 prefixes on the v6 side); the fixture
+    # contract/egress-deny-ranges.json and vrt-k8s-check keep this
+    # hand-written list honest against the Rust source of truth.
+    # Coverage notes: k3s pod CIDR 10.42.0.0/16 and service CIDR
+    # 10.43.0.0/16 sit inside 10.0.0.0/8; CGNAT 100.64.0.0/10,
+    # link-local 169.254.0.0/16 (cloud metadata), loopback, multicast
+    # and reserved/doc ranges are excluded; IPv6 ULA/link-local/
+    # multicast, transition prefixes and embedded-IPv4 space are cut
+    # out of ::/0. A node IP that is public-shaped (or a public-IP pod
+    # CIDR) is NOT in these lists — overlays must add it as an extra
+    # except entry (see workers-runtime-deploy.md).
+    # The previous bare `ports: [443]` rule (no `to:`) reached every
+    # destination — kube-apiserver, pod CIDR, cloud metadata — while
+    # TCP 80 tenant egress was fully denied. Both fixed here; workerd's
+    # post-resolution restrictPeers() deny stays the second layer.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 0.0.0.0/8
+              - 10.0.0.0/8
+              - 100.64.0.0/10
+              - 127.0.0.0/8
+              - 169.254.0.0/16
+              - 172.16.0.0/12
+              - 192.0.0.0/24
+              - 192.0.2.0/24
+              - 192.168.0.0/16
+              - 198.18.0.0/15
+              - 198.51.100.0/24
+              - 203.0.113.0/24
+              - 224.0.0.0/4
+              - 240.0.0.0/4
+        - ipBlock:
+            cidr: ::/0
+            except:
+              - ::/128
+              - ::1/128
+              - 100::/64
+              - 2001::/32
+              - 2001:db8::/32
+              - 2002::/16
+              - 64:ff9b:1::/48
+              - fc00::/7
+              - fe80::/10
+              - ff00::/8
+              # `::ffff:0.0.0.0/96` (IPv4-mapped) is deliberately NOT
+              # listed: the Kubernetes API server rejects IPv4-mapped
+              # ipBlock entries. A connect() to `::ffff:a.b.c.d` leaves
+              # the host as an IPv4 packet, so the 0.0.0.0/0 except list
+              # above already constrains it; the worker-side facade IP
+              # check still denies the mapped form (ip_embedded).
+              - 64:ff9b::/96
+              - ::/96
+      ports:
+        - { port: 43, protocol: TCP }
+        - { port: 80, protocol: TCP }
+        - { port: 443, protocol: TCP }
+    # Kubernetes API (cell-controller's optional Lease CAS). The
+    # apiserver service VIP sits inside the service CIDR — excluded
+    # from the public rule above — so it needs its own narrow rule.
+    # 10.43.0.1 is the k3s default kubernetes.default ClusterIP
+    # (first address of the default service CIDR 10.43.0.0/16); a
+    # cluster with a different service CIDR must patch this /32 in an
+    # overlay. The tenant-worker public rule deliberately stays
+    # narrower than "443 to anything".
+    - to:
+        - ipBlock:
+            cidr: 10.43.0.1/32
+      ports:
+        - { port: 443, protocol: TCP }
+    # Control plane (desired pull/ack, bundle/asset/render-input pulls)
+    # is a public HTTPS endpoint (cell-controller.toml
+    # control_plane_url) — covered by the tenant-egress public rule
+    # above. A control plane on a non-public address needs its own
+    # overlay-patched ipBlock rule just like the API VIP.
+    # vrt-provider sidecar backends (pod-wide policy — cannot narrow
+    # to one container; documented limitation):
+    #   Kvrocks KV (6666), in-cluster S3 (9000), vrt-sql D1 (8082).
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: vrt-sql
+      ports:
+        - { port: 8082, protocol: TCP }
+    # (Kvrocks/S3 egress lives in the separate `vrt-host-data-egress`
+    # policy below so overlays can patch namespace/ports in one place.)
+    # PG HTTP data plane → in-cluster tenant gateway Service
+    # (per workers-runtime-pg-binding.md; never the public edge).
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: vrt-data
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: postgres-tenant-gateway
+      ports:
+        - { port: 443, protocol: TCP }
+        - { port: 80, protocol: TCP }
+        # MIG-15: pg-wire proxy upstream — the TCP data plane terminates
+        # on the gateway's internal pg listener. Port-pinned to the same
+        # podSelector so no other in-cluster 5432 is reachable.
+        - { port: 5432, protocol: TCP }
+    # Hyperdrive `database` bindings: pg-wire proxy → a standalone CNPG
+    # `<cluster>-rw` Service (any namespace, TCP 5432 only). This rule is
+    # deliberately coarse — real admission is decided by the DATABASE-side
+    # per-binding ingress NetworkPolicy (component vrt-hyperdrive-ingress,
+    # created/reclaimed by the platform; project namespaces stay
+    # default-deny otherwise). The provider only dials targets present in
+    # the signed desired snapshot, and workerd's own connect() stays blocked
+    # by the private-range deny in the tenant egress rule above (this rule
+    # is not reachable from tenant JS: only the host's provider dials it).
+    # Appended LAST so index-based overlay patches stay valid.
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchExpressions:
+              - { key: cnpg.io/cluster, operator: Exists }
+      ports:
+        - { port: 5432, protocol: TCP }
+---
+# Kvrocks KV + S3 egress for the vrt-host pod (additive to `vrt-host`).
+# DEFAULT LOCATION ASSUMPTION: namespace `vrt-data`, Kvrocks 6666,
+# S3 9000. Split out so an overlay patches namespace/ports here only
+# (see overlays/internal-test). Not verified against kvrocks-url / the
+# [s3] endpoint at render time — vrt-k8s-check only asserts two valid ports
+# exist; keep them in sync by hand.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: vrt-host-data-egress
+  namespace: openflare-system
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: vrt-host
+  policyTypes: ['Egress']
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: vrt-data
+      ports:
+        - { port: 6666, protocol: TCP }
+        - { port: 9000, protocol: TCP }
+---
+# vrt-sql: D1 data plane. Ingress ONLY from vrt-host pods; egress:
+# DNS only (it persists to its own PVC — nothing else needed).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: vrt-sql
+  namespace: openflare-system
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: vrt-sql
+  policyTypes: ['Ingress', 'Egress']
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: vrt-host
+      ports:
+        - { port: 8082, protocol: TCP }
+    # health probes from kubelet
+    - ports:
+        - { port: 8082, protocol: TCP }
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: vrt-monitoring
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: vmagent
+      ports:
+        - { port: 9492, protocol: TCP }
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - { port: 53, protocol: UDP }
+        - { port: 53, protocol: TCP }
+---
+# vrt-sql [persistence] backend = "s3": lease/CAS + snapshot objects go to
+# the S3-compatible endpoint (R2 or in-cluster). Additive to `vrt-sql`
+# (which only allows DNS). NetworkPolicy cannot match FQDNs, so the rule is
+# "TCP 443 to non-private addresses": the except list is the full
+# egress.rs IPV4_DENY_RANGES set — private/link-local/CGNAT/loopback
+# plus reserved, doc and multicast space — so a
+# compromised vrt-sql cannot reach in-cluster services or the cloud metadata
+# endpoint through it. An in-cluster S3 (MinIO etc.) is NOT covered - patch
+# this policy in the overlay with a namespaceSelector/ports instead
+# (see workers-runtime-deploy.md section 4.2).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: vrt-sql-s3-egress
+  namespace: openflare-system
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: vrt-sql
+  policyTypes: ['Egress']
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 0.0.0.0/8
+              - 10.0.0.0/8
+              - 100.64.0.0/10
+              - 127.0.0.0/8
+              - 169.254.0.0/16
+              - 172.16.0.0/12
+              - 192.0.0.0/24
+              - 192.0.2.0/24
+              - 192.168.0.0/16
+              - 198.18.0.0/15
+              - 198.51.100.0/24
+              - 203.0.113.0/24
+              - 224.0.0.0/4
+              - 240.0.0.0/4
+      ports:
+        - { port: 443, protocol: TCP }

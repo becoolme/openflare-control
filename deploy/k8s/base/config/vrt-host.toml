@@ -1,0 +1,124 @@
+# vrt-host — tenant supervisor + ingress.
+# Keys map 1:1 onto vrt-host::config::HostConfig
+# (rename_all="camelCase" + deny_unknown_fields — a wrong key fails
+# startup, it is never silently ignored).
+#
+# `VRT_CELL_ID` env (the shared vrt-cell ConfigMap) overrides cellId
+# at load — the ONE manifest source for cell identity.
+cellId = "REPLACE_ME_CELL_ID"
+workerdBinary = "/opt/vrt/workerd"
+workDir = "/data/work"
+cacheDir = "/data/cache"
+listenAddr = "0.0.0.0:8080"
+# Loopback-only by construction (validate rejects a non-loopback
+# bind). Kubelet probes cannot reach it — it is the pod-internal
+# readyz/healthz surface the cell-controller's [[pods]].readyz and
+# wf-delete loopback shim use.
+controlListen = "127.0.0.1:9091"
+metricsListen = "0.0.0.0:9494"
+# DO storage root — PVC-backed (durable). Tenants declaring
+# durableObjectClasses fail closed at assemble if this is unset.
+doStorageDir = "/data/do"
+# RV-R66: DO/workflow state is SINGLE-COPY here (no [placement] s3).
+# Explicit dev/internal-test waiver; a deployable overlay must set an s3
+# [placement] instead (vrt-k8s-check forbids this flag there).
+allowLocalDurability = true
+
+[desired]
+# Written by the cell-controller's FileEnvelopePodChannel into the
+# pod-shared emptyDir — the controller runs in the SAME pod (its
+# [[pods]] dirs are local 0700 paths and readyz is loopback-only;
+# cross-pod delivery is impossible by design).
+path = "/run/vrt/pod-delivery/envelope.json"
+assignmentFile = "/run/vrt/pod-delivery/assignment.json"
+podId = "pod-0"
+reloadMs = 1000
+graceVersions = 1
+trustedKeys = [
+  { keyId = "REPLACE_ME_KEY_ID", publicKey = "REPLACE_ME_PUBLIC_KEY" },
+]
+
+[render]
+mode = "capnp"
+# facade manifest baked into the image — params derive from it.
+facadeManifest = "/opt/vrt/facade/manifest.json"
+# H5-r1: the provider's listenerDir — every tenant's binding-backend
+# --external-addr is derived per tenant as
+# /run/vrt/listeners/<seg(tenant)>.sock, byte-identical to the socket
+# the provider binds (vrt_securefs::socket_path, one derivation).
+# Verbatim `bindingBackendSocket` is forbidden here: assignment mode
+# is the multi-tenant contract and a static socket would route every
+# tenant through ONE tenant's listener (cross-tenant authorization).
+bindingBackendDir = "/run/vrt/listeners"
+systemCompatDate = "2024-09-01"
+systemCompatFlags = []
+# Combined {vars,secrets} written 0600 by the cell-controller's
+# render-inputs pull (initContainer seeds an empty one so startup
+# precedes the first pull).
+renderInputsFile = "/run/vrt/render-inputs/render-inputs.json"
+extraArgs = []
+
+[bundles]
+# Control-plane bundle pull — the URL is the cluster-scoped API base
+# (`{base}/vrt/bundles/{digest}`), token is the scoped cell token.
+baseUrl = "https://REPLACE_ME_CP_HOST/api/internal/clusters/REPLACE_ME_CELL_ID"
+tokenFile = "/run/vrt/secrets/cell-token"
+
+[assets]
+dir = "/data/assets"
+baseUrl = "https://REPLACE_ME_CP_HOST/api/internal/clusters/REPLACE_ME_CELL_ID"
+tokenFile = "/run/vrt/secrets/cell-token"
+
+[ingress]
+# MIG-7: workerd derives `request.url`'s scheme from the
+# `x-forwarded-proto` header vrt-host writes (worker socket
+# `forwardedProtoHeader`); inbound client values are always stripped.
+# Traefik (websecure only, see base/ingress.yaml) terminates TLS and
+# writes X-Forwarded-Proto; we honor it only from the pod CIDR — the
+# same source range the NetworkPolicy vrt-host :8080 `from:` rule
+# admits (Traefik pod IPs come from it). The two MUST stay aligned:
+# this list covers exactly the range the NetworkPolicy permits, and on
+# any disagreement the NetworkPolicy is authoritative — a source it
+# denies cannot reach :8080 at all. An overlay that retargets the
+# `from:` selector (different proxy namespace/labels) must keep this
+# list covering that proxy's pod-IP range the same way. Alternative:
+# `fixed-https` — valid only while the Ingress stays websecure-only.
+forwardedProto = "trusted-proxy-header"
+forwardedProtoTrusted = ["10.42.0.0/16"]
+
+# MIG-9: typed upstream client-IP trust (`[ingress.clientIp]`).
+#   mode = "none"        — never inject cf-connecting-ip (fail-closed
+#                          default; keep this unless a proxy chain like
+#                          Cloudflare → Traefik → vrt-host is real).
+#   mode = "trusted-xff" — client IP = rightmost non-trusted XFF hop,
+#                          only when the TCP peer is in trustedCidrs.
+#   mode = "cloudflare"  — additionally honor upstream
+#                          cf-connecting-ip / true-client-ip when the
+#                          XFF hop adjacent to the trusted proxy lands
+#                          inside cloudflareCidrs (the Cloudflare edge
+#                          ranges — list them here, never fetched).
+# trustedCidrs must enumerate the same sources the NetworkPolicy :8080
+# `from:` admits (hostNetwork proxies: node IPs + flannel gateways as
+# /32 ipBlocks — see overlays/internal-test). vrt-k8s-check fails the
+# render on drift between the two.
+[ingress.clientIp]
+mode = "none"
+
+[limits]
+maxRssBytes = 536870912
+maxFds = 4096
+
+[cache]
+# Per-tenant Cache API sockets under <workDir>/cache/. Every bound
+# is required >0 and entry <= tenant <= global.
+maxEntryBytes = 1048576
+tenantBytes = 16777216
+globalBytes = 134217728
+globalInflightBytes = 33554432
+tenantInflightBytes = 4194304
+
+# [isolation] is intentionally ABSENT: the pod runs uid 10001
+# (runAsNonRoot) and per-tenant setuid needs euid 0 — the binary
+# refuses to start otherwise. Deployments that can give the host
+# container euid 0 may enable it with matching base/span on BOTH
+# vrt-host and vrt-provider (see workers-runtime-deploy.md).

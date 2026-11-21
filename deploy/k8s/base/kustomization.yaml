@@ -1,0 +1,40 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - namespace.yaml
+  - serviceaccount.yaml
+  - rbac.yaml
+  - networkpolicy.yaml
+  - cell-controller.yaml
+  - vrt-host.yaml
+  - vrt-sql.yaml
+  - ingress.yaml
+configMapGenerator:
+  # The four service configs live as real TOML files under config/
+  # (parsed verbatim by each binary's serde — camelCase or snake_case
+  # per struct, deny_unknown_fields). Inline copies used to drift
+  # into keys no binary accepts; the files ARE the single source.
+  - name: vrt-host
+    namespace: openflare-system
+    files:
+      - config/vrt-host.toml
+  - name: vrt-provider
+    namespace: openflare-system
+    files:
+      - config/vrt-provider.toml
+  - name: vrt-cell-controller
+    namespace: openflare-system
+    files:
+      - config/cell-controller.toml
+  - name: vrt-sql
+    namespace: openflare-system
+    files:
+      - config/vrt-sql.toml
+# RV-R55: NO `disableNameSuffixHash`. The binaries read their config once
+# at start, so a content change MUST roll the pod: kustomize suffixes each
+# generated ConfigMap name with a content hash and rewrites the Deployment
+# volume references, which changes the pod template (strategy Recreate).
+# The out-of-band `vrt-secrets` Secret is not generated here — rotate it
+# with `kubectl rollout restart deploy/vrt-host deploy/vrt-sql`
+# (workers-runtime-deploy.md) and bump the pod-template annotation
+# `openflare.io/secret-generation` for a declarative trigger.

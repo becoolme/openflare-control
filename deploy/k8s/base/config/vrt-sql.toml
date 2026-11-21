@@ -1,0 +1,32 @@
+# vrt-sql — D1 data plane (DO-backed SQLite). Keys map 1:1 onto
+# vrt-sql::service::ServiceConfig (rename_all="camelCase" +
+# deny_unknown_fields).
+#
+# NOTE: does NOT honor VRT_CELL_ID — the data plane is not
+# cell-scoped; the auth secret is the admission boundary.
+dbRoot = "/data/db"
+# unixDir|listenTcp: exactly one. TCP inside the pod network —
+# callers (vrt-provider sidecars) hold the shared auth secret.
+listenTcp = "0.0.0.0:8082"
+metricsListen = "0.0.0.0:9492"
+# 0600 files — normalized by the initContainer.
+bookmarkSecretFile = "/run/vrt/secrets/vrt-sql-bookmark-secret"
+authSecretFile = "/run/vrt/secrets/vrt-sql-auth-secret"
+globalConcurrency = 64
+operationTimeoutMs = 5000
+drainTimeoutMs = 30000
+bodyMaxBytes = 1048576
+
+[persistence]
+# fs on the PVC — durable across reschedules. `s3` is the object-
+# store backend (lease/CAS) for multi-replica safety; `none` is
+# dev-only and refuses to start outside it.
+backend = "fs"
+fs = { root = "/data/persistence" }
+# RV-R66: same PVC as dbRoot = SINGLE COPY, no disaster recovery (the
+# "fs on the PVC — durable" wording above only covers reschedules, not
+# volume/node loss). Explicit dev/internal-test waiver; a deployable
+# overlay must use backend = "s3" (vrt-k8s-check forbids fs there).
+allowSameDeviceDurability = true
+# leaseMs default 15000 must exceed 4*clockSkewMarginMs (500) —
+# validated fail-closed at load.

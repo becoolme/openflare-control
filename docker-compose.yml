@@ -1,0 +1,25 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: vrt
+      POSTGRES_PASSWORD: vrt
+      POSTGRES_DB: vrt_plane
+    ports: ['5432:5432']
+    volumes: ['plane-db:/var/lib/postgresql/data']
+
+  plane:
+    build: { context: ., dockerfile: apps/plane/Dockerfile }
+    depends_on: [postgres]
+    environment:
+      DATABASE_URL: postgresql://vrt:vrt@postgres:5432/vrt_plane
+      PLANE_TOKEN: ${PLANE_TOKEN:?set PLANE_TOKEN}
+      PLANE_SIGNING_SECRET: ${PLANE_SIGNING_SECRET:?set PLANE_SIGNING_SECRET}
+      PLANE_BUNDLE_DIR: /data/bundles
+      PORT: '8787'
+    ports: ['8787:8787']
+    volumes: ['plane-bundles:/data/bundles']
+
+volumes:
+  plane-db:
+  plane-bundles:

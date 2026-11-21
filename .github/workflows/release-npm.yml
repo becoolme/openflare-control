@@ -1,0 +1,29 @@
+name: Release openflare-control
+
+# Manual: publishing needs an NPM_TOKEN with publish rights for the
+# `openflare-control` package. Tag pushes do not publish.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 9.15.3 }
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter openflare-control build
+      - run: pnpm --filter openflare-control test
+      - run: pnpm --filter openflare-control publish --access public --provenance --no-git-checks
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

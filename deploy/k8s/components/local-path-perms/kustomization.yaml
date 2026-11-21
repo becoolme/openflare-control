@@ -1,0 +1,104 @@
+# OPT-IN component for storage classes WITHOUT fsGroup support (k3s
+# local-path). Default base stays pure Pod Security `restricted`.
+#
+# Why: local-path creates the PV root `drwxrwsrwx root:10001` (0777 +
+# setgid) and ignores fsGroup. vrt-securefs (correctly) refuses a
+# world-writable, non-sticky ancestor, so the binaries exit with
+# `secure directory check failed`. securefs is NOT relaxed; instead the
+# first initContainer `vrt-data-perms` chowns/chmods ONLY the PVC mount
+# roots - to gid=10001 + 2770 (setgid, g+rwx, NOT world-accessible): the
+# exact shape kubelet's `fsGroupChangePolicy: OnRootMismatch` treats as
+# "already correct", so it never recursively re-chmods the tree (Bug 1: the
+# recursion turned securefs 0700/0711 dirs into 2770 on every restart).
+# securefs only rejects WORLD-writable non-sticky ancestors, so a 2770 root
+# is a valid ancestor. It must run as root with CHOWN+FOWNER, which `restricted`
+# forbids (runAsNonRoot=false, extra caps) — so this component also
+# lowers the namespace `enforce` to `baseline`. audit/warn stay
+# `restricted`. Trade-off documented in doc/platform/workers-runtime-deploy.md;
+# scripts/vrt-k8s-check.mjs pins the exact container shape and the
+# namespace labels whenever vrt-data-perms is rendered.
+#
+# Enable from an overlay:  components: [../../components/local-path-perms]
+# Do NOT use with fsGroup-capable storage (Longhorn, EBS, ...).
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+patches:
+  - target: { kind: Namespace, name: openflare-system }
+    patch: |
+      - op: replace
+        path: /metadata/labels/pod-security.kubernetes.io~1enforce
+        value: baseline
+  - target: { kind: Deployment, name: vrt-host, namespace: openflare-system }
+    patch: |
+      - op: add
+        path: /spec/template/spec/initContainers/0
+        value:
+          name: vrt-data-perms
+          image: REPLACE_ME_REGISTRY/openflare-host:VRT_IMAGE_TAG
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              set -eu
+              chown 10001:10001 /data /cell-data
+              chmod 2770 /data /cell-data
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: false
+            runAsUser: 0
+            runAsGroup: 0
+            capabilities:
+              drop: ["ALL"]
+              add: ["CHOWN", "FOWNER"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 50m
+              memory: 32Mi
+              ephemeral-storage: 64Mi
+          volumeMounts:
+            - name: state
+              mountPath: /data
+            - name: cell-state
+              mountPath: /cell-data
+  - target: { kind: Deployment, name: vrt-sql, namespace: openflare-system }
+    patch: |
+      - op: add
+        path: /spec/template/spec/initContainers/0
+        value:
+          name: vrt-data-perms
+          image: REPLACE_ME_REGISTRY/openflare-sql:VRT_IMAGE_TAG
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              set -eu
+              chown 10001:10001 /data
+              chmod 2770 /data
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: false
+            runAsUser: 0
+            runAsGroup: 0
+            capabilities:
+              drop: ["ALL"]
+              add: ["CHOWN", "FOWNER"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 50m
+              memory: 32Mi
+              ephemeral-storage: 64Mi
+          volumeMounts:
+            - name: state
+              mountPath: /data

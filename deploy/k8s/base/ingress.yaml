@@ -1,0 +1,50 @@
+# Tenant ingress for vrt-host:8080 ONLY. The control listener (:9090)
+# and metrics (:9494) are never exposed — this Ingress routes by the
+# worker-host Service port `ingress`, which is the only port on the
+# dedicated ClusterIP Service below. Host comes from the platform's
+# routeBaseDomains; no hostPort/ServiceLB, shared Traefik untouched
+# (see doc/platform/shared-entrypoint-safety.md).
+apiVersion: v1
+kind: Service
+metadata:
+  name: vrt-host-ingress
+  namespace: openflare-system
+  labels:
+    app.kubernetes.io/name: vrt-host
+spec:
+  selector:
+    app.kubernetes.io/name: vrt-host
+  ports:
+    - { name: ingress, port: 8080, targetPort: ingress }
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: vrt-workers
+  namespace: openflare-system
+  labels:
+    app.kubernetes.io/part-of: openflare-control
+  annotations:
+    # Pathless host routing only — workerd owns the whole path space.
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+spec:
+  ingressClassName: traefik
+  rules:
+    # Tenant hostnames are arbitrary labels under routeBaseDomain, so the
+    # rule is the wildcard `*.<routeBaseDomain>` (a Traefik wildcard
+    # Host rule) and TLS needs a wildcard certificate Secret created
+    # out-of-band (doc §4a). vrt-k8s-check asserts `*.` + tls.
+    - host: '*.REPLACE_ME_ROUTE_BASE_DOMAIN'
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: vrt-host-ingress
+                port:
+                  name: ingress
+  tls:
+    - hosts:
+        - '*.REPLACE_ME_ROUTE_BASE_DOMAIN'
+      secretName: REPLACE_ME_WILDCARD_TLS_SECRET

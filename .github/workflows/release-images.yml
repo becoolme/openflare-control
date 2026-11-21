@@ -1,0 +1,58 @@
+name: Release images
+
+on:
+  workflow_dispatch:
+    inputs:
+      registry:
+        description: 'Image registry/repository prefix, e.g. ghcr.io/becoolme'
+        required: true
+      tag:
+        description: 'Image tag (date-based, e.g. openflare-20261121)'
+        required: true
+      rust_image:
+        description: 'Pinned Rust builder image (name@sha256:...)'
+        required: true
+      debian_image:
+        description: 'Pinned Debian runtime image (name@sha256:...)'
+        required: true
+      platform:
+        description: 'linux/amd64 or linux/arm64'
+        required: true
+        default: linux/amd64
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  images:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: becoolme/openflare
+          path: openflare
+      - uses: pnpm/action-setup@v4
+        with: { version: 9.15.3 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - name: Fetch the pinned workerd binary
+        env:
+          OPENFLARE_DIR: openflare
+          ARCH: ${{ inputs.platform == 'linux/arm64' && 'linux-arm64' || 'linux-x64' }}
+        run: node scripts/vrt-fetch-workerd.mjs --arch "$ARCH"
+      - name: Build and push the four cell images
+        env:
+          OPENFLARE_DIR: openflare
+          VRT_REGISTRY: ${{ inputs.registry }}
+          VRT_PLATFORM: ${{ inputs.platform }}
+          VRT_RUST_IMAGE: ${{ inputs.rust_image }}
+          VRT_DEBIAN_IMAGE: ${{ inputs.debian_image }}
+          VRT_IMAGE_TAG: ${{ inputs.tag }}
+          WORKERD_SHA256: ${{ env.WORKERD_SHA256 }}
+          GHCR: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          SHA=$(node -e "const l=require('./openflare/deploy/docker/workerd.lock');const a=l.artifacts[process.env.VRT_PLATFORM==='linux/arm64'?'linux-arm64':'linux-x64'];process.stdout.write(a.binarySha256)")
+          WORKERD_SHA256=$SHA ./scripts/vrt-build-images.sh --push --tag "$VRT_IMAGE_TAG"

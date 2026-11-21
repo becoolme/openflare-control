@@ -1,0 +1,22 @@
+# The cell-controller Deployment no longer exists as a separate
+# workload — it runs as the `cell-controller` container inside the
+# vrt-host pod (see vrt-host.yaml's header note; the
+# FileEnvelopePodChannel contract — local 0700 dirs + loopback readyz
+# — makes cross-pod delivery impossible). Its ConfigMap comes from
+# configMapGenerator (config/cell-controller.toml), its fence/cron
+# PVC and lease RBAC live alongside, and this file keeps only the
+# shared cell-identity ConfigMap.
+#
+# T28/H2: the ONE manifest source for cell identity. vrt-host and the
+# cell-controller inject VRT_CELL_ID from here (env overrides the
+# toml cell id at load); each process exports it as the `cell_id`
+# const label on every emitted series. vrt-provider and vrt-sql do
+# NOT honor VRT_CELL_ID — their toml cellId must equal this value
+# (the manifest test cross-asserts it).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vrt-cell
+  namespace: openflare-system
+data:
+  cell_id: 'REPLACE_ME_CELL_ID'

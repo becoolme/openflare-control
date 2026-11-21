@@ -1,0 +1,33 @@
+{
+  "appliedAt": "2026-01-01T00:00:00Z",
+  "capabilities": {
+    "assets": true,
+    "cron": true,
+    "d1": true,
+    "d1CellOps": true,
+    "queue": true,
+    "serviceEntrypoint": true,
+    "storagePurge": true,
+    "workflows": true,
+    "workflowsCrossWorker": true,
+    "workflowsOps": true
+  },
+  "envelopeDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "fenceRevision": 5,
+  "payloadDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "reason": "tenant-failed",
+  "revision": 7,
+  "status": "PARTIAL",
+  "tenantFailures": [
+    {
+      "code": "config-load",
+      "detail": "top-level error",
+      "tenant": "team-a",
+      "workerIds": ["w-bad", "w-also-bad"]
+    },
+    {
+      "code": "switch-failed",
+      "tenant": "team-b"
+    }
+  ]
+}

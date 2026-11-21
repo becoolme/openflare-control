@@ -1,0 +1,532 @@
+# Deployment (not DaemonSet): the host runs tenant workerd processes —
+# placement is a capacity choice, not node-locality. Operators pin it
+# to workload nodes via nodeSelector/tolerations in their own overlay;
+# DaemonSet would also schedule onto control-plane/edge nodes where
+# tenant code must never run.
+#
+# ONE pod = ONE cell-host: vrt-host + vrt-provider + cell-controller.
+# The controller is a CONTAINER here, not a separate workload —
+# FileEnvelopePodChannel requires each [[pods]] dir to be an absolute
+# 0700 directory owned by the controller uid with a loopback-only
+# readyz URL; cross-pod delivery is impossible by design, so the
+# controller must share the host's filesystem view (pod-shared
+# emptyDir /run/vrt). replicas is 1: [[pods]].id is a static identity
+# ("pod-0" in vrt-cell-controller.toml) — two replicas would both
+# claim pod-0 and double-run every assigned tenant. Horizontal
+# capacity = more cells (a second cell overlay), not more replicas.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vrt-host
+  namespace: openflare-system
+  labels:
+    app.kubernetes.io/name: vrt-host
+    app.kubernetes.io/part-of: openflare-control
+spec:
+  replicas: 1
+  # RV-R191: Recreate, never RollingUpdate — static identity "pod-0" + RWO PVCs
+  # mean a surge pod would double-claim the cell and fail to mount the volume.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vrt-host
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vrt-host
+        app.kubernetes.io/part-of: openflare-control
+        # B12: vmagent discovers this pod by component label + the
+        # named `metrics` container ports (NetworkPolicy admits only
+        # vmagent). Cell identity is NOT a pod label — each process
+        # exports `cell_id` as a const label sourced from its own
+        # config, so a label edit can never silently mislabel
+        # scraped series.
+        openflare.io/component: vrt-host
+      annotations:
+        # RV-R55: bump to force a Recreate after rotating `vrt-secrets`
+        # (init copies secrets only at pod start).
+        openflare.io/secret-generation: '1'
+    spec:
+      # RV-R191: drain(30 s, host + provider) + MIG-12 waitUntilGrace(30 s,
+      # additive-budgeted though the supervisor also caps it inside
+      # drain_timeout) + SIGTERM->SIGKILL kill_grace(5 s) + 5 s controller
+      # release + 10 s margin = 80 s.
+      # Asserted by server/src/lib/shutdownBudget.test.ts against the TOMLs.
+      terminationGracePeriodSeconds: 80
+      # vrt-host SA: no API access (identity = signed desired only).
+      # The cell-controller only needs an SA token for the OPTIONAL
+      # KubernetesLeaseStore (replicas>1); base uses the in-process
+      # memory lease so automount stays off — the overlay that raises
+      # replicas also swaps serviceAccountName + automount.
+      serviceAccountName: vrt-host
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        # Bug 1: kubelet recurses chgrp/chmod over the WHOLE PV on every Pod start
+        # under the default `Always`, which turns securefs-validated 0700/0711
+        # dirs into 2770 (securefs then refuses them). OnRootMismatch recurses
+        # only when the volume root is not already gid=fsGroup+setgid+g+rwx.
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        # Secret/dir normalization — K8s Secret volumes can only
+        # express 04xx modes, but every secret file is validated
+        # 0600 at load (fail closed). The init copies the raw 0400
+        # mounts into the pod-local /run/vrt/secrets (0700 dir) at
+        # 0600, creates the delivery and render-inputs directories
+        # at the modes the binaries validate, and seeds EMPTY
+        # render-inputs.json / pg-credentials.json so config load
+        # precedes the controller's first pull (the files are
+        # re-read every converge — an empty seed is honest
+        # "nothing yet"). Reuses the vrt-host image (bookworm-slim
+        # has /bin/sh) — no extra image to pin.
+        - name: vrt-init
+          image: REPLACE_ME_REGISTRY/openflare-host:VRT_IMAGE_TAG
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              set -eu
+              # ---- PV hygiene (Bug 1) --------------------------------------
+              # Pod fsGroup + `fsGroupChangePolicy: OnRootMismatch` makes
+              # kubelet skip its recursive chgrp/chmod once the volume ROOT
+              # already carries gid=fsGroup + setgid + g+rwx. A tree already
+              # damaged by the old `Always` default (kubelet only ever ADDS
+              # group rwx + setgid; every securefs-validated entry has NO
+              # group bits) is healed here: strip them again. Non-root: this
+              # uid owns everything it created (kubelet never chowns the
+              # owner). The root itself (mindepth 1) is deliberately kept.
+              # Entries we do not own (per-tenant-uid isolation) cannot be
+              # chmod'd: warn, never mask — securefs still fails closed.
+              for r in /data /cell-data; do
+                find "$r" -xdev -mindepth 1 -name lost+found -prune -o \( -type d -o -type f -o -type s \) -perm /2070 \
+                  -exec chmod g-rwxs {} + || echo "vrt-init: WARN pv-heal-incomplete root=$r" >&2
+              done
+              if [ -d /data/work/cache ]; then chmod 0711 /data/work/cache; fi  # the ONE 0711 dir (group x is part of its mode)
+              # Bug 3: the host writes, the provider READS /data/assets (its /data mount
+              # is readOnly and AssetStore::open would have to create_dir_all) - create it
+              # once here at the securefs 0700 convention so neither side races.
+              mkdir -p /data/assets
+              chmod 0700 /data/assets
+              # Every securefs directory the pod's binaries expect under the
+              # emptyDir (root is 0777+setgid, so securefs would refuse to
+              # CREATE children there: "ancestor directory is world-writable").
+              # listeners = vrt-provider listenerDir (also vrt-host
+              # bindingBackendDir). Created here at 0700, owned by uid 10001.
+              # Children inherit the emptyDir root's setgid bit and GNU
+              # `chmod 0700` keeps it on directories, so clear it explicitly.
+              mkdir -p /run/vrt/secrets /run/vrt/pod-delivery /run/vrt/render-inputs /run/vrt/listeners
+              for d in /run/vrt/secrets /run/vrt/pod-delivery /run/vrt/render-inputs /run/vrt/listeners; do
+                chmod 0700 "$d"
+                chmod g-s "$d"
+              done
+              for k in cell-token cursor-secret vrt-sql-auth-secret vrt-sql-bookmark-secret s3-access-key s3-secret-key; do
+                src="/var/run/secrets/vrt/$k"
+                dst="/run/vrt/secrets/$k"
+                if [ -f "$src" ]; then cp "$src" "$dst"; else : > "$dst"; fi
+                chmod 0600 "$dst"
+              done
+              for f in /run/vrt/render-inputs/render-inputs.json /run/vrt/render-inputs/pg-credentials.json; do
+                [ -f "$f" ] || printf '{"vars":{},"secrets":{}}' > "$f"
+                chmod 0600 "$f"
+              done
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            capabilities:
+              drop: ['ALL']
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 50m
+              memory: 32Mi
+              ephemeral-storage: 64Mi
+          volumeMounts:
+            - name: state
+              mountPath: /data
+            - name: cell-state
+              mountPath: /cell-data
+            - name: run-vrt
+              mountPath: /run/vrt
+            - name: secrets-raw
+              mountPath: /var/run/secrets/vrt
+              readOnly: true
+      containers:
+        - name: vrt-host
+          image: REPLACE_ME_REGISTRY/openflare-host:VRT_IMAGE_TAG
+          imagePullPolicy: IfNotPresent
+          args: ['/usr/local/bin/vrt-host', '/etc/vrt/vrt-host.toml']
+          env:
+            - name: RUST_LOG
+              value: info
+            - name: VRT_CELL_ID
+              valueFrom:
+                configMapKeyRef:
+                  name: vrt-cell
+                  key: cell_id
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            capabilities:
+              drop: ['ALL']
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+              ephemeral-storage: 64Mi
+            limits:
+              cpu: '2'
+              memory: 1Gi
+              ephemeral-storage: 512Mi
+          ports:
+            - name: ingress
+              containerPort: 8080
+            # Metadata only — controlListen binds 127.0.0.1 by config
+            # (validated loopback-only); unreachable off-loopback by
+            # construction, NOT by NetworkPolicy.
+            - name: control
+              containerPort: 9091
+            # MIG-10: containerPort names are unique within the pod
+            # (kubectl warns on dupes); Services/probes reference them.
+            - name: host-metrics
+              containerPort: 9494
+          # Kubelet probes cannot reach the loopback control listener
+          # (a 127.0.0.1 bind does not answer on the pod IP). Honest
+          # liveness = the tenant ingress socket accepting TCP.
+          # READINESS is deliberately transitive: the pod's Ready is
+          # gated by the cell-controller's /readyz, which itself polls
+          # this host's loopback readyz via [[pods]] — pod Ready still
+          # means "host delivery healthy". That /readyz is the SERVING
+          # check: a host still on the previous revision stays Ready for
+          # a bounded 120 s while it switches generations, so one
+          # tenant's deploy never drops the whole cell from the Service.
+          # Convergence ("every pod loaded the applied revision") is
+          # /readyz/converged, for rollout checks only.
+          # The host waits in-process (bounded, 10 min — see
+          # vrt-host/src/initial_snapshot.rs) for the first snapshot and
+          # binds no listener meanwhile: hold liveness off until the
+          # ingress port is up. 70 x 10 s > the 10 min wait.
+          startupProbe:
+            tcpSocket:
+              port: ingress
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 70
+          livenessProbe:
+            tcpSocket:
+              port: ingress
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          volumeMounts:
+            - name: state
+              mountPath: /data
+            - name: config
+              mountPath: /etc/vrt
+              readOnly: true
+            - name: run-vrt
+              mountPath: /run/vrt
+            - name: tmp
+              mountPath: /tmp
+        # vrt-provider runs as a SIDECAR in the host pod: it exposes
+        # per-tenant unix sockets only (no TCP listener exists), so a
+        # Service topology is impossible. Pod-local sockets are also
+        # strictly stronger than a NetworkPolicy "vrt-host only" rule.
+        # Pod-level egress policies DO apply to this container too —
+        # see the vrt-host NetworkPolicy for the widened-by-necessity
+        # backend rules and the known-limitation note in
+        # workers-runtime-deploy.md.
+        - name: vrt-provider
+          image: REPLACE_ME_REGISTRY/openflare-provider:VRT_IMAGE_TAG
+          imagePullPolicy: IfNotPresent
+          args: ['/usr/local/bin/vrt-provider', '/etc/vrt/vrt-provider.toml']
+          env:
+            - name: RUST_LOG
+              value: info
+            - name: VRT_KVROCKS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: vrt-secrets
+                  key: kvrocks-url
+                  # Kvrocks is optional in v1 (no KV binding): when the key is
+                  # absent AND the provider toml has no [kvrocks] table, KV ops
+                  # fail closed with RESOURCE_UNAVAILABLE.
+                  optional: true
+            # R2 binding object store ([s3] in vrt-provider.toml). Dedicated
+            # Secret keys, NOT s3-access-key/s3-secret-key: those belong to
+            # vrt-sql persistence + DO placement and may point at a different
+            # store/account. Optional: absent keys + an [s3] table => provider
+            # startup fails closed; no [s3] table => the env is unused.
+            - name: VRT_R2_BINDING_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: vrt-secrets
+                  key: r2-binding-access-key
+                  optional: true
+            - name: VRT_R2_BINDING_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: vrt-secrets
+                  key: r2-binding-secret-key
+                  optional: true
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            capabilities:
+              drop: ['ALL']
+          resources:
+            requests:
+              cpu: 50m
+              memory: 96Mi
+              ephemeral-storage: 64Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+              ephemeral-storage: 512Mi
+          ports:
+            - name: prov-metrics
+              containerPort: 9493
+          # Bug 4: the provider waits (bounded, 10 min) in-process for the
+          # cell-controller's first envelope before binding the metrics
+          # listener; liveness must not kill it during that wait.
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: prov-metrics
+            periodSeconds: 10
+            failureThreshold: 70
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: prov-metrics
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: prov-metrics
+            periodSeconds: 5
+            failureThreshold: 3
+          volumeMounts:
+            - name: state
+              mountPath: /data
+              readOnly: true
+            - name: provider-config
+              mountPath: /etc/vrt
+              readOnly: true
+            - name: run-vrt
+              mountPath: /run/vrt
+            - name: tmp
+              mountPath: /tmp
+        # cell-controller in the SAME pod — see the file-header note.
+        # Its [[pods]] entry ("pod-0" → /run/vrt/pod-delivery +
+        # loopback readyz :9091) addresses the vrt-host container over
+        # the shared netns+filesystem.
+        - name: cell-controller
+          image: REPLACE_ME_REGISTRY/openflare-cell-controller:VRT_IMAGE_TAG
+          imagePullPolicy: IfNotPresent
+          args: ['/usr/local/bin/cell-controller', '/etc/vrt/cell-controller.toml']
+          env:
+            # cell-controller's EnvFilter has NO default directive: unset =
+            # ERROR-only, which hid WARN-level rejection reasons
+            # (malformed-envelope, pull failures).
+            - name: RUST_LOG
+              value: info
+            # T28/H2: cell identity — ONE manifest source (vrt-cell
+            # ConfigMap). The env overrides the toml `cell_id` at load
+            # so metrics `cell_id` labels and desired scoping always
+            # agree; no pod label participates in metric identity.
+            - name: VRT_CELL_ID
+              valueFrom:
+                configMapKeyRef:
+                  name: vrt-cell
+                  key: cell_id
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            # KV1: the cell-controller reads the SAME Kvrocks URL as the
+            # provider ([storage_purge.kvrocks] urlEnv) — wires both the
+            # STORAGE_PURGE backend and the KV data cell-ops executor.
+            # Optional exactly like the provider's copy: with no
+            # [storage_purge] section the env is simply unused, and when
+            # the section IS present but the key is absent the executor
+            # init fails closed (no kv capability is ever ACKed).
+            - name: VRT_KVROCKS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: vrt-secrets
+                  key: kvrocks-url
+                  optional: true
+            # [storage_purge.s3] — the SAME R2 binding store as the
+            # provider's [s3] (vrt-k8s-check asserts lockstep); feeds
+            # STORAGE_PURGE for R2 buckets and the R2 data cell-ops.
+            - name: VRT_R2_BINDING_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: vrt-secrets
+                  key: r2-binding-access-key
+                  optional: true
+            - name: VRT_R2_BINDING_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: vrt-secrets
+                  key: r2-binding-secret-key
+                  optional: true
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            capabilities:
+              drop: ['ALL']
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+              ephemeral-storage: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+              ephemeral-storage: 512Mi
+          ports:
+            - name: health
+              containerPort: 9090
+            - name: cc-metrics
+              containerPort: 9495
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: health
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          volumeMounts:
+            - name: cell-state
+              mountPath: /cell-data
+            - name: controller-config
+              mountPath: /etc/vrt
+              readOnly: true
+            - name: run-vrt
+              mountPath: /run/vrt
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: state
+          persistentVolumeClaim:
+            claimName: vrt-host-state
+        # Fence + cron-claims state for the co-located controller —
+        # durable across reschedules (the fence is also enforced
+        # against control-plane revisions, so loss is fail-closed,
+        # but a PVC avoids needless delivery pauses).
+        - name: cell-state
+          persistentVolumeClaim:
+            claimName: vrt-cell-controller-state
+        # Pod-local shared channel: pod-delivery/ (envelope+assignment),
+        # render-inputs/, listeners/ (per-tenant provider sockets),
+        # secrets/ (init-normalized 0600 copies). emptyDir is CORRECT:
+        # every payload under it is re-materialized on pod start.
+        - name: run-vrt
+          emptyDir:
+            sizeLimit: 64Mi
+        - name: secrets-raw
+          secret:
+            secretName: vrt-secrets
+            defaultMode: 0400
+            items:
+              - { key: cell-token, path: cell-token }
+              - { key: cursor-secret, path: cursor-secret }
+              - { key: vrt-sql-auth-secret, path: vrt-sql-auth-secret }
+              - { key: vrt-sql-bookmark-secret, path: vrt-sql-bookmark-secret }
+              # [placement.s3] accessKeyFile/secretKeyFile (0600 copies are
+              # made by vrt-init under /run/vrt/secrets).
+              - { key: s3-access-key, path: s3-access-key }
+              - { key: s3-secret-key, path: s3-secret-key }
+        - name: config
+          configMap:
+            name: vrt-host
+        - name: provider-config
+          configMap:
+            name: vrt-provider
+        - name: controller-config
+          configMap:
+            name: vrt-cell-controller
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi
+---
+# Headless service: stable per-pod DNS identity (metrics targets,
+# debugging). publishNotReadyAddresses keeps early probes honest —
+# the pod's own readiness comes from its containers' probes.
+apiVersion: v1
+kind: Service
+metadata:
+  name: vrt-host
+  namespace: openflare-system
+  labels:
+    app.kubernetes.io/name: vrt-host
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    app.kubernetes.io/name: vrt-host
+  ports:
+    - { name: ingress, port: 8080, targetPort: ingress }
+    - { name: host-metrics, port: 9494, targetPort: host-metrics }
+    - { name: prov-metrics, port: 9493, targetPort: 9493 }
+    - { name: controller-health, port: 9090, targetPort: 9090 }
+    - { name: controller-metrics, port: 9495, targetPort: 9495 }
+---
+# Host state (desired/, bundles/, tenants/, do/) — durable so a
+# reschedule does not re-pull every bundle. emptyDir was replaced
+# deliberately: worker state re-materializes from desired, but
+# re-pulling all bundles on every restart is a needless
+# availability hit.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: vrt-host-state
+  namespace: openflare-system
+spec:
+  accessModes: ['ReadWriteOnce']
+  resources:
+    requests:
+      storage: 4Gi
+---
+# Controller fence + cron claims — durable across reschedules.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: vrt-cell-controller-state
+  namespace: openflare-system
+spec:
+  accessModes: ['ReadWriteOnce']
+  resources:
+    requests:
+      storage: 256Mi

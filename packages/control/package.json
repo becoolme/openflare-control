@@ -1,0 +1,46 @@
+{
+  "name": "openflare-control",
+  "version": "0.1.0",
+  "description": "Portable cell control plane for the VRT Workers runtime: wire contract, ports, desired-state construction and signing",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage"
+  },
+  "dependencies": {
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@vitest/coverage-v8": "^3.2.7",
+    "fast-check": "^4.10.3",
+    "typescript": "^5.7.2",
+    "vitest": "^3.0.0"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/becoolme/openflare-control.git",
+    "directory": "packages/control"
+  },
+  "bugs": {
+    "url": "https://github.com/becoolme/openflare-control/issues"
+  },
+  "homepage": "https://github.com/becoolme/openflare-control#readme"
+}

@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: openflare-system
+  labels:
+    app.kubernetes.io/part-of: openflare-control
+    # Enforce the restricted Pod Security Standard for this namespace.
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted

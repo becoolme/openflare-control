@@ -1,0 +1,90 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 9.15.3 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm format:check
+      - run: pnpm run typecheck
+      - run: pnpm run check:package
+      - run: pnpm run check:sanitized
+      - run: PLANE_TOKEN=x PLANE_SIGNING_SECRET=y docker compose config -q
+
+  control:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 9.15.3 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter openflare-control test:coverage
+
+  plane:
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: vrt
+          POSTGRES_PASSWORD: vrt
+          POSTGRES_DB: openflare_plane_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U vrt" --health-interval 5s
+          --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 9.15.3 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter openflare-control build
+      - run: pnpm --filter openflare-plane build
+      - name: Unit + Postgres conformance coverage
+        env:
+          DATABASE_URL: postgresql://vrt:vrt@127.0.0.1:5432/openflare_plane_test
+        run: pnpm --filter openflare-plane test:coverage
+
+  image:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -f apps/plane/Dockerfile -t openflare-plane:ci .
+
+  k8s:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: becoolme/openflare
+          path: openflare
+      - uses: pnpm/action-setup@v4
+        with: { version: 9.15.3 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - name: Overlay templates and the render gate behave
+        env:
+          OPENFLARE_DIR: openflare
+        run: |
+          node scripts/vrt-k8s-check.mjs --template deploy/k8s/overlays/example
+          node --test scripts/test/*.test.mjs

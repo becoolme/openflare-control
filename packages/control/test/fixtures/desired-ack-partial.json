@@ -1,0 +1,22 @@
+{
+  "appliedAt": "2026-01-01T00:00:00Z",
+  "capabilities": {
+    "assets": true,
+    "cron": true,
+    "d1": true,
+    "d1CellOps": true,
+    "queue": true,
+    "serviceEntrypoint": true,
+    "storagePurge": true,
+    "workflows": true,
+    "workflowsCrossWorker": true,
+    "workflowsOps": true
+  },
+  "envelopeDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "fenceRevision": 5,
+  "payloadDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "reason": "pods-not-applied:pod-1,pod-2",
+  "revision": 7,
+  "status": "PARTIAL",
+  "tenantFailures": []
+}
