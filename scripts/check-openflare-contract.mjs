@@ -10,7 +10,7 @@
  * CI checks out becoolme/openflare and runs this gate against its latest
  * `main`, so a runtime contract change cannot silently diverge here.
  */
-import { copyFileSync, existsSync, readFileSync } from 'node:fs'
+import { copyFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { isDeepStrictEqual } from 'node:util'
@@ -57,20 +57,31 @@ for (const name of FILES) {
   }
 }
 
-if (problems.length) {
-  console.error(problems.join('\n'))
-  console.error(
-    'run with --write to pull the canonical copies from OpenFlare (the runtime owns this contract)'
-  )
-  process.exit(1)
-}
-
-let rev = 'unknown'
+let rev = ''
 try {
-  rev = execFileSync('git', ['-C', upstream, 'rev-parse', '--short=12', 'HEAD'], {
+  rev = execFileSync('git', ['-C', upstream, 'rev-parse', 'HEAD'], {
     encoding: 'utf8',
   }).trim()
 } catch {
   // A source archive without .git is fine; the file comparison already ran.
 }
-console.log(`OK: ${FILES.length} wire fixtures match OpenFlare ${rev}`)
+
+const pinFile = join(root, 'OPENFLARE_CONTRACT_REV')
+if (write && rev) {
+  writeFileSync(pinFile, `${rev}\n`)
+  console.log(`pinned OpenFlare contract at ${rev}`)
+} else if (rev && existsSync(pinFile)) {
+  const pin = readFileSync(pinFile, 'utf8').trim()
+  if (pin !== rev) {
+    problems.push(`upstream checkout ${rev} does not match OPENFLARE_CONTRACT_REV ${pin}`)
+  }
+}
+
+if (problems.length) {
+  console.error(problems.join('\n'))
+  console.error(
+    'run with --write against the intended OpenFlare revision to update the fixtures and the pin'
+  )
+  process.exit(1)
+}
+console.log(`OK: ${FILES.length} wire fixtures match OpenFlare ${rev.slice(0, 12) || 'unknown'}`)
