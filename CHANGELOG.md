@@ -1,5 +1,61 @@
 # Changelog
 
+## 2026-11-21 — real kind e2e
+
+- `scripts/e2e-kind.sh` + CI `e2e-kind` job: kind cluster, locally loaded plane
+  image, Postgres/plane Deployments + Secret, rollout, migrations,
+  port-forward, then the same HTTP lifecycle.
+- Scope is the plane on real Kubernetes networking; the four runtime cell images
+  and workerd stay outside this repository's cluster e2e.
+
+## 2026-11-21 — real Docker e2e
+
+- `scripts/e2e-docker.mjs` + CI `e2e-docker` job: build and start the real
+  plane container + Postgres via compose, migrate, then drive the API over HTTP
+  (cell/worker/bundle/version/publish/desired/ACK/ops/logs/services/delete).
+- Fixed the image's `/data/bundles` ownership (root-owned volume made every
+  bundle PUT fail with EACCES) and added a Postgres healthcheck to compose.
+- Clarified test layers: `api.e2e`/`services.e2e` are in-process + Postgres;
+  Docker job is deployment-level; the k8s job is a render gate, not a cluster
+  deployment.
+
+## 2026-11-21 — service APIs and router split
+
+- Split the management API into focused modules (`admin/cells|workers|config|bundles|publications|ops|logs` and `admin/services/*`); `context.ts` owns auth, parsing and wire mappers.
+- Added service resource APIs: D1 databases + query/migrations, R2 buckets + object ops, KV namespaces + data ops, queues (CRUD + delay), workflows (declarations + instance ops), and a `/services` catalog returning ready-to-paste bindings.
+- Added unified `GET /cells/{cell}/ops/{id}?waitMs=` polling across the D1 and generic cell-op channels.
+- `services.e2e.test.ts` covers the service lifecycle and fail-closed validation/scope injection.
+
+## 2026-11-21 — management API + cell ops/logs
+
+- Added `/api/v1` management API: cell/worker/version/vars/secrets/hostnames/
+  bundle CRUD, publish/publications, D1 and generic cell-op enqueue/list, log
+  query and retention prune. `PLANE_ADMIN_TOKEN` is the management token
+  (falls back to `PLANE_TOKEN`).
+- Implemented the cell `d1-ops`, `cell-ops` and `logs` channels: PENDING pull,
+  seq ACK, and log ingest deduped by `(workerId,bootId,seq)`; added the
+  `plane_logs` table.
+- `apps/plane/src/api.e2e.test.ts` drives the full lifecycle over HTTP against
+  Postgres (create → bundle → version → publish → desired → ACK → ops → logs →
+  delete) and runs in CI.
+
+## 2026-11-21 — package consumption integration test
+
+- `pnpm run check:package-consumption` builds and packs the package, installs
+  the tarball into an empty project, and imports/uses the public exports. This
+  is the integration gate for `files`/`exports`/`dist` mistakes that in-repo
+  source tests cannot catch. Wired into the `control` CI job.
+
+## 2026-11-21 — Vibeploy consumes the package
+
+- Vibeploy switched from the byte-identical `server/src/vrt-control` copy to
+  the git dependency
+  `github:becoolme/openflare-control#v0.2.1&path:packages/control`.
+  The package's `prepare` script builds `dist/` during install.
+- `check-vibeploy-sync.mjs` now verifies the dependency is declared and fails if
+  the old copy is reintroduced; it no longer byte-compares sources.
+- `docs/migration.md` records the Git interim and the optional npm switch.
+
 ## 2026-11-21 — runtime contract dependency + capability coverage
 
 - Added `scripts/check-openflare-contract.mjs` and a CI step that check out

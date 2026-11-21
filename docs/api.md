@@ -1,5 +1,9 @@
 # Cell API
 
+This is the scoped cell channel. For operator/product CRUD (cells, workers,
+versions, vars/secrets/hostnames, bundles, publish, ops, logs) see
+[management-api.md](management-api.md).
+
 All routes are under `/api/internal/clusters/<cellId>/vrt` and require
 `Authorization: Bearer <PLANE_TOKEN>` unless noted. Responses are
 `Cache-Control: no-store`. Typed errors use

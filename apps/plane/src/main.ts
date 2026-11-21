@@ -25,6 +25,8 @@ const app = createApp({
   pool,
   bundleStore: new DirBundleStore(env('PLANE_BUNDLE_DIR', './data/bundles')),
   token: env('PLANE_TOKEN'),
+  adminToken: process.env.PLANE_ADMIN_TOKEN?.trim() || env('PLANE_TOKEN'),
+  signing,
   maxBundleBytes,
 })
 

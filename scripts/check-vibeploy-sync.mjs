@@ -7,7 +7,7 @@
  *   VIBEPLOY_DIR=../vibeploy node scripts/check-vibeploy-sync.mjs
  *   VIBEPLOY_DIR=../vibeploy node scripts/check-vibeploy-sync.mjs --write
  */
-import { copyFileSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import { copyFileSync, existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -20,6 +20,26 @@ if (!vibeployDir) {
 }
 const target = join(vibeployDir, 'server/src/vrt-control')
 const write = process.argv.includes('--write')
+
+// Migration step 1 complete: Vibeploy consumes the package directly and no
+// longer carries the portable sources. There is nothing to byte-compare.
+try {
+  const pkg = JSON.parse(readFileSync(join(vibeployDir, 'server/package.json'), 'utf8'))
+  const dep = pkg.dependencies?.['openflare-control'] ?? pkg.devDependencies?.['openflare-control']
+  if (dep) {
+    if (existsSync(target)) {
+      console.error(
+        'vibeploy declares openflare-control but server/src/vrt-control still exists; remove the copy'
+      )
+      process.exit(1)
+    }
+    console.log(`OK: vibeploy consumes openflare-control from ${dep}`)
+    process.exit(0)
+  }
+} catch (e) {
+  console.error(`could not read vibeploy server/package.json: ${e.message}`)
+  process.exit(2)
+}
 
 const files = (dir) =>
   readdirSync(dir)
