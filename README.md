@@ -179,8 +179,9 @@ store conformance cases.
 
 - Cell channel: desired, ACK, render-inputs, bundles — implemented.
 - Management API (`/api/v1`): cells, workers, versions, vars, secrets,
-  hostnames, bundles, publish/publications, D1 ops, generic cell ops, logs and
-  retention prune — implemented ([docs/management-api.md](docs/management-api.md)).
+  hostnames, bundles, publish/publications, D1/R2/KV/queue/workflow resources,
+  D1/cell ops, logs and retention prune — implemented
+  ([docs/management-api.md](docs/management-api.md)).
 - D1, generic cell-op and log channels: implemented (pull/ACK/ingest), not just
   empty shapes.
 - Assets manifests, DO/workflow management and team quotas: not implemented in

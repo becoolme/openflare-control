@@ -103,6 +103,54 @@ create table if not exists plane_cell_ops (
   created_at timestamptz not null default now()
 );
 
+create table if not exists plane_d1_databases (
+  database_id text primary key,
+  team_id text not null,
+  cluster_id text not null,
+  name text not null,
+  created_at timestamptz not null default now(),
+  unique (team_id, cluster_id, name)
+);
+
+create table if not exists plane_r2_buckets (
+  bucket_name text primary key,
+  bucket_id text not null unique,
+  team_id text not null,
+  cluster_id text not null,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists plane_kv_namespaces (
+  namespace_id text primary key,
+  physical_id text not null unique,
+  team_id text not null,
+  cluster_id text not null,
+  title text not null,
+  created_at timestamptz not null default now(),
+  unique (team_id, cluster_id, title)
+);
+
+create table if not exists plane_queues (
+  queue_id text primary key,
+  team_id text not null,
+  cluster_id text not null,
+  name text not null,
+  delivery_delay_seconds integer check (delivery_delay_seconds between 0 and 86400),
+  created_at timestamptz not null default now(),
+  unique (team_id, cluster_id, name)
+);
+
+create table if not exists plane_workflows (
+  workflow_id text primary key,
+  worker_id text not null references plane_workers(id) on delete cascade,
+  team_id text not null,
+  cluster_id text not null,
+  name text not null,
+  class_name text not null,
+  created_at timestamptz not null default now(),
+  unique (worker_id, name)
+);
+
 create table if not exists plane_logs (
   id bigserial primary key,
   cell_id text not null,

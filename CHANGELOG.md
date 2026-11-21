@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-11-21 — service APIs and router split
+
+- Split the management API into focused modules (`admin/cells|workers|config|bundles|publications|ops|logs` and `admin/services/*`); `context.ts` owns auth, parsing and wire mappers.
+- Added service resource APIs: D1 databases + query/migrations, R2 buckets + object ops, KV namespaces + data ops, queues (CRUD + delay), workflows (declarations + instance ops), and a `/services` catalog returning ready-to-paste bindings.
+- Added unified `GET /cells/{cell}/ops/{id}?waitMs=` polling across the D1 and generic cell-op channels.
+- `services.e2e.test.ts` covers the service lifecycle and fail-closed validation/scope injection.
+
 ## 2026-11-21 — management API + cell ops/logs
 
 - Added `/api/v1` management API: cell/worker/version/vars/secrets/hostnames/

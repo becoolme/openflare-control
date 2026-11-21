@@ -94,6 +94,28 @@ values out of `desired` and out of reads.
 | PUT    | `/api/v1/cells/{cell}/bundles/{sha256}` | raw bytes; digest must match the body |
 | GET    | `/api/v1/cells/{cell}/bundles/{sha256}` | download (content-addressed)          |
 
+### Service resources
+
+Each service has a resource table plus a data channel. Data operations are
+asynchronous cell-ops, so they return `{opId, channel}` (`202`) and the caller
+polls `GET /api/v1/cells/{cell}/ops/{opId}?waitMs=`.
+
+| Service   | Resource endpoints                                        | Data/ops                                                                                       |
+| --------- | --------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| D1        | `GET/POST /d1/databases`, `GET/DELETE /d1/databases/{id}` | `POST .../query {sql,params?}`, `POST .../migrations {migrations}`, `GET .../ops`              |
+| R2        | `GET/POST /r2/buckets`, `DELETE /r2/buckets/{name}`       | `POST .../ops {kind,payload}` for `R2_LIST/HEAD/GET/PUT/DELETE`; `GET .../ops`                 |
+| KV        | `GET/POST /kv/namespaces`, `DELETE /kv/namespaces/{id}`   | `POST .../ops {kind,payload}` for `KV_GET/PUT/DELETE/LIST/BULK_PUT/BULK_DELETE`; `GET .../ops` |
+| Queues    | `GET/POST /queues`, `PATCH/DELETE /queues/{id}`           | metadata only; producers/consumers are worker bindings (queue send stays on the data plane)    |
+| Workflows | `GET/POST/DELETE .../workers/{name}/workflows[/{wf}]`     | `POST .../workflows/{wf}/ops` for `WF_CREATE/GET/ACTION/EVENT/DELETE`; `GET .../ops`           |
+
+`GET /api/v1/cells/{cell}/services` returns every resource with a ready-to-paste
+binding object (`d1`, `r2`, `kv`, `queue`, workflow metadata).
+
+R2/KV payload scope (`tenantId`, physical `bucketId`/`namespaceId`) is resolved
+server-side and injected; a client-supplied scope is rejected. `R2_DELETE` takes
+`{keys: [...]}`; `R2_PUT` takes `{key, bodyBase64, contentType?}`; KV values use
+`valueBase64` (see the runtime cell-op shapes).
+
 ### Publish and publications
 
 | Method | Path                                           | Purpose                                           |
@@ -111,6 +133,7 @@ returns `501`.
 | -------- | -------------------------------------------- | ----------------------------------------------------------- |
 | POST/GET | `/api/v1/cells/{cell}/d1-ops[?status=]`      | enqueue/list D1 ops (`EXECUTE`, `MIGRATIONS_APPLY`, `DROP`) |
 | POST/GET | `/api/v1/cells/{cell}/cell-ops[?status=]`    | enqueue/list generic cell ops (workflows, KV, R2, ...)      |
+| GET      | `/api/v1/cells/{cell}/ops/{opId}?waitMs=`    | unified op lookup/long-poll (D1 or cell channel)            |
 | GET      | `/api/v1/cells/{cell}/logs?workerId=&limit=` | query ingested worker logs                                  |
 | POST     | `/api/v1/maintenance/prune`                  | `{keepPerCell}` retention prune                             |
 
@@ -138,3 +161,8 @@ side.
 6. enqueue/pull/ACK a D1 op and a generic cell op;
 7. push and query logs;
 8. update/delete var, hostname, worker and cell.
+
+`apps/plane/src/services.e2e.test.ts` separately exercises D1 query/migrations,
+R2/KV ops (scope injection rejection), queue delay updates, workflow
+declarations + instance ops, the service catalog, unified op polling, and
+validation/missing-resource branches.

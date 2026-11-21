@@ -13,7 +13,7 @@ import {
 import { collectRenderInputs } from './renderInputs.js'
 import type { Pool } from 'pg'
 import type { SnapshotSigningContext } from 'openflare-control'
-import { createAdminApp } from './adminRoutes.js'
+import { createAdminApp } from './admin/index.js'
 
 export interface AppDeps {
   store: VrtControlStore
