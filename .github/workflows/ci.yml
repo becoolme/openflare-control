@@ -29,11 +29,17 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: becoolme/openflare
+          path: openflare
       - uses: pnpm/action-setup@v4
         with: { version: 9.15.3 }
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: pnpm }
       - run: pnpm install --frozen-lockfile
+      # The runtime owns the wire contract: fail if the vendored fixtures drifted.
+      - run: OPENFLARE_DIR=openflare pnpm run check:openflare-contract
       - run: pnpm --filter openflare-control test:coverage
 
   plane:

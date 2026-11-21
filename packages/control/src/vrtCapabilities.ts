@@ -28,6 +28,14 @@ export const VRT_CELL_CAPABILITY_KEYS = [
   'r2',
   /** SERVICE bindings that name a `WorkerEntrypoint` export are rendered. */
   'serviceEntrypoint',
+  /** `workerLoader` bindings render to the pinned workerd fork's loader cap. */
+  'workerLoader',
+  /** Per-worker quotas render into workerd's `limits` block. */
+  'quotas',
+  /** SERVICE `props` (`ctx.props`) is understood by this cell generation. */
+  'serviceProps',
+  /** Queue-level `deliveryDelaySeconds` is understood by this cell generation. */
+  'queueDeliveryDelay',
 ] as const
 
 export type VrtCellCapabilityKey = (typeof VRT_CELL_CAPABILITY_KEYS)[number]
@@ -72,6 +80,14 @@ export interface VrtCapabilityNeeds {
   /** SERVICE bindings that name a non-default entrypoint. A cell that does
    * not understand the wire field would reject the WHOLE snapshot. */
   readonly serviceEntrypointCount: number
+  /** SERVICE bindings that carry `props` (optional for older callers). */
+  readonly servicePropsCount?: number
+  /** QUEUE bindings with a queue-level `deliveryDelaySeconds`. */
+  readonly queueDeliveryDelayCount?: number
+  /** `workerLoader` bindings. */
+  readonly workerLoaderCount?: number
+  /** Workers declaring non-default quotas (limits block rendered). */
+  readonly nonDefaultQuotaCount?: number
 }
 
 /** Pure: capability bits a config needs. Deploy and rollback both call it. */
@@ -89,6 +105,10 @@ export function requiredCapabilities(needs: VrtCapabilityNeeds): VrtCellCapabili
   if (needs.workflowCount > 0) out.add('workflows')
   if (needs.crossWorkerWorkflowCount > 0) out.add('workflowsCrossWorker')
   if (needs.serviceEntrypointCount > 0) out.add('serviceEntrypoint')
+  if ((needs.servicePropsCount ?? 0) > 0) out.add('serviceProps')
+  if ((needs.queueDeliveryDelayCount ?? 0) > 0) out.add('queueDeliveryDelay')
+  if ((needs.workerLoaderCount ?? 0) > 0) out.add('workerLoader')
+  if ((needs.nonDefaultQuotaCount ?? 0) > 0) out.add('quotas')
   return VRT_CELL_CAPABILITY_KEYS.filter((k) => out.has(k))
 }
 

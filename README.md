@@ -161,6 +161,7 @@ pnpm --filter openflare-control test        # unit + property + boundary tests
 DATABASE_URL=... pnpm --filter openflare-plane test
 pnpm lint && pnpm format:check && pnpm run typecheck
 pnpm run check:package                      # publint (exports/files)
+OPENFLARE_DIR=../openflare pnpm run check:openflare-contract  # runtime owns the wire fixtures
 pnpm run check:sanitized                    # no private refs in deploy/
 OPENFLARE_DIR=../openflare node scripts/vrt-k8s-check.mjs --template deploy/k8s/overlays/example
 ```
