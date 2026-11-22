@@ -9,8 +9,9 @@ tiny Node service that serves it and proxies the plane API on the same origin.
 browser ──▶ console:8788
               ├─ /_nuxt/*, /workers, /d1, ...   static SPA (200.html fallback)
               ├─ /console-healthz               liveness
-              └─ /api/v1/*, /api/internal/*     proxy to PLANE_URL
-                                                (server injects the admin token)
+              └─ /api/v1/*                      proxy to PLANE_URL
+                                                (server injects the admin token;
+                                                /api/internal/* is never exposed)
 ```
 
 - The browser never receives the management token; it is injected by

@@ -9,6 +9,7 @@ import { createReadStream, existsSync, statSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { extname, join, normalize, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { proxyTarget } from './proxyPath.mjs'
 
 const here = fileURLToPath(new URL('.', import.meta.url))
 const built = resolve(here, '../public')
@@ -19,7 +20,6 @@ const planeUrl = (process.env.PLANE_URL ?? 'http://127.0.0.1:8787').replace(/\/$
 const adminToken = process.env.PLANE_ADMIN_TOKEN ?? process.env.PLANE_TOKEN ?? ''
 if (!adminToken) throw new Error('PLANE_ADMIN_TOKEN (or PLANE_TOKEN) is required')
 
-const PROXY_PREFIXES = ['/api/v1/', '/api/internal/']
 const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
@@ -62,14 +62,14 @@ function sendFile(req, res, file, status = 200) {
   return true
 }
 
-async function proxy(req, res) {
+async function proxy(req, res, target) {
   const headers = { ...req.headers, authorization: `Bearer ${adminToken}` }
   delete headers.host
   delete headers.cookie
   const body = req.method === 'GET' || req.method === 'HEAD' ? undefined : await readBody(req)
   let upstream
   try {
-    upstream = await fetch(`${planeUrl}${req.url}`, {
+    upstream = await fetch(`${planeUrl}${target}`, {
       method: req.method,
       headers,
       body,
@@ -118,8 +118,9 @@ const server = createServer(async (req, res) => {
       res.writeHead(200, { 'content-type': 'application/json' }).end('{"ok":true}')
       return
     }
-    if (PROXY_PREFIXES.some((p) => url.startsWith(p))) {
-      await proxy(req, res)
+    const target = proxyTarget(url)
+    if (target) {
+      await proxy(req, res, target)
       return
     }
     const file = safePath(url)
