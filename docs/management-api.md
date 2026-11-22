@@ -73,7 +73,7 @@ Version body:
   "compatibilityDate": "2025-01-01",
   "compatibilityFlags": [],
   "crons": [{ "scheduleId": "c1", "expression": "*/5 * * * *" }],
-  "quotas": { "cpuMs": 10000, "memoryMb": 128, "subrequests": 50, "outboundConnections": 6 },
+  "quotas": { "cpuMs": 10000, "memoryMb": 128, "subrequests": 50, "outboundConnections": 16 },
   "vars": { "GREETING": "hi" },
   "bindings": [],
   "queueConsumers": [{ "queueId": "<26>", "queueName": "jobs", "maxBatchSize": 10 }],

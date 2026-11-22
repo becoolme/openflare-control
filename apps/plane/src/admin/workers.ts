@@ -1,6 +1,7 @@
 import type { Hono } from 'hono'
 import { z } from 'zod'
 import {
+  VRT_DEFAULT_QUOTAS,
   VrtControlError,
   bundleKeyFor,
   type VrtBindingRecord,
@@ -118,6 +119,14 @@ async function createVersion(
       quotas: body.quotas ?? null,
     })
   )
+  const effectiveQuotas = body.quotas ?? VRT_DEFAULT_QUOTAS
+  if (effectiveQuotas.outboundConnections !== VRT_DEFAULT_QUOTAS.outboundConnections) {
+    throw new VrtControlError(
+      400,
+      'outboundConnections is not enforceable by the pinned runtime',
+      'VRT_QUOTA_UNSUPPORTED'
+    )
+  }
   const input: VrtCreateVersionInput = {
     workerId,
     versionId: body.versionId,
@@ -129,12 +138,7 @@ async function createVersion(
     compatibilityDate: body.compatibilityDate,
     compatibilityFlags: body.compatibilityFlags,
     crons: body.crons,
-    quotas: body.quotas ?? {
-      cpuMs: 10_000,
-      memoryMb: 128,
-      subrequests: 50,
-      outboundConnections: 6,
-    },
+    quotas: effectiveQuotas,
     varValues: body.vars,
     bindingsFingerprint: fp,
     runtimeConfigDigest: fp,
