@@ -21,6 +21,7 @@ export interface AdminDeps {
   adminToken?: string
   signing?: SnapshotSigningContext
   maxBundleBytes?: number
+  retention?: import('../retention.js').RetentionConfig
 }
 
 export const MAX_JSON = 1024 * 1024

@@ -1,5 +1,17 @@
 # Changelog
 
+## 2026-11-22 — retention configuration
+
+- Added deployment retention knobs: `PLANE_LOG_RETENTION_DAYS` (7),
+  `PLANE_OPS_RETENTION_DAYS` (30), `PLANE_PUBLICATION_KEEP` (20) and
+  `PLANE_RETENTION_SWEEP_MS` (6h, 0 disables).
+- The plane runs a background sweep; `maintain.ts` and
+  `POST /api/v1/maintenance/prune` accept per-run overrides.
+- Logs and terminal D1/cell ops (the stats sources) are pruned; pending ops are
+  never deleted. Indexes added for the cutoff scans.
+- Tests: config parsing + e2e proving old logs/terminal ops are removed while
+  old pending ops survive.
+
 ## 2026-11-21 — teams, Hyperdrive, stats APIs
 
 - Added teams + quotas CRUD (`plane_teams`, `plane_team_quotas`).

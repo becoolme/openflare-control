@@ -26,6 +26,8 @@ export interface AppDeps {
   signing?: SnapshotSigningContext
   /** Refuse to buffer a bundle larger than this (default 128 MiB). */
   maxBundleBytes?: number
+  /** Deployment retention policy (logs/ops/publications). */
+  retention?: import('./retention.js').RetentionConfig
 }
 
 const MAX_BODY = 16 * 1024

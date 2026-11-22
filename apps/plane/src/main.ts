@@ -4,6 +4,7 @@ import { createPlaneStore } from './store.js'
 import { createApp } from './routes.js'
 import { DirBundleStore } from './bundleStore.js'
 import { resolvePlaneSigningKey } from './signing.js'
+import { pruneRetention, retentionFromEnv } from './retention.js'
 
 const env = (name: string, fallback?: string): string => {
   const value = process.env[name] ?? fallback
@@ -20,19 +21,35 @@ if (!Number.isSafeInteger(maxBundleBytes) || maxBundleBytes < 1) {
 
 const pool = new Pool({ connectionString: env('DATABASE_URL') })
 const signing = resolvePlaneSigningKey()
+const store = createPlaneStore(pool)
+const retention = retentionFromEnv()
 const app = createApp({
-  store: createPlaneStore(pool),
+  store,
   pool,
   bundleStore: new DirBundleStore(env('PLANE_BUNDLE_DIR', './data/bundles')),
   token: env('PLANE_TOKEN'),
   adminToken: process.env.PLANE_ADMIN_TOKEN?.trim() || env('PLANE_TOKEN'),
   signing,
   maxBundleBytes,
+  retention,
 })
 
 console.log(`openflare-plane listening on :${port}`)
 console.log(`trustedKeys: keyId=${signing.keyId} publicKey=${signing.publicKey}`)
+console.log(
+  `retention: logs=${retention.logRetentionDays}d ops=${retention.opsRetentionDays}d ` +
+    `publications=${retention.keepPerCell}/cell sweep=${retention.sweepMs}ms`
+)
 const server = serve({ fetch: app.fetch, port })
+
+if (retention.sweepMs > 0) {
+  const timer = setInterval(() => {
+    void pruneRetention(pool, store, retention).catch((error) => {
+      console.error('[openflare-plane] retention sweep failed:', error)
+    })
+  }, retention.sweepMs)
+  timer.unref()
+}
 
 const shutdown = async (signal: string): Promise<void> => {
   console.log(`openflare-plane received ${signal}, draining`)

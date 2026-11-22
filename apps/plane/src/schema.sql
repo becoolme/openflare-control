@@ -127,6 +127,7 @@ create table if not exists plane_cell_ops (
   expires_at timestamptz,
   created_at timestamptz not null default now()
 );
+create index if not exists plane_cell_ops_status_created on plane_cell_ops (status, created_at);
 
 create table if not exists plane_d1_databases (
   database_id text primary key,
@@ -195,6 +196,7 @@ create table if not exists plane_logs (
   unique (cell_id, worker_id, boot_id, seq)
 );
 create index if not exists plane_logs_cell_ts on plane_logs (cell_id, ts_ms desc);
+create index if not exists plane_logs_created on plane_logs (created_at);
 
 create table if not exists plane_d1_ops (
   id text primary key,
@@ -209,3 +211,4 @@ create table if not exists plane_d1_ops (
   expires_at timestamptz,
   created_at timestamptz not null default now()
 );
+create index if not exists plane_d1_ops_status_created on plane_d1_ops (status, created_at);
