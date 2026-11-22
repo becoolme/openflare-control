@@ -1,5 +1,19 @@
 # Changelog
 
+## 2026-11-22 — worker deploy lifecycle
+
+- Added `POST /cells/{cell}/teams/{team}/workers/{name}/deploy`: create a
+  version, optionally activate and publish in one call.
+- Version creation now fails closed unless the content-addressed bundle was
+  uploaded (`409 VRT_BUNDLE_NOT_UPLOADED`) and the claimed `bundleBytes`
+  matches (`409 VRT_BUNDLE_SIZE_MISMATCH`).
+- `SUSPENDED`/`DELETED` worker status is honored by `compute.desired` (only
+  `ACTIVE` workers are published); the metadata change takes effect on the
+  next `POST /publish`.
+- `DirBundleStore.has` is a stat probe instead of reading the whole bundle.
+- Added a worker lifecycle e2e: upload → deploy/publish → suspend → activate
+  → delete, plus missing-bundle and size-mismatch edges.
+
 ## 2026-11-22 — runtime metrics/report collection
 
 - Added the cell report wire contract (`fixtures/vrt-wire/cell-report.json`)

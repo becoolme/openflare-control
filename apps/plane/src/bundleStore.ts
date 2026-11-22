@@ -1,6 +1,6 @@
 /** Filesystem BundleStore for the reference plane (`PLANE_BUNDLE_DIR`). */
 import { createHash } from 'node:crypto'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { BundleStore } from 'openflare-control'
 
@@ -35,6 +35,12 @@ export class DirBundleStore implements BundleStore {
   }
 
   async has(key: string): Promise<boolean> {
-    return (await this.get(key)) !== null
+    const name = key.split('/').pop() ?? ''
+    if (!/^[0-9a-f]{64}$/.test(name)) return false
+    try {
+      return (await stat(join(this.dir, name))).isFile()
+    } catch {
+      return false
+    }
   }
 }
