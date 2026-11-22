@@ -26,6 +26,7 @@ const { data, pending, error } = await useAsyncData(
 )
 const classes = computed(() => data.value?.classes ?? [])
 const statsByClass = ref<Record<string, DoStatsInfo>>({})
+let statsSeq = 0
 const formatBytes = (n: number | null | undefined) => {
   if (n === null || n === undefined) return '—'
   if (n < 1024) return `${n} B`
@@ -41,6 +42,7 @@ const totalStorage = computed(() =>
 watch(
   [activeCell, classes],
   async () => {
+    const seq = ++statsSeq
     if (!activeCell.value) {
       statsByClass.value = {}
       return
@@ -58,6 +60,7 @@ watch(
         }
       })
     )
+    if (seq !== statsSeq) return
     statsByClass.value = Object.fromEntries(entries.filter(([, v]) => v)) as Record<
       string,
       DoStatsInfo
