@@ -45,7 +45,7 @@ watch(
       statsByClass.value = {}
       return
     }
-    const names = [...new Set(classes.value.map((c) => c.className))]
+    const names = [...new Set(classes.value.slice(0, 100).map((c) => c.className))]
     const entries = await Promise.all(
       names.map(async (className) => {
         try {

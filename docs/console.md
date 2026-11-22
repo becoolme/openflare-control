@@ -82,7 +82,7 @@ API and marks each surface `LIVE`, `MISSING` or `ERROR`.
 - Hyperdrive metadata + binding identity (`/hyperdrive`).
 - Runtime cell report ingest (`POST /api/internal/.../vrt/metrics`) carrying
   request/error/latency/CPU/cold-start deltas, D1/queue stats and
-  Workflow/DO instance files.
+  Workflow/DO instance files. Replays are idempotent per `(cell, sampledAt)`.
 - D1/R2/queue/workflow/DO stats endpoints — real data-plane values from the
   report (R2 on demand via a read-only `R2_STATS` cell op).
 - Live workflow/DO instance listings (engine class-dir sqlite stems).

@@ -46,7 +46,7 @@ watch(
       return
     }
     const entries = await Promise.all(
-      queues.value.map(async (q) => {
+      queues.value.slice(0, 100).map(async (q) => {
         try {
           const stats = await consoleApi<QueueStatsInfo>(
             `/api/v1/cells/${encodeURIComponent(activeCell.value)}/queues/${q.queue_id}/stats`

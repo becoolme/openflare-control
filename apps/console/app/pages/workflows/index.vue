@@ -43,7 +43,7 @@ watch(
       return
     }
     const entries = await Promise.all(
-      workflows.value.map(async (w) => {
+      workflows.value.slice(0, 100).map(async (w) => {
         const [teamId, ...nameParts] = w.workerId.split(':')
         const name = nameParts.join(':')
         try {

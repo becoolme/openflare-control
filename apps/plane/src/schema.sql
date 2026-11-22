@@ -222,6 +222,10 @@ create table if not exists plane_cell_metrics (
   created_at timestamptz not null default now()
 );
 create index if not exists plane_cell_metrics_cell_sampled on plane_cell_metrics (cell_id, sampled_at desc);
+-- A retried push must not double-count a window: (cell, sampledAt) is the
+-- report's identity (the runtime ticks far slower than 1 ms).
+create unique index if not exists plane_cell_metrics_cell_sampled_unique
+  on plane_cell_metrics (cell_id, sampled_at);
 create index if not exists plane_cell_metrics_created on plane_cell_metrics (created_at);
 
 create table if not exists plane_cell_resources (

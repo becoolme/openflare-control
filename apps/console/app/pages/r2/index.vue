@@ -44,11 +44,12 @@ async function loadStats(waitMs: number) {
   }
   refreshing.value = waitMs > 0
   try {
+    const query = waitMs > 0 ? `waitMs=${waitMs}&refresh=1` : 'waitMs=0'
     const entries = await Promise.all(
-      buckets.value.map(async (b) => {
+      buckets.value.slice(0, 20).map(async (b) => {
         try {
           const stats = await consoleApi<R2StatsInfo>(
-            `/api/v1/cells/${encodeURIComponent(activeCell.value)}/r2/buckets/${encodeURIComponent(b.bucket_name)}/stats?waitMs=${waitMs}`
+            `/api/v1/cells/${encodeURIComponent(activeCell.value)}/r2/buckets/${encodeURIComponent(b.bucket_name)}/stats?${query}`
           )
           return [b.bucket_id, stats] as const
         } catch {

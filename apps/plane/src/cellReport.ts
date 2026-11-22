@@ -141,6 +141,18 @@ export interface LatencySummary {
   p99: number | null
 }
 
+export interface WorkerMetrics {
+  workerId: string
+  requests: number
+  errors: number
+  serverErrors: number
+  exceptions: number
+  requestBytes: number
+  responseBytes: number
+  inflight: number
+  latency: LatencySummary
+}
+
 export interface MetricsAggregate {
   windowMs: number
   requests: number
@@ -158,6 +170,8 @@ export interface MetricsAggregate {
   lastEventAt: string | null
   source: 'runtime'
   note: string
+  /** Per-worker request/latency view for the list page (one API call). */
+  workers: WorkerMetrics[]
 }
 
 type Report = CellReport
@@ -187,6 +201,21 @@ export function aggregateMetrics(
   const buckets = new Map<number, number>()
   // Gauges: newest pod sample wins, never a sum over time.
   const newest = new Map<string, { at: number; inflight: number }>()
+  const byWorker = new Map<
+    string,
+    {
+      requests: number
+      errors: number
+      serverErrors: number
+      exceptions: number
+      requestBytes: number
+      responseBytes: number
+      durationCount: number
+      buckets: Map<number, number>
+      inflight: number
+      inflightAt: number
+    }
+  >()
 
   for (const report of reports) {
     lastEventMs = Math.max(lastEventMs, report.sampledAtMs)
@@ -194,6 +223,34 @@ export function aggregateMetrics(
       for (const tenant of pod.tenants) cpuSeconds += tenant.cpuSeconds
       coldStarts += pod.launches.ready
       for (const worker of pod.workers) {
+        const breakdown = byWorker.get(worker.workerId) ?? {
+          requests: 0,
+          errors: 0,
+          serverErrors: 0,
+          exceptions: 0,
+          requestBytes: 0,
+          responseBytes: 0,
+          durationCount: 0,
+          buckets: new Map<number, number>(),
+          inflight: 0,
+          inflightAt: 0,
+        }
+        breakdown.requests += worker.requests
+        breakdown.errors += worker.errorRequests
+        breakdown.serverErrors += worker.serverErrors
+        breakdown.exceptions += worker.exceptions
+        breakdown.requestBytes += worker.requestBytes
+        breakdown.responseBytes += worker.responseBytes
+        breakdown.durationCount += worker.requestDuration.count
+        for (const bucket of worker.requestDuration.buckets) {
+          breakdown.buckets.set(bucket.le, (breakdown.buckets.get(bucket.le) ?? 0) + bucket.count)
+        }
+        if (report.sampledAtMs >= breakdown.inflightAt) {
+          breakdown.inflightAt = report.sampledAtMs
+          breakdown.inflight = worker.inflight
+        }
+        byWorker.set(worker.workerId, breakdown)
+
         if (workerIdFilter && worker.workerId !== workerIdFilter) continue
         requests += worker.requests
         errors += worker.errorRequests
@@ -236,12 +293,30 @@ export function aggregateMetrics(
     note: workerIdFilter
       ? 'request/latency metrics are per worker; CPU and cold starts are reported per tenant/pod, so they stay null here'
       : 'metrics from the runtime cell report; CPU is tenant CPU (all workers of the team)',
+    workers: [...byWorker.entries()]
+      .map(([workerId, w]) => ({
+        workerId,
+        requests: w.requests,
+        errors: w.errors,
+        serverErrors: w.serverErrors,
+        exceptions: w.exceptions,
+        requestBytes: w.requestBytes,
+        responseBytes: w.responseBytes,
+        inflight: w.inflight,
+        latency: {
+          p50: percentile(w.buckets, w.durationCount, 0.5),
+          p99: percentile(w.buckets, w.durationCount, 0.99),
+        },
+      }))
+      .sort((a, b) => a.workerId.localeCompare(b.workerId)),
   }
 }
 
-/** Bucket upper bound at the requested quantile. The runtime sends
- * cumulative bucket counts; when the sample lies between buckets the upper
- * bound is reported (a conservative, never-understated latency). */
+/** Bucket upper bound at the requested quantile, in milliseconds. The
+ * runtime sends cumulative bucket counts; the sample's exact value inside a
+ * bucket is unknown, so the bucket's upper bound is returned. A quantile
+ * beyond the last FINITE bucket is `null`: the `+Inf` bucket has no finite
+ * upper bound, and echoing the last finite bound would understate the tail. */
 export function percentile(
   buckets: ReadonlyMap<number, number>,
   total: number,
@@ -253,5 +328,5 @@ export function percentile(
   for (const [le, cumulative] of sorted) {
     if (cumulative >= target) return Math.round(le * 1000 * 100) / 100
   }
-  return Math.round(sorted[sorted.length - 1]![0] * 1000 * 100) / 100
+  return null
 }

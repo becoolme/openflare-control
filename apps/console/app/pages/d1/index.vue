@@ -40,7 +40,7 @@ watch(
       return
     }
     const entries = await Promise.all(
-      databases.value.map(async (db) => {
+      databases.value.slice(0, 100).map(async (db) => {
         try {
           const stats = await consoleApi<D1StatsInfo>(
             `/api/v1/cells/${encodeURIComponent(activeCell.value)}/d1/databases/${db.database_id}/stats`

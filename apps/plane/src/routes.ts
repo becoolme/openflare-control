@@ -371,10 +371,23 @@ export function createApp(deps: AppDeps): Hono {
       if (!Number.isFinite(sampledAt.getTime())) {
         throw new VrtControlError(400, 'Invalid cell report: sampledAtMs')
       }
-      await deps.pool.query(
+      // Store only the metrics window in the history table. The resource
+      // snapshot (instance lists, D1 tables) is point-in-time and already
+      // upserted once; copying it into every 30 s row would multiply storage
+      // and read amplification for no consumer (the metrics API only reads
+      // `pods`).
+      const metricsPayload = {
+        schemaVersion: report.schemaVersion,
+        cellId: report.cellId,
+        sampledAtMs: report.sampledAtMs,
+        windowMs: report.windowMs,
+        pods: report.pods,
+      }
+      const inserted = await deps.pool.query(
         `insert into plane_cell_metrics (cell_id, sampled_at, window_ms, payload)
-         values ($1,$2,$3,$4)`,
-        [cellId, sampledAt, report.windowMs, report]
+         values ($1,$2,$3,$4)
+         on conflict (cell_id, sampled_at) do nothing`,
+        [cellId, sampledAt, report.windowMs, metricsPayload]
       )
       if (report.resources) {
         const resourcesAt = new Date(report.resources.sampledAtMs)
@@ -392,7 +405,13 @@ export function createApp(deps: AppDeps): Hono {
           ]
         )
       }
-      return c.json({ data: { stored: true, pods: report.pods.length } })
+      return c.json({
+        data: {
+          stored: (inserted.rowCount ?? 0) > 0,
+          duplicate: (inserted.rowCount ?? 0) === 0,
+          pods: report.pods.length,
+        },
+      })
     } catch (error) {
       return errorResponse(c, error)
     }

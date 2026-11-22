@@ -31,32 +31,9 @@ const errorRate = computed(() => {
   return r === 0 ? null : ((metrics.value?.errors ?? 0) / r) * 100
 })
 const fmtMs = (v: number | null | undefined) => (v === null || v === undefined ? '—' : `${v} ms`)
-const workerMetrics = ref<Record<string, { requests: number; errors: number; p99: number | null }>>(
-  {}
-)
-watch(
-  [activeCell, workers],
-  async () => {
-    if (!activeCell.value) {
-      workerMetrics.value = {}
-      return
-    }
-    const list = workers.value.slice(0, 100)
-    const entries = await Promise.all(
-      list.map(async (w) => {
-        try {
-          const m = await consoleApi<MetricsInfo>(
-            `/api/v1/cells/${encodeURIComponent(activeCell.value)}/teams/${encodeURIComponent(w.teamId)}/workers/${encodeURIComponent(w.name)}/metrics`
-          )
-          return [w.workerId, { requests: m.requests, errors: m.errors, p99: m.latency.p99 }] as const
-        } catch {
-          return [w.workerId, { requests: 0, errors: 0, p99: null }] as const
-        }
-      })
-    )
-    workerMetrics.value = Object.fromEntries(entries)
-  },
-  { immediate: true }
+// One cell metrics response carries the per-worker breakdown; no N+1 calls.
+const workerMetrics = computed<Record<string, WorkerMetricsInfo>>(() =>
+  Object.fromEntries((metrics.value?.workers ?? []).map((w) => [w.workerId, w]))
 )
 const tone = (s: string) => (s === 'ACTIVE' ? 'ok' : s === 'FAILED' ? 'err' : 'neu')
 </script>
@@ -122,7 +99,7 @@ const tone = (s: string) => (s === 'ACTIVE' ? 'ok' : s === 'FAILED' ? 'err' : 'n
             <td><span class="sm">entrypoint {{ w.entrypoint }}</span></td>
             <td class="num">{{ workerMetrics[w.workerId]?.requests ?? '—' }}</td>
             <td class="num" :style="workerMetrics[w.workerId]?.errors ? 'color: var(--err)' : ''">{{ workerMetrics[w.workerId]?.errors ?? '—' }}</td>
-            <td class="num dim">{{ fmtMs(workerMetrics[w.workerId]?.p99) }}</td>
+            <td class="num dim">{{ fmtMs(workerMetrics[w.workerId]?.latency.p99) }}</td>
             <td style="text-align: right"><UiIconButton icon="more" :size="15" label="More actions" /></td>
           </UiLinkRow>
         </tbody>

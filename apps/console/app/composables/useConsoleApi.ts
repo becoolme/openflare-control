@@ -106,6 +106,18 @@ export interface ServiceCatalog {
   }[]
 }
 
+export interface WorkerMetricsInfo {
+  workerId: string
+  requests: number
+  errors: number
+  serverErrors: number
+  exceptions: number
+  requestBytes: number
+  responseBytes: number
+  inflight: number
+  latency: { p50: number | null; p99: number | null }
+}
+
 export interface MetricsInfo {
   windowMs: number
   requests: number
@@ -123,6 +135,7 @@ export interface MetricsInfo {
   lastEventAt: string | null
   source: 'runtime' | 'logs'
   note: string
+  workers: WorkerMetricsInfo[]
 }
 
 export interface D1StatsInfo {
@@ -151,6 +164,7 @@ export interface R2StatsInfo {
   sizeBytes: number | null
   truncated: boolean | null
   sampledAt: string | null
+  stale: boolean | null
   pending: boolean
   error: string | null
   note: string

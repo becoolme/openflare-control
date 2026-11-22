@@ -9,6 +9,35 @@ import {
 } from '../cellReport.js'
 import { type AdminDeps, rows, workerId } from './context.js'
 
+/** Reuse a bucket scan for a minute; a refresh (or a stale result) rescans. */
+const R2_STATS_TTL_MS = 60_000
+
+interface R2Aggregate {
+  objects: number
+  sizeBytes: number
+  truncated: boolean
+  sampledAtMs: number
+}
+
+/** Validate the cell's op result before exposing it; a malformed result is
+ * treated as "no stats", never rendered as a huge/negative number. */
+function parseR2Stats(value: unknown): R2Aggregate | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const v = value as Record<string, unknown>
+  const objects = Number(v.objects)
+  const sizeBytes = Number(v.sizeBytes)
+  const sampledAtMs = Number(v.sampledAtMs)
+  if (!Number.isSafeInteger(objects) || objects < 0) return null
+  if (!Number.isSafeInteger(sizeBytes) || sizeBytes < 0) return null
+  return {
+    objects,
+    sizeBytes,
+    truncated: v.truncated === true,
+    sampledAtMs:
+      Number.isFinite(sampledAtMs) && sampledAtMs > 0 ? Math.trunc(sampledAtMs) : Date.now(),
+  }
+}
+
 /**
  * Stats surfaces. Values are real wherever the runtime reports them:
  * - request/error/latency/CPU/cold-start metrics come from the periodic
@@ -88,6 +117,7 @@ export function registerStats(app: Hono, deps: AdminDeps): void {
       lastEventAt: row?.last_event_ms ? new Date(Number(row.last_event_ms)).toISOString() : null,
       source: 'logs' as const,
       note: 'fallback: request/error counts come from ingested logs; the runtime report has not arrived yet (CPU/cold starts/latency unavailable)',
+      workers: [],
     }
   }
 
@@ -176,6 +206,7 @@ export function registerStats(app: Hono, deps: AdminDeps): void {
       [cell, bucket.bucket_id]
     )
     const waitMs = Math.min(Math.max(Number(c.req.query('waitMs') ?? '5000') || 0, 0), 15_000)
+    const refresh = c.req.query('refresh') === '1'
     const [cached] = await rows(
       deps,
       `select result, status, created_at from plane_cell_ops
@@ -183,22 +214,36 @@ export function registerStats(app: Hono, deps: AdminDeps): void {
         order by seq desc limit 1`,
       [cell, bucket.bucket_id]
     )
-    let stats =
-      cached?.status === 'DONE' && cached.result ? (cached.result as Record<string, unknown>) : null
+    let stats = parseR2Stats(cached?.status === 'DONE' ? cached.result : null)
+    const cachedAtMs = cached?.created_at ? new Date(String(cached.created_at)).getTime() : 0
+    const stale =
+      !stats || !Number.isFinite(cachedAtMs) || Date.now() - cachedAtMs > R2_STATS_TTL_MS
     let pending = false
     let opError: string | null = null
-    if (!stats && waitMs > 0) {
+    if ((refresh || stale) && waitMs > 0) {
       const [cellRow] = await rows(deps, 'select capabilities from plane_cells where cell_id=$1', [
         cell,
       ])
       const caps = (cellRow?.capabilities ?? {}) as Record<string, unknown>
       if (caps.r2 === true) {
-        const opId = randomUUID()
-        await deps.pool.query(
-          `insert into plane_cell_ops (id, cell_id, worker_id, resource_key, kind, payload, expires_at)
-           values ($1,$2,'',$3,'R2_STATS',$4, now() + interval '30 seconds')`,
-          [opId, cell, bucket.bucket_id, { tenantId: bucket.team_id, bucketId: bucket.bucket_id }]
+        // Coalesce concurrent refreshes: wait on an in-flight op instead of
+        // enqueueing one scan per console request.
+        const [pendingOp] = await rows(
+          deps,
+          `select id from plane_cell_ops
+            where cell_id=$1 and resource_key=$2 and kind='R2_STATS' and status='PENDING'
+              and (expires_at is null or expires_at > now())
+            order by seq desc limit 1`,
+          [cell, bucket.bucket_id]
         )
+        const opId = (pendingOp?.id as string | undefined) ?? randomUUID()
+        if (!pendingOp) {
+          await deps.pool.query(
+            `insert into plane_cell_ops (id, cell_id, worker_id, resource_key, kind, payload, expires_at)
+             values ($1,$2,'',$3,'R2_STATS',$4, now() + interval '30 seconds')`,
+            [opId, cell, bucket.bucket_id, { tenantId: bucket.team_id, bucketId: bucket.bucket_id }]
+          )
+        }
         const deadline = Date.now() + waitMs
         while (Date.now() < deadline) {
           const [op] = await rows(
@@ -207,7 +252,7 @@ export function registerStats(app: Hono, deps: AdminDeps): void {
             [opId]
           )
           if (op?.status === 'DONE' && op.result) {
-            stats = op.result as Record<string, unknown>
+            stats = parseR2Stats(op.result) ?? stats
             break
           }
           if (op?.status === 'FAILED' || op?.status === 'EXPIRED') {
@@ -217,7 +262,7 @@ export function registerStats(app: Hono, deps: AdminDeps): void {
           await new Promise((r) => setTimeout(r, 100))
         }
         pending = !stats && !opError
-      } else {
+      } else if (!stats) {
         opError = 'cell does not advertise the r2 capability'
       }
     }
@@ -230,23 +275,22 @@ export function registerStats(app: Hono, deps: AdminDeps): void {
         classAOps: Number(ops?.class_a ?? 0),
         classBOps: Number(ops?.class_b ?? 0),
         lastOpAt: ops?.last_op_at ?? null,
-        objects: stats ? Number(stats.objects ?? 0) : null,
-        sizeBytes: stats ? Number(stats.sizeBytes ?? 0) : null,
-        truncated: stats ? stats.truncated === true : null,
-        sampledAt: stats
-          ? new Date(Number(stats.sampledAtMs) || Date.now()).toISOString()
-          : cached?.created_at
-            ? new Date(String(cached.created_at)).toISOString()
-            : null,
+        objects: stats?.objects ?? null,
+        sizeBytes: stats?.sizeBytes ?? null,
+        truncated: stats?.truncated ?? null,
+        sampledAt: stats ? new Date(stats.sampledAtMs).toISOString() : null,
+        stale: stats ? stale : null,
         pending,
         error: opError,
         note: stats
-          ? 'object/size counts from a bounded R2 list scan; class A/B from the control-plane op ledger'
+          ? stale
+            ? 'cached R2 stats; refresh with refresh=1&waitMs=... to rescan the bucket'
+            : 'object/size counts from a bounded R2 list scan; class A/B from the control-plane op ledger'
           : opError
             ? `bucket stats unavailable: ${opError}`
             : pending
               ? 'the R2 stats op is still pending on the cell'
-              : 'no R2 stats yet; retry with waitMs to request one',
+              : 'no R2 stats yet; request one with waitMs (add refresh=1 to bypass the cache)',
       },
     })
   })

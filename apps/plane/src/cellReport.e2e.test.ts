@@ -180,7 +180,17 @@ maybe('cell report e2e', () => {
     ).toBe(400)
     const ingested = await call('POST', `/api/internal/clusters/${cell}/vrt/metrics`, report)
     expect(ingested.status).toBe(200)
-    expect(ingested.body.data).toMatchObject({ stored: true, pods: 1 })
+    expect(ingested.body.data).toMatchObject({ stored: true, duplicate: false, pods: 1 })
+    // A retried push is idempotent: same (cell, sampledAt) never double-counts.
+    const retried = await call('POST', `/api/internal/clusters/${cell}/vrt/metrics`, report)
+    expect(retried.status).toBe(200)
+    expect(retried.body.data).toMatchObject({ stored: false, duplicate: true })
+    const storedRow = await pool.query(
+      'select payload from plane_cell_metrics where cell_id=$1 and sampled_at=$2',
+      [cell, new Date(report.sampledAtMs)]
+    )
+    expect(storedRow.rows[0]?.payload.resources).toBeUndefined()
+    expect(storedRow.rows[0]?.payload.pods).toHaveLength(1)
 
     // Cell metrics: deltas + CPU + cold starts + latency.
     const metrics = await call('GET', `${base}/metrics`)
@@ -196,6 +206,19 @@ maybe('cell report e2e', () => {
     })
     expect(metrics.body.data.latency.p50).toBe(50)
     expect(metrics.body.data.latency.p99).toBe(500)
+    expect(metrics.body.data.workers).toEqual([
+      {
+        workerId,
+        requests: 10,
+        errors: 1,
+        serverErrors: 1,
+        exceptions: 0,
+        requestBytes: 120,
+        responseBytes: 2048,
+        inflight: 0,
+        latency: { p50: 50, p99: 500 },
+      },
+    ])
 
     // Worker metrics: request/latency real, CPU explicitly null.
     const workerMetrics = await call('GET', `${base}/teams/${team}/workers/${worker}/metrics`)
@@ -303,7 +326,47 @@ maybe('cell report e2e', () => {
 
     // A second read hits the cached DONE result without enqueueing.
     const cached = await call('GET', `${base}/r2/buckets/${bucket}/stats?waitMs=0`)
-    expect(cached.body.data).toMatchObject({ objects: 3, sizeBytes: 11, pending: false })
+    expect(cached.body.data).toMatchObject({
+      objects: 3,
+      sizeBytes: 11,
+      pending: false,
+      stale: false,
+    })
+
+    // refresh=1 bypasses a fresh cache and rescans.
+    const refreshing = call('GET', `${base}/r2/buckets/${bucket}/stats?refresh=1&waitMs=5000`)
+    let refreshOp: any = null
+    for (let i = 0; i < 40 && !refreshOp; i++) {
+      await sleep(50)
+      const found = await pool.query(
+        `select id, seq from plane_cell_ops
+          where cell_id=$1 and kind='R2_STATS' and status='PENDING'
+          order by seq desc limit 1`,
+        [cell]
+      )
+      refreshOp = found.rows[0] ?? null
+    }
+    expect(refreshOp).toBeTruthy()
+    expect(
+      (
+        await call('POST', `/api/internal/clusters/${cell}/vrt/cell-ops/ack`, {
+          acks: [
+            {
+              seq: Number(refreshOp.seq),
+              status: 'DONE',
+              result: { objects: 4, sizeBytes: 15, truncated: false, sampledAtMs: Date.now() },
+            },
+          ],
+        })
+      ).body.data.acked
+    ).toBe(1)
+    const refreshed = await refreshing
+    expect(refreshed.body.data).toMatchObject({
+      objects: 4,
+      sizeBytes: 15,
+      pending: false,
+      stale: false,
+    })
   })
 
   it('falls back to logs before the first report arrives', async () => {
