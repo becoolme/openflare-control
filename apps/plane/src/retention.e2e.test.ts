@@ -93,6 +93,25 @@ maybe('retention e2e', () => {
       `update plane_cell_metrics set created_at = now() - interval '40 days' where cell_id=$1`,
       [cell]
     )
+    // One expired PENDING D1 op and one expired PENDING cell op: they can
+    // never be dispatched, so the sweep reclaims them (one-day grace).
+    await call('POST', `/api/v1/cells/${cell}/d1-ops`, {
+      databaseId: 'a'.repeat(26),
+      kind: 'EXECUTE',
+      payload: { sql: 'select 2' },
+    })
+    const expiredD1 = (await call('GET', `/api/v1/cells/${cell}/d1-ops`)).body.data.ops.findLast(
+      (op: { status: string }) => op.status === 'PENDING'
+    )
+    await pool.query(
+      `update plane_d1_ops set expires_at = now() - interval '2 days' where seq=$1`,
+      [expiredD1.seq]
+    )
+    await pool.query(
+      `insert into plane_cell_ops (id, cell_id, worker_id, resource_key, kind, payload, status, expires_at)
+       values ('expired-cell-op',$1,'','','WF_GET','{}','PENDING', now() - interval '2 days')`,
+      [cell]
+    )
     // Backdate all logs and the first two ops.
     await pool.query(
       `update plane_logs set created_at = now() - interval '40 days' where cell_id=$1`,
@@ -112,6 +131,8 @@ maybe('retention e2e', () => {
     expect(pruned.status).toBe(200)
     expect(pruned.body.data.logsDeleted).toBe(2)
     expect(pruned.body.data.d1OpsDeleted).toBe(1) // terminal + old only
+    expect(pruned.body.data.expiredD1OpsDeleted).toBe(1)
+    expect(pruned.body.data.expiredCellOpsDeleted).toBe(1)
     expect(pruned.body.data.metricsDeleted).toBe(1)
 
     const logCount = await pool.query(

@@ -127,7 +127,7 @@ export const cellReportSchema = z
     cellId: z.string().min(1).max(128),
     sampledAtMs: count,
     windowMs: count,
-    pods: z.array(podSchema).max(64),
+    pods: z.array(podSchema).max(256),
     resources: resourcesSchema.optional(),
   })
   .strict()
@@ -163,7 +163,10 @@ export interface MetricsAggregate {
   responseBytes: number
   inflight: number
   cpuMs: number | null
+  /** Scale-to-zero wakes (`vrt_host_wake_total{outcome="ok"}`), not deploy
+   * launches. Generation launches are reported separately. */
   coldStarts: number | null
+  launches: { ready: number; failed: number } | null
   latency: LatencySummary
   durationCount: number
   durationSumSeconds: number
@@ -195,6 +198,8 @@ export function aggregateMetrics(
   let responseBytes = 0
   let cpuSeconds = 0
   let coldStarts = 0
+  let launchesReady = 0
+  let launchesFailed = 0
   let durationCount = 0
   let durationSum = 0
   let lastEventMs = 0
@@ -221,7 +226,9 @@ export function aggregateMetrics(
     lastEventMs = Math.max(lastEventMs, report.sampledAtMs)
     for (const pod of report.pods) {
       for (const tenant of pod.tenants) cpuSeconds += tenant.cpuSeconds
-      coldStarts += pod.launches.ready
+      coldStarts += pod.wakes.ok
+      launchesReady += pod.launches.ready
+      launchesFailed += pod.launches.failed
       for (const worker of pod.workers) {
         const breakdown = byWorker.get(worker.workerId) ?? {
           requests: 0,
@@ -282,6 +289,7 @@ export function aggregateMetrics(
     inflight,
     cpuMs: workerIdFilter ? null : Math.round(cpuSeconds * 1000),
     coldStarts: workerIdFilter ? null : coldStarts,
+    launches: workerIdFilter ? null : { ready: launchesReady, failed: launchesFailed },
     latency: {
       p50: percentile(buckets, durationCount, 0.5),
       p99: percentile(buckets, durationCount, 0.99),
@@ -291,8 +299,8 @@ export function aggregateMetrics(
     lastEventAt: lastEventMs ? new Date(lastEventMs).toISOString() : null,
     source: 'runtime',
     note: workerIdFilter
-      ? 'request/latency metrics are per worker; CPU and cold starts are reported per tenant/pod, so they stay null here'
-      : 'metrics from the runtime cell report; CPU is tenant CPU (all workers of the team)',
+      ? 'request/latency metrics are per worker; CPU, launches and cold starts are reported per tenant/pod, so they stay null here'
+      : 'metrics from the runtime cell report; CPU is tenant CPU (all workers of the team); coldStarts are scale-to-zero wakes, launches are reported separately',
     workers: [...byWorker.entries()]
       .map(([workerId, w]) => ({
         workerId,

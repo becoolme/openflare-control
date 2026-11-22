@@ -111,6 +111,7 @@ export function registerStats(app: Hono, deps: AdminDeps): void {
       inflight: 0,
       cpuMs: null,
       coldStarts: null,
+      launches: null,
       latency: { p50: null, p99: null },
       durationCount: 0,
       durationSumSeconds: 0,

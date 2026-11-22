@@ -201,7 +201,8 @@ maybe('cell report e2e', () => {
       errors: 1,
       serverErrors: 1,
       cpuMs: 250,
-      coldStarts: 1,
+      coldStarts: 0,
+      launches: { ready: 1, failed: 0 },
       durationCount: 10,
     })
     expect(metrics.body.data.latency.p50).toBe(50)
@@ -226,6 +227,17 @@ maybe('cell report e2e', () => {
     expect(workerMetrics.body.data.cpuMs).toBeNull()
     expect(workerMetrics.body.data.coldStarts).toBeNull()
     expect(workerMetrics.body.data.latency.p99).toBe(500)
+
+    // An out-of-order older report must never regress the resource snapshot.
+    const staleReport = await fixtureReport()
+    staleReport.sampledAtMs = report.sampledAtMs - 10_000
+    staleReport.resources.sampledAtMs = staleReport.sampledAtMs
+    staleReport.resources.d1[databaseId].sizeBytes = 1
+    expect(
+      (await call('POST', `/api/internal/clusters/${cell}/vrt/metrics`, staleReport)).status
+    ).toBe(200)
+    const stillFresh = await call('GET', `${base}/d1/databases/${databaseId}/stats`)
+    expect(stillFresh.body.data.sizeBytes).toBe(16384)
 
     // D1: real size/tables from the report + pending migration from the ledger.
     const d1Stats = await call('GET', `${base}/d1/databases/${databaseId}/stats`)

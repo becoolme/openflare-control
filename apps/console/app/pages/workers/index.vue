@@ -68,7 +68,7 @@ const tone = (s: string) => (s === 'ACTIVE' ? 'ok' : s === 'FAILED' ? 'err' : 'n
       <UiMetricCard label="Requests" hint="24h"><template #value>{{ metrics?.requests ?? 0 }}</template><UiMetricFoot>from the {{ metrics?.source ?? 'logs' }} source</UiMetricFoot></UiMetricCard>
       <UiMetricCard label="Error rate" hint="24h"><template #value>{{ errorRate === null ? '—' : errorRate.toFixed(2) + '%' }}</template><UiMetricFoot>{{ metrics?.errors ?? 0 }} errors</UiMetricFoot></UiMetricCard>
       <UiMetricCard label="Latency p50 / p99" hint="24h"><template #value>{{ fmtMs(metrics?.latency.p50) }} / {{ fmtMs(metrics?.latency.p99) }}</template><UiMetricFoot>worker wall time</UiMetricFoot></UiMetricCard>
-      <UiMetricCard label="CPU / cold starts" hint="24h"><template #value>{{ metrics?.cpuMs === null || metrics?.cpuMs === undefined ? '—' : metrics.cpuMs + ' ms' }}</template><UiMetricFoot>{{ metrics?.coldStarts ?? 0 }} launches · tenant CPU</UiMetricFoot></UiMetricCard>
+      <UiMetricCard label="CPU / wakes" hint="24h"><template #value>{{ metrics?.cpuMs === null || metrics?.cpuMs === undefined ? '—' : metrics.cpuMs + ' ms' }}</template><UiMetricFoot>{{ metrics?.launches?.ready ?? 0 }} launches · {{ metrics?.coldStarts ?? 0 }} wakes</UiMetricFoot></UiMetricCard>
     </div>
 
     <section class="card" style="padding: 0; position: relative">

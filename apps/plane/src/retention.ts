@@ -46,6 +46,9 @@ export interface RetentionReport {
   logsDeleted: number
   d1OpsDeleted: number
   cellOpsDeleted: number
+  /** PENDING ops whose dispatch deadline passed (never executed). */
+  expiredD1OpsDeleted: number
+  expiredCellOpsDeleted: number
   metricsDeleted: number
   publicationsDeleted: number
   publicationsTruncated: boolean
@@ -106,6 +109,34 @@ export async function pruneRetention(
       values: [cfg.opsRetentionDays, limit],
     }))
   }
+  // Expired PENDING ops can never be dispatched. Keep a one-day grace for a
+  // late ACK, then reclaim them independently of the terminal-op window.
+  const expiredD1OpsDeleted =
+    cfg.opsRetentionDays > 0
+      ? await deleteBatched(pool, (limit) => ({
+          text: `delete from plane_d1_ops where id in (
+                   select id from plane_d1_ops
+                    where status='PENDING'
+                      and expires_at is not null
+                      and expires_at < now() - interval '1 day'
+                    order by seq limit $1
+                 )`,
+          values: [limit],
+        }))
+      : 0
+  const expiredCellOpsDeleted =
+    cfg.opsRetentionDays > 0
+      ? await deleteBatched(pool, (limit) => ({
+          text: `delete from plane_cell_ops where id in (
+                   select id from plane_cell_ops
+                    where status='PENDING'
+                      and expires_at is not null
+                      and expires_at < now() - interval '1 day'
+                    order by seq limit $1
+                 )`,
+          values: [limit],
+        }))
+      : 0
   let metricsDeleted = 0
   if (cfg.metricsRetentionDays > 0) {
     metricsDeleted = await deleteBatched(pool, (limit) => ({
@@ -127,6 +158,8 @@ export async function pruneRetention(
     logsDeleted,
     d1OpsDeleted,
     cellOpsDeleted,
+    expiredD1OpsDeleted,
+    expiredCellOpsDeleted,
     metricsDeleted,
     publicationsDeleted: publications.deletedRows,
     publicationsTruncated: publications.truncated,

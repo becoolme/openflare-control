@@ -397,7 +397,8 @@ export function createApp(deps: AppDeps): Hono {
            on conflict (cell_id) do update
              set sampled_at = excluded.sampled_at,
                  payload = excluded.payload,
-                 updated_at = now()`,
+                 updated_at = now()
+           where excluded.sampled_at >= plane_cell_resources.sampled_at`,
           [
             cellId,
             Number.isFinite(resourcesAt.getTime()) ? resourcesAt : sampledAt,

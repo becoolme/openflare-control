@@ -129,6 +129,7 @@ export interface MetricsInfo {
   inflight: number
   cpuMs: number | null
   coldStarts: number | null
+  launches: { ready: number; failed: number } | null
   latency: { p50: number | null; p99: number | null }
   durationCount: number
   durationSumSeconds: number

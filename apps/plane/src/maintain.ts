@@ -47,6 +47,7 @@ try {
   console.log(
     'openflare-plane retention: ' +
       `logs=${report.logsDeleted} d1Ops=${report.d1OpsDeleted} cellOps=${report.cellOpsDeleted} ` +
+      `expiredD1=${report.expiredD1OpsDeleted} expiredCell=${report.expiredCellOpsDeleted} ` +
       `metrics=${report.metricsDeleted} ` +
       `publications=${report.publicationsDeleted}` +
       (report.publicationsTruncated ? ' (publication budget reached, run again)' : '')
