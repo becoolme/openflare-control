@@ -58,8 +58,10 @@ describe('capability bits', () => {
         images: false,
         k2: false,
         observability: false,
+        secretsStore: false,
         streamingTailConsumers: false,
         unsafeEval: false,
+        versionMetadata: false,
       }
     )
     expect(normalizeVrtCellCapabilities(null)).toBeNull()

@@ -1,5 +1,21 @@
 # Changelog
 
+## 2026-11-22 — sync the wire contract to OpenFlare main
+
+- Re-pinned `OPENFLARE_CONTRACT_REV` to OpenFlare `99a834b` and refreshed the
+  vendored `desired-ack-*` fixtures (runtime merged quotas, service props,
+  queue delivery delay, secrets store, version metadata, k2, email, images,
+  vectorize, tail consumers and more).
+- Accepted the new ACK capability bits `secretsStore` and `versionMetadata` in
+  the strict (derived) capability schema. The plane does not emit either wire
+  field yet, so both are recognized-but-not-required; without this a healthy
+  cell reporting them would have had its whole ACK rejected.
+- `scripts/check-openflare-contract.mjs --write` now reformats the copied
+  fixtures with Prettier, so a sync no longer trips `pnpm format:check`.
+- Drift guards: the control contract test discovers every vendored
+  `desired-ack-*.json` from disk and validates it, and the plane validates the
+  vendored `cell-report.json` against the ingest schema without a database.
+
 ## 2026-11-22 — full-stack execution e2e
 
 - Added the runtime bundle format (`buildRuntimeBundle` /

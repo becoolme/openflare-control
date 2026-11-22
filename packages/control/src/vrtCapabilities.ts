@@ -48,8 +48,15 @@ export const VRT_CELL_CAPABILITY_KEYS = [
   'images',
   'k2',
   'observability',
+  /** `{"type":"secretsStore"}` bindings render to the bundled
+   * `/workerd/secrets-store.js` worker; the control plane does not emit the
+   * wire variant yet, so the bit is accepted (never required) for now. */
+  'secretsStore',
   'streamingTailConsumers',
   'unsafeEval',
+  /** `{"type":"versionMetadata"}` bindings plus the `activeVersion`
+   * `tag`/`createdAt` wire fields — also recognized-but-not-yet-emitted. */
+  'versionMetadata',
 ] as const
 
 export type VrtCellCapabilityKey = (typeof VRT_CELL_CAPABILITY_KEYS)[number]
