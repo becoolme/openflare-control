@@ -1,5 +1,19 @@
 # Changelog
 
+## 2026-11-22 — re-pin the wire contract to OpenFlare `5751f90`
+
+- Bumped `OPENFLARE_CONTRACT_REV` from `99a834b` to `5751f90` (versioned
+  preview URLs, the `vrt` → `of` CLI rename and version-metadata projection).
+- No wire fixture changed: the cell's `AckReport` / `AckCapabilities` and
+  `CellReport` are byte-identical between the two revisions, so the vendored
+  `desired-ack-*` and `cell-report` fixtures and the derived capability schema
+  stayed as they were.
+- The desired snapshot gained one strictly optional field, `workers[].preview`
+  (`PreviewDesired { workerId, versionId }`, plus the `MAX_PREVIEWS_PER_WORKER`
+  bound). Version previews are not implemented in the plane yet, so it is left
+  unemitted; `versionMetadata` remains the recognized-but-not-required bit for
+  the `activeVersion` `tag`/`createdAt` projection (also unemitted).
+
 ## 2026-11-22 — sync the wire contract to OpenFlare main
 
 - Re-pinned `OPENFLARE_CONTRACT_REV` to OpenFlare `99a834b` and refreshed the
