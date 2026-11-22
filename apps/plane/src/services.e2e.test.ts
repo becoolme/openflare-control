@@ -73,6 +73,7 @@ maybe('service resource API e2e', () => {
 
   it('manages D1, R2, KV, queues and workflows', async () => {
     expect((await call('POST', '/api/v1/cells', { cellId: cell })).status).toBe(201)
+    const base = `/api/v1/cells/${cell}`
     expect(
       (await call('POST', `/api/v1/cells/${cell}/workers`, { teamId: team, name: worker })).status
     ).toBe(201)
@@ -223,11 +224,63 @@ maybe('service resource API e2e', () => {
     const first = await call('GET', `/api/v1/cells/${cell}/ops/${ops[0]!.id}`)
     expect(first.body.data.channel).toBe('cell')
 
+    // Teams + quotas
+    const teamCreated = await call('POST', '/api/v1/teams', {
+      teamId: team,
+      name: 'Services Team',
+      plan: 'Pro',
+    })
+    expect(teamCreated.status).toBe(201)
+    const quota = await call('PATCH', `/api/v1/teams/${team}`, {
+      quotas: { requestsMonth: 1000, workersMax: 5 },
+    })
+    expect(quota.body.data.team.workers_max).toBe(5)
+
+    // Hyperdrive metadata + binding identity
+    const hd = await call('POST', `/api/v1/cells/${cell}/hyperdrive`, {
+      teamId: team,
+      name: 'pg',
+      origin: 'postgres://db.internal:5432/app',
+      caching: true,
+    })
+    expect(hd.status).toBe(201)
+    const hdId = hd.body.data.hyperdrive.hyperdrive_id as string
+    const hdBinding = await call(`GET`, `${base}/hyperdrive/${hdId}/binding`)
+    expect(hdBinding.status).toBe(200)
+    expect(hdBinding.body.data.binding.resourceId).toBe(`vrtdb:${hdId}`)
+    const catalogWithHd = await call('GET', `${base}/services`)
+    expect(catalogWithHd.body.data.hyperdrive[0].hyperdriveId).toBe(hdId)
+
+    // Stats: real control-plane counts; data-plane-only numbers are null.
+    expect((await call('GET', `${base}/metrics`)).status).toBe(200)
+    const d1Stats = await call('GET', `${base}/d1/databases/${databaseId}/stats`)
+    expect(d1Stats.body.data.ops).toBeGreaterThanOrEqual(1)
+    expect(d1Stats.body.data.sizeBytes).toBeNull()
+    const r2Stats = await call('GET', `${base}/r2/buckets/${bucket}/stats`)
+    expect(r2Stats.body.data.ops).toBeGreaterThanOrEqual(1)
+    expect(r2Stats.body.data.objects).toBeNull()
+    const qStats = await call('GET', `${base}/queues/${queueId}/stats`)
+    expect(qStats.body.data.consumers).toBeGreaterThanOrEqual(1)
+    const wfStats = await call(
+      'GET',
+      `${base}/teams/${team}/workers/${worker}/workflows/OrderWorkflow/stats`
+    )
+    expect(wfStats.body.data.ops).toBeGreaterThanOrEqual(1)
+    const doStats = await call('GET', `${base}/durable-objects/MyDO/stats`)
+    expect(doStats.body.data.workers).toBeGreaterThanOrEqual(1)
+    expect(doStats.body.data.instances).toBeNull()
+
+    // Typed unsupported surfaces.
+    expect((await call('GET', `${base}/workflows/OrderWorkflow/instances`)).status).toBe(501)
+    expect((await call('GET', `${base}/durable-objects/MyDO/instances`)).status).toBe(501)
+
     // Unauthenticated calls are rejected before any resource lookup.
     expect((await app.request(`/api/v1/cells/${cell}/services`)).status).toBe(401)
 
-    // Cleanup.
+    // Cleanup. Deleting the cell removes workers; the team can then go.
+    expect((await call('DELETE', `${base}/hyperdrive/${hdId}`)).status).toBe(200)
     expect((await call('DELETE', `/api/v1/cells/${cell}`)).status).toBe(200)
+    expect((await call('DELETE', `/api/v1/teams/${team}`)).status).toBe(200)
   })
 
   it('covers service validation, missing-resource and op-list edges', async () => {

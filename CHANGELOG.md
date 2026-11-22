@@ -1,5 +1,30 @@
 # Changelog
 
+## 2026-11-21 — teams, Hyperdrive, stats APIs
+
+- Added teams + quotas CRUD (`plane_teams`, `plane_team_quotas`).
+- Added Hyperdrive resource metadata/binding API (`plane_hyperdrives`), with
+  credentials explicitly provider-managed.
+- Added stats endpoints: log-derived worker metrics, D1/R2 op counts, queue
+  consumer/producer counts, workflow op counts, DO class/binding counts.
+  Data-plane-only values (size, backlog, instances) are `null` with a note.
+- Workflow/DO instance-list endpoints answer typed `501 VRT_NOT_SUPPORTED`.
+- Console Hyperdrive page and worker metric cards are live; `/kit/api` probes the
+  new surfaces.
+- E2E coverage added for teams, Hyperdrive, stats and unsupported paths.
+
+## 2026-11-21 — console service + live API
+
+- `apps/console` now ships as a service: Nuxt static SPA plus
+  `server/main.mjs`, which proxies `/api/v1` and `/api/internal` to the plane
+  with the admin token injected server-side. Docker Compose starts it on 8788.
+- Cell selection in the top bar; workers/D1/R2/KV/queues/workflows/DO list
+  pages read live management API data with loading/error/empty states.
+- `/kit/api` probes the live API and lists missing surfaces (metrics,
+  Hyperdrive, D1/R2/queue/DO stats, workflow instances, team/quota).
+- Docker and kind e2e now assert the console HTML and proxied API, in addition
+  to the plane lifecycle.
+
 ## 2026-11-21 — real kind e2e
 
 - `scripts/e2e-kind.sh` + CI `e2e-kind` job: kind cluster, locally loaded plane

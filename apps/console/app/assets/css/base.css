@@ -1,0 +1,401 @@
+/* Ported verbatim from the v3 console design. Do not hand-edit; regenerate. */
+.sub {
+  display: flex;
+  gap: 2px;
+  border-bottom: 1px solid var(--b1);
+  overflow-x: auto;
+}
+.sub a {
+  padding: 10px 12px;
+  font-size: 13.5px;
+  color: var(--t3);
+  white-space: nowrap;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+.sub a:hover {
+  color: var(--t1);
+}
+.sub a.on {
+  color: var(--t1);
+  border-color: var(--accent);
+}
+.seg {
+  display: inline-flex;
+  padding: 2px;
+  border: 1px solid var(--b1);
+  border-radius: 8px;
+  background: var(--bg);
+  gap: 2px;
+  flex-wrap: wrap;
+}
+.seg button {
+  height: 26px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--t3);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+.seg button[aria-pressed='true'] {
+  background: var(--s3);
+  color: var(--t1);
+}
+.seg .n {
+  font-family: 'Geist Mono', monospace;
+  font-size: 11.5px;
+  color: var(--t4);
+}
+.code {
+  background: var(--bg);
+  border: 1px solid var(--b1);
+  border-radius: 10px;
+  padding: 14px 16px;
+  font-family: 'Geist Mono', monospace;
+  font-size: 12.5px;
+  line-height: 1.75;
+  overflow-x: auto;
+  white-space: pre;
+}
+.k {
+  color: #c792ea;
+}
+.s {
+  color: #c3e88d;
+}
+.v {
+  color: #82aaff;
+}
+.c {
+  color: #5f5f68;
+}
+.p {
+  color: #f5b83d;
+}
+.bar {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--s3);
+  overflow: hidden;
+  margin-top: 6px;
+}
+.bar span {
+  display: block;
+  height: 100%;
+}
+.met {
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.met .lbl {
+  font-size: 12.5px;
+  color: var(--t3);
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.met .val {
+  font-family: 'Geist Mono', monospace;
+  font-size: 21px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+}
+.met .val small {
+  font-size: 13px;
+  color: var(--t3);
+  font-weight: 400;
+}
+.met .ft {
+  font-family: 'Geist Mono', monospace;
+  font-size: 11.5px;
+  color: var(--t3);
+}
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  border: 1px solid;
+}
+.badge i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.b-ok {
+  color: var(--ok);
+  background: rgba(61, 214, 140, 0.07);
+  border-color: rgba(61, 214, 140, 0.3);
+}
+.b-warn {
+  color: var(--warn);
+  background: rgba(245, 184, 61, 0.07);
+  border-color: rgba(245, 184, 61, 0.3);
+}
+.b-err {
+  color: var(--err);
+  background: rgba(255, 92, 87, 0.07);
+  border-color: rgba(255, 92, 87, 0.3);
+}
+.b-info {
+  color: var(--info);
+  background: rgba(94, 176, 255, 0.07);
+  border-color: rgba(94, 176, 255, 0.3);
+}
+.b-vio {
+  color: #b69cff;
+  background: rgba(167, 139, 250, 0.08);
+  border-color: rgba(167, 139, 250, 0.32);
+}
+.b-org {
+  color: #ff9a4d;
+  background: rgba(255, 122, 26, 0.07);
+  border-color: rgba(255, 122, 26, 0.3);
+}
+.b-neu {
+  color: var(--t2);
+  background: var(--s2);
+  border-color: var(--b2);
+}
+.ib {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--t3);
+  cursor: pointer;
+}
+.ib:hover {
+  background: var(--s2);
+  border-color: var(--b2);
+  color: var(--t1);
+}
+.bn {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.bn b {
+  font-weight: 600;
+}
+.bn.warn {
+  border-color: rgba(245, 184, 61, 0.3);
+  background: rgba(245, 184, 61, 0.06);
+  color: var(--t2);
+}
+.bn.err {
+  border-color: rgba(255, 92, 87, 0.3);
+  background: rgba(255, 92, 87, 0.06);
+  color: var(--t2);
+}
+.bn.info {
+  border-color: rgba(94, 176, 255, 0.3);
+  background: rgba(94, 176, 255, 0.06);
+  color: var(--t2);
+}
+.bn.org {
+  border-color: rgba(255, 122, 26, 0.3);
+  background: rgba(255, 122, 26, 0.06);
+  color: var(--t2);
+}
+.bn svg {
+  flex: none;
+  margin-top: 2px;
+}
+.menu {
+  position: absolute;
+  z-index: 5;
+  min-width: 230px;
+  background: var(--s2);
+  border: 1px solid var(--b2);
+  border-radius: 10px;
+  padding: 5px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+  font-size: 13px;
+}
+.menu a {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  height: 30px;
+  padding: 0 9px;
+  border-radius: 6px;
+  color: var(--t2);
+}
+.menu a:hover,
+.menu a.hl {
+  background: var(--s3);
+  color: var(--t1);
+}
+.menu a .r {
+  margin-left: auto;
+  font-family: 'Geist Mono', monospace;
+  font-size: 11px;
+  color: var(--t4);
+}
+.menu hr {
+  border: 0;
+  border-top: 1px solid var(--b1);
+  margin: 5px 2px;
+}
+.menu .lb {
+  font-size: 11px;
+  color: var(--t4);
+  padding: 6px 9px 3px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.spin {
+  animation: sp 1s linear infinite;
+}
+@keyframes sp {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.annot {
+  font-family: 'Geist Mono', monospace;
+  font-size: 11px;
+  color: var(--accent);
+  border: 1px dashed var(--accent-soft);
+  border-radius: 6px;
+  padding: 2px 6px;
+  white-space: nowrap;
+}
+.tbl {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+}
+.tbl th {
+  text-align: left;
+  font-weight: 500;
+  font-size: 12px;
+  color: var(--t3);
+  padding: 10px 10px;
+  border-bottom: 1px solid var(--b1);
+  white-space: nowrap;
+}
+.tbl td {
+  padding: 11px 8px;
+  border-bottom: 1px solid var(--b1);
+  vertical-align: middle;
+}
+.tbl tbody tr:last-child td {
+  border-bottom: 0;
+}
+.tbl tbody tr:hover td {
+  background: var(--s2);
+}
+.tbl tr.dim td {
+  opacity: 0.62;
+}
+.num {
+  font-family: 'Geist Mono', monospace;
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+.nm {
+  font-weight: 500;
+  font-size: 13.5px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.sm {
+  font-family: 'Geist Mono', monospace;
+  font-size: 11.5px;
+  color: var(--t4);
+  margin-top: 3px;
+  white-space: nowrap;
+}
+.inp {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--b1);
+  border-radius: 8px;
+  background: var(--s1);
+  color: var(--t3);
+  font-size: 13px;
+}
+.av {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  border: 1px solid var(--b2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 600;
+  flex: none;
+}
+.cm {
+  font-size: 13px;
+  color: var(--t2);
+  max-width: 215px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rp {
+  display: inline-flex;
+  gap: 3px;
+  vertical-align: middle;
+}
+.rp i {
+  width: 7px;
+  height: 14px;
+  border-radius: 2px;
+  background: var(--ok);
+  display: block;
+}
+.rp i.w {
+  background: var(--warn);
+}
+.rp i.e {
+  background: var(--err);
+}
+.rp i.o {
+  background: var(--b2);
+}
+.gh {
+  font-size: 11px;
+  color: var(--t4);
+  font-family: 'Geist Mono', monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 14px 10px 6px !important;
+  background: transparent !important;
+  border-bottom: 1px solid var(--b1);
+}

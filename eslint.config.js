@@ -29,7 +29,7 @@ const nodeGlobals = {
 export default [
   js.configs.recommended,
   {
-    ignores: ['**/dist/**', '**/node_modules/**', 'pnpm-lock.yaml'],
+    ignores: ['**/dist/**', '**/node_modules/**', '**/.nuxt/**', '**/.output/**', 'pnpm-lock.yaml'],
   },
   {
     files: ['**/*.mjs', '**/*.js'],

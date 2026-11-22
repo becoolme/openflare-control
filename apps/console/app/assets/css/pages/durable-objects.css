@@ -1,0 +1,48 @@
+/* Ported verbatim from the v3 console design. Do not hand-edit; regenerate. */
+:where(.pg-durable-objects) .dlg.inl {
+  position: relative;
+  left: auto;
+  top: auto;
+  transform: none;
+  width: auto;
+  z-index: auto;
+}
+:where(.pg-durable-objects) .mig {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--b1);
+  align-items: start;
+}
+:where(.pg-durable-objects) .mig:last-child {
+  border-bottom: 0;
+}
+:where(.pg-durable-objects) .dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  margin-top: 3px;
+  border: 2px solid var(--b2);
+}
+:where(.pg-durable-objects) .skv {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--b1);
+  font-family: 'Geist Mono', monospace;
+  font-size: 12px;
+}
+:where(.pg-durable-objects) .skv:last-child {
+  border-bottom: 0;
+}
+:where(.pg-durable-objects) .skv span:first-child {
+  color: var(--t1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+:where(.pg-durable-objects) .skv span:last-child {
+  color: var(--t4);
+}

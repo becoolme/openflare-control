@@ -1,0 +1,67 @@
+/* Ported verbatim from the v3 console design. Do not hand-edit; regenerate. */
+:where(.pg-storage) .pc {
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+:where(.pg-storage) .pc .hd {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+:where(.pg-storage) .pc .nmx {
+  font-size: 13.5px;
+  font-weight: 600;
+}
+:where(.pg-storage) .pc .big {
+  font-family: 'Geist Mono', monospace;
+  font-size: 20px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+}
+:where(.pg-storage) .pc .big small {
+  font-size: 12.5px;
+  color: var(--t3);
+  font-weight: 400;
+}
+:where(.pg-storage) .pc .ft {
+  font-family: 'Geist Mono', monospace;
+  font-size: 11.5px;
+  color: var(--t3);
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+:where(.pg-storage) .lh {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--b1);
+}
+:where(.pg-storage) .lh .t {
+  font-size: 14.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+:where(.pg-storage) .lh .d {
+  font-size: 12.5px;
+  color: var(--t3);
+}
+:where(.pg-storage) .bw {
+  display: flex;
+  gap: 4px;
+  flex-wrap: nowrap;
+}
+:where(.pg-storage) .wk {
+  font-family: 'Geist Mono', monospace;
+  font-size: 11.5px;
+  color: var(--t2);
+  background: var(--s2);
+  border: 1px solid var(--b1);
+  border-radius: 5px;
+  padding: 1px 6px;
+  white-space: nowrap;
+}

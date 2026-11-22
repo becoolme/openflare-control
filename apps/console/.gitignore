@@ -1,0 +1,5 @@
+.nuxt/
+.output/
+.data/
+# nuxi generate leaves a dist symlink, which a trailing-slash pattern misses
+dist

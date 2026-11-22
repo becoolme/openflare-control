@@ -1,0 +1,11 @@
+/* Ported verbatim from the v3 console design. Do not hand-edit; regenerate. */
+:where(.pg-workflows-list) .wk {
+  font-family: 'Geist Mono', monospace;
+  font-size: 11.5px;
+  color: var(--t2);
+  background: var(--s2);
+  border: 1px solid var(--b1);
+  border-radius: 5px;
+  padding: 1px 6px;
+  white-space: nowrap;
+}

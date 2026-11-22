@@ -13,6 +13,7 @@ import assert from 'node:assert/strict'
 import { createHash, randomBytes } from 'node:crypto'
 
 const base = (process.env.PLANE_BASE_URL ?? 'http://127.0.0.1:8787').replace(/\/$/, '')
+const consoleBase = (process.env.CONSOLE_BASE_URL ?? 'http://127.0.0.1:8788').replace(/\/$/, '')
 const token = process.env.PLANE_TOKEN
 if (!token) throw new Error('PLANE_TOKEN is required')
 
@@ -37,8 +38,11 @@ async function request(method, path, body, headers = json, raw = false) {
 async function waitReady() {
   for (let i = 0; i < 120; i++) {
     try {
-      const res = await fetch(`${base}/healthz`)
-      if (res.ok) return
+      const [plane, consoleRes] = await Promise.all([
+        fetch(`${base}/healthz`),
+        fetch(`${consoleBase}/console-healthz`),
+      ])
+      if (plane.ok && consoleRes.ok) return
     } catch {
       // not up yet
     }
@@ -170,6 +174,15 @@ async function main() {
   r = await request('GET', `/api/v1/cells/${cell}/services`)
   assert.equal(r.status, 200)
   assert.equal(r.body.data.queues[0].binding.type, 'queue')
+
+  // The console service is a real static UI + same-origin API proxy.
+  const ui = await fetch(`${consoleBase}/`)
+  assert.equal(ui.status, 200)
+  assert.match(await ui.text(), /OpenFlare/i)
+  const proxied = await fetch(`${consoleBase}/api/v1/cells`, { headers: auth })
+  assert.equal(proxied.status, 200)
+  const proxiedBody = await proxied.json()
+  assert.ok(Array.isArray(proxiedBody.data.cells))
 
   r = await request('DELETE', `/api/v1/cells/${cell}`)
   assert.equal(r.status, 200)

@@ -1,0 +1,39 @@
+{
+  "name": "openflare-console",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Web console for the OpenFlare Workers platform (Nuxt layer, static SPA)",
+  "license": "MIT",
+  "type": "module",
+  "main": "./nuxt.config.ts",
+  "scripts": {
+    "dev": "nuxi dev",
+    "build": "nuxi generate",
+    "preview": "nuxi preview",
+    "postinstall": "nuxi prepare",
+    "typecheck": "nuxi typecheck",
+    "test": "vitest run",
+    "start": "node server/main.mjs"
+  },
+  "dependencies": {
+    "nuxt": "^4.6.4",
+    "vue": "^3.5.44",
+    "vue-router": "^5.4.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.1",
+    "@vue/test-utils": "^2.4.6",
+    "happy-dom": "^20.0.0",
+    "typescript": "^5.7.2",
+    "vitest": "^3.0.0",
+    "vue-tsc": "^3.1.0"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/becoolme/openflare-control.git",
+    "directory": "apps/console"
+  }
+}
