@@ -1,6 +1,7 @@
 import type { Hono } from 'hono'
 import { z } from 'zod'
 import { type AdminDeps, mapLog, parse, readJson, rows } from './context.js'
+import { pruneRetention, retentionFromEnv } from '../retention.js'
 
 export function registerLogs(app: Hono, deps: AdminDeps): void {
   app.get('/api/v1/cells/:cellId/logs', async (c) => {
@@ -18,14 +19,21 @@ export function registerLogs(app: Hono, deps: AdminDeps): void {
 
   app.post('/api/v1/maintenance/prune', async (c) => {
     const body = parse(
-      z.object({ keepPerCell: z.number().int().min(0).max(10_000) }).strict(),
-      await readJson(c)
+      z
+        .object({
+          keepPerCell: z.number().int().min(0).max(10_000).optional(),
+          logRetentionDays: z.number().int().min(0).max(365).optional(),
+          opsRetentionDays: z.number().int().min(0).max(3650).optional(),
+        })
+        .strict(),
+      (await c.req.text()) ? await readJson(c) : {}
     )
-    const result = await deps.store.pruneTerminalPublications({
-      keepPerCell: body.keepPerCell,
-      batchSize: 500,
-      maxRows: 5_000,
-      deadlineMs: 30_000,
+    const base = deps.retention ?? retentionFromEnv()
+    const result = await pruneRetention(deps.pool, deps.store, {
+      ...base,
+      keepPerCell: body.keepPerCell ?? base.keepPerCell,
+      logRetentionDays: body.logRetentionDays ?? base.logRetentionDays,
+      opsRetentionDays: body.opsRetentionDays ?? base.opsRetentionDays,
     })
     return c.json({ data: result })
   })
