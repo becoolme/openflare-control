@@ -21,6 +21,9 @@
   `refresh=1` and coalesce concurrent scans; expired PENDING ops are reclaimed;
   worker metrics arrive as one `workers[]` breakdown; `coldStarts` counts
   scale-to-zero wakes while generation `launches` are separate.
+- Security: the console proxy now serves only `/api/v1/`; the internal cell
+  channel (`/api/internal/...`) is never browser-reachable, and encoded/path
+  traversal targets are rejected before proxying.
 - Tests: report ingest/stats/instances e2e, fixture contract, retention.
 
 ## 2026-11-22 — retention configuration
