@@ -9,8 +9,9 @@ tiny Node service that serves it and proxies the plane API on the same origin.
 browser ──▶ console:8788
               ├─ /_nuxt/*, /workers, /d1, ...   static SPA (200.html fallback)
               ├─ /console-healthz               liveness
-              └─ /api/v1/*, /api/internal/*     proxy to PLANE_URL
-                                                (server injects the admin token)
+              └─ /api/v1/*                      proxy to PLANE_URL
+                                                (server injects the admin token;
+                                                /api/internal/* is never exposed)
 ```
 
 - The browser never receives the management token; it is injected by
@@ -54,17 +55,23 @@ proxy.
 The console selects a cell from `GET /api/v1/cells` (top-bar selector) and the
 list pages read live data:
 
-| Page            | API                                                |
-| --------------- | -------------------------------------------------- |
-| Workers         | `GET /api/v1/cells/{cell}/workers`                 |
-| D1              | `GET .../d1/databases`                             |
-| R2              | `GET .../r2/buckets`                               |
-| KV              | `GET .../kv/namespaces`                            |
-| Queues          | `GET .../queues`                                   |
-| Workflows       | `GET .../services`                                 |
-| Durable Objects | workers + `GET .../workers/{name}/durable-objects` |
-| Hyperdrive      | no API — page explains the gap                     |
-| API coverage    | probes the endpoints live (`/kit/api`)             |
+| Page            | API                                                    |
+| --------------- | ------------------------------------------------------ |
+| Workers         | `GET /api/v1/cells/{cell}/workers`                     |
+| D1              | `GET .../d1/databases`                                 |
+| R2              | `GET .../r2/buckets`                                   |
+| KV              | `GET .../kv/namespaces`                                |
+| Queues          | `GET .../queues`                                       |
+| Workflows       | `GET .../services`                                     |
+| Durable Objects | workers + `GET .../workers/{name}/durable-objects`     |
+| Hyperdrive      | `GET .../hyperdrive`                                   |
+| Metrics         | `GET .../metrics` (runtime deltas, logs fallback)      |
+| D1 detail       | `GET .../d1/databases/{id}/stats`                      |
+| R2 detail       | `GET .../r2/buckets/{name}/stats` (`R2_STATS` op)      |
+| Queue detail    | `GET .../queues/{id}/stats`                            |
+| Workflow detail | `GET .../workflows/{name}/stats` + `/instances`        |
+| DO detail       | `GET .../durable-objects/{class}/stats` + `/instances` |
+| API coverage    | probes the endpoints live (`/kit/api`)                 |
 
 Create/delete forms, metrics panels and detail-page charts are still design
 shells. The `/kit/api` page is the authoritative gap list; it probes the live
@@ -74,18 +81,23 @@ API and marks each surface `LIVE`, `MISSING` or `ERROR`.
 
 - Teams + quotas (`/teams`).
 - Hyperdrive metadata + binding identity (`/hyperdrive`).
-- Log-derived worker metrics (`/metrics`).
-- D1/R2/queue/workflow/DO stats endpoints — real control-plane counts where
-  stored; data-plane-only numbers are explicitly `null`.
-- Typed `501 VRT_NOT_SUPPORTED` for workflow/DO instance lists.
+- Runtime cell report ingest (`POST /api/internal/.../vrt/metrics`) carrying
+  request/error/latency/CPU/cold-start deltas, D1/queue stats and
+  Workflow/DO instance files. Replays are idempotent per `(cell, sampledAt)`.
+- D1/R2/queue/workflow/DO stats endpoints — real data-plane values from the
+  report (R2 on demand via a read-only `R2_STATS` cell op).
+- Live workflow/DO instance listings (engine class-dir sqlite stems).
 
-## Remaining gaps (visible in `/kit/api`)
+## Remaining intentional gaps (visible in `/kit/api`)
 
-- CPU/cold-start metrics (runtime does not report them).
-- D1 size/tables/pending migrations, R2 object/size/class counts, queue
-  backlog/delivery, workflow instance counters, DO instance/storage — these
-  need data-plane or runtime indexes, not just a control-plane table.
+- Per-worker CPU/cold starts: the runtime reports CPU per tenant process and
+  launches per pod, so a worker view is `null` rather than fake precision.
+- Queue `delivered`: the counter lives in the cell-controller registry and is
+  not part of the pod scrape yet.
+- Workflow per-state counters (running/waiting/completed) and DO
+  `activeInstances`: the engine has no status/liveness index; instance files
+  are listed instead.
 - User identity/profile (`/me`) — the shell team/user chrome is still static.
 
-These are the next API candidates; adding an endpoint should be paired with
-replacing the corresponding static panel.
+Adding an endpoint should be paired with replacing the corresponding static
+panel; `/kit/api` marks these as `PARTIAL` rather than hiding them.

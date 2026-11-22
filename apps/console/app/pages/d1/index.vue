@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { D1DatabaseInfo } from '../../composables/useConsoleApi'
+import type { D1DatabaseInfo, D1StatsInfo } from '../../composables/useConsoleApi'
 definePageMeta({
   nav: 'D1',
   crumbs: () => [{ label: 'storage', to: '/storage' }, { label: 'd1' }],
@@ -16,6 +16,45 @@ const { data, pending, error } = await useAsyncData(
   { watch: [activeCell] }
 )
 const databases = computed(() => data.value?.databases ?? [])
+const statsById = ref<Record<string, D1StatsInfo>>({})
+const formatBytes = (n: number | null | undefined) => {
+  if (n === null || n === undefined) return '—'
+  if (n < 1024) return `${n} B`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KiB`
+  return `${(n / (1024 * 1024)).toFixed(1)} MiB`
+}
+const totalBytes = computed(() =>
+  Object.values(statsById.value).reduce((n, s) => n + (s.sizeBytes ?? 0), 0)
+)
+const totalTables = computed(() =>
+  Object.values(statsById.value).reduce((n, s) => n + (s.tableCount ?? 0), 0)
+)
+const pendingMigrations = computed(() =>
+  Object.values(statsById.value).reduce((n, s) => n + (s.pendingMigrations ?? 0), 0)
+)
+watch(
+  [activeCell, databases],
+  async () => {
+    if (!activeCell.value) {
+      statsById.value = {}
+      return
+    }
+    const entries = await Promise.all(
+      databases.value.slice(0, 100).map(async (db) => {
+        try {
+          const stats = await consoleApi<D1StatsInfo>(
+            `/api/v1/cells/${encodeURIComponent(activeCell.value)}/d1/databases/${db.database_id}/stats`
+          )
+          return [db.database_id, stats] as const
+        } catch {
+          return [db.database_id, null] as const
+        }
+      })
+    )
+    statsById.value = Object.fromEntries(entries.filter(([, v]) => v)) as Record<string, D1StatsInfo>
+  },
+  { immediate: true }
+)
 </script>
 
 <template><div class="wrap pg-d1-list" style="display: flex; flex-direction: column; gap: 20px">
@@ -34,9 +73,9 @@ const databases = computed(() => data.value?.databases ?? [])
 
     <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px">
       <UiMetricCard label="Databases"><template #value>{{ databases.length }}</template><UiMetricFoot>{{ activeCell || 'no cell selected' }}</UiMetricFoot></UiMetricCard>
-      <UiMetricCard label="Storage"><template #value>—</template><UiMetricFoot>no D1 stats API</UiMetricFoot></UiMetricCard>
-      <UiMetricCard label="Rows read / written" hint="24h"><template #value>—</template><UiMetricFoot>no D1 metrics API</UiMetricFoot></UiMetricCard>
-      <UiMetricCard label="Migrations"><template #value>{{ databases.length ? 'API' : '—' }}</template><UiMetricFoot>POST /d1/databases/{id}/migrations</UiMetricFoot></UiMetricCard>
+      <UiMetricCard label="Storage"><template #value>{{ formatBytes(totalBytes) }}</template><UiMetricFoot>reported by the D1 data plane</UiMetricFoot></UiMetricCard>
+      <UiMetricCard label="Tables"><template #value>{{ totalTables }}</template><UiMetricFoot>{{ pendingMigrations }} pending migration{{ pendingMigrations === 1 ? '' : 's' }}</UiMetricFoot></UiMetricCard>
+      <UiMetricCard label="Migrations"><template #value>{{ pendingMigrations }}</template><UiMetricFoot>pending apply ops</UiMetricFoot></UiMetricCard>
     </div>
 
     <section class="card" style="padding: 0">
@@ -56,11 +95,11 @@ const databases = computed(() => data.value?.databases ?? [])
           <UiLinkRow v-for="db in databases" :key="db.database_id" :to="`/d1/${encodeURIComponent(db.name)}`">
             <td><div class="nm"><NuxtLink :to="`/d1/${encodeURIComponent(db.name)}`">{{ db.name }}</NuxtLink></div><div class="sm">{{ db.database_id }}</div></td>
             <td><span class="wk">{{ db.team_id }}</span></td>
-            <td class="num dim" style="text-align: right">—</td>
-            <td class="num dim" style="text-align: right">—</td>
-            <td><UiBadge tone="neu" dot>API</UiBadge></td>
+            <td class="num dim" style="text-align: right">{{ formatBytes(statsById[db.database_id]?.sizeBytes) }}</td>
+            <td class="num dim" style="text-align: right">{{ statsById[db.database_id]?.tableCount ?? '—' }}</td>
+            <td><UiBadge :tone="(statsById[db.database_id]?.pendingMigrations ?? 0) > 0 ? 'warn' : 'neu'" dot>{{ statsById[db.database_id]?.pendingMigrations ?? 0 }} pending</UiBadge></td>
             <td class="num muted">{{ db.cluster_id }}</td>
-            <td class="num dim">—</td>
+            <td class="num dim">{{ statsById[db.database_id]?.ops ?? '—' }} ops</td>
             <td style="text-align: right"><UiIconButton icon="more" :size="15" label="More" /></td>
           </UiLinkRow>
         </tbody>

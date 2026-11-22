@@ -106,6 +106,128 @@ export interface ServiceCatalog {
   }[]
 }
 
+export interface WorkerMetricsInfo {
+  workerId: string
+  requests: number
+  errors: number
+  serverErrors: number
+  exceptions: number
+  requestBytes: number
+  responseBytes: number
+  inflight: number
+  latency: { p50: number | null; p99: number | null }
+}
+
+export interface MetricsInfo {
+  windowMs: number
+  requests: number
+  errors: number
+  serverErrors: number
+  exceptions: number
+  requestBytes: number
+  responseBytes: number
+  inflight: number
+  cpuMs: number | null
+  coldStarts: number | null
+  launches: { ready: number; failed: number } | null
+  latency: { p50: number | null; p99: number | null }
+  durationCount: number
+  durationSumSeconds: number
+  lastEventAt: string | null
+  source: 'runtime' | 'logs'
+  note: string
+  workers: WorkerMetricsInfo[]
+}
+
+export interface D1StatsInfo {
+  databaseId: string
+  ops: number
+  pendingOps: number
+  failedOps: number
+  pendingMigrations: number
+  sizeBytes: number | null
+  pageCount: number | null
+  tableCount: number | null
+  tables: string[] | null
+  indexCount: number | null
+  sampledAt: string | null
+  note: string
+}
+
+export interface R2StatsInfo {
+  bucketName: string
+  ops: number
+  pendingOps: number
+  failedOps: number
+  classAOps: number
+  classBOps: number
+  objects: number | null
+  sizeBytes: number | null
+  truncated: boolean | null
+  sampledAt: string | null
+  stale: boolean | null
+  pending: boolean
+  error: string | null
+  note: string
+}
+
+export interface QueueStatsInfo {
+  queueId: string
+  consumers: number
+  producers: number
+  backlog: number | null
+  backlogBytes: number | null
+  visible: number | null
+  inFlight: number | null
+  delayed: number | null
+  oldestMessageAgeMs: number | null
+  deadLetterDepth: number | null
+  delivered: number | null
+  sampledAt: string | null
+  note: string
+}
+
+export interface WorkflowStatsInfo {
+  workflow: string
+  className: string
+  ops: number
+  pendingOps: number
+  failedOps: number
+  instances: number | null
+  storageBytes: number | null
+  truncated: boolean | null
+  sampledAt: string | null
+  note: string
+}
+
+export interface DoStatsInfo {
+  className: string
+  workers: number
+  bindings: number
+  instances: number | null
+  activeInstances: number | null
+  storageBytes: number | null
+  truncated: boolean
+  sampledAt: string | null
+  note: string
+}
+
+export interface InstanceInfo {
+  id: string
+  bytes: number
+  workerId: string
+}
+
+export interface InstanceListInfo {
+  instances: InstanceInfo[]
+  total: number
+  storageBytes: number
+  truncated: boolean
+  sampledAt: string | null
+  waiting: boolean
+  note: string
+}
+
 export interface OpInfo {
   id: string
   seq: number

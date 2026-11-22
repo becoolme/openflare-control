@@ -3,9 +3,10 @@
  * plane keeps logs (the source of request/error metrics), terminal D1/cell ops
  * (the source of op stats) and publication history.
  *
- *   PLANE_LOG_RETENTION_DAYS=7      # 0 = keep forever
- *   PLANE_OPS_RETENTION_DAYS=30     # terminal ops only; pending is never deleted
- *   PLANE_PUBLICATION_KEEP=20       # rows per cell (existing prune semantics)
+ *   PLANE_LOG_RETENTION_DAYS=7       # 0 = keep forever
+ *   PLANE_OPS_RETENTION_DAYS=30      # terminal ops only; pending is never deleted
+ *   PLANE_METRICS_RETENTION_DAYS=14  # runtime cell reports (metrics/stats source)
+ *   PLANE_PUBLICATION_KEEP=20        # rows per cell (existing prune semantics)
  *   PLANE_RETENTION_SWEEP_MS=21600000
  */
 import type { Pool } from 'pg'
@@ -14,6 +15,7 @@ import type { VrtControlStore } from 'openflare-control'
 export interface RetentionConfig {
   logRetentionDays: number
   opsRetentionDays: number
+  metricsRetentionDays: number
   keepPerCell: number
   sweepMs: number
 }
@@ -27,21 +29,27 @@ const int = (value: string | undefined, fallback: number): number => {
 export function retentionFromEnv(env: NodeJS.ProcessEnv = process.env): RetentionConfig {
   const logRetentionDays = int(env.PLANE_LOG_RETENTION_DAYS, 7)
   const opsRetentionDays = int(env.PLANE_OPS_RETENTION_DAYS, 30)
+  const metricsRetentionDays = int(env.PLANE_METRICS_RETENTION_DAYS, 14)
   const keepPerCell = int(env.PLANE_PUBLICATION_KEEP, 20)
   const sweepMs = int(env.PLANE_RETENTION_SWEEP_MS, 6 * 60 * 60 * 1000)
   if (logRetentionDays > 365) throw new Error('PLANE_LOG_RETENTION_DAYS must be <= 365')
   if (opsRetentionDays > 3650) throw new Error('PLANE_OPS_RETENTION_DAYS must be <= 3650')
+  if (metricsRetentionDays > 365) throw new Error('PLANE_METRICS_RETENTION_DAYS must be <= 365')
   if (keepPerCell > 10_000) throw new Error('PLANE_PUBLICATION_KEEP must be <= 10000')
   if (sweepMs !== 0 && sweepMs < 60_000) {
     throw new Error('PLANE_RETENTION_SWEEP_MS must be 0 or >= 60000')
   }
-  return { logRetentionDays, opsRetentionDays, keepPerCell, sweepMs }
+  return { logRetentionDays, opsRetentionDays, metricsRetentionDays, keepPerCell, sweepMs }
 }
 
 export interface RetentionReport {
   logsDeleted: number
   d1OpsDeleted: number
   cellOpsDeleted: number
+  /** PENDING ops whose dispatch deadline passed (never executed). */
+  expiredD1OpsDeleted: number
+  expiredCellOpsDeleted: number
+  metricsDeleted: number
   publicationsDeleted: number
   publicationsTruncated: boolean
 }
@@ -101,6 +109,45 @@ export async function pruneRetention(
       values: [cfg.opsRetentionDays, limit],
     }))
   }
+  // Expired PENDING ops can never be dispatched. Keep a one-day grace for a
+  // late ACK, then reclaim them independently of the terminal-op window.
+  const expiredD1OpsDeleted =
+    cfg.opsRetentionDays > 0
+      ? await deleteBatched(pool, (limit) => ({
+          text: `delete from plane_d1_ops where id in (
+                   select id from plane_d1_ops
+                    where status='PENDING'
+                      and expires_at is not null
+                      and expires_at < now() - interval '1 day'
+                    order by seq limit $1
+                 )`,
+          values: [limit],
+        }))
+      : 0
+  const expiredCellOpsDeleted =
+    cfg.opsRetentionDays > 0
+      ? await deleteBatched(pool, (limit) => ({
+          text: `delete from plane_cell_ops where id in (
+                   select id from plane_cell_ops
+                    where status='PENDING'
+                      and expires_at is not null
+                      and expires_at < now() - interval '1 day'
+                    order by seq limit $1
+                 )`,
+          values: [limit],
+        }))
+      : 0
+  let metricsDeleted = 0
+  if (cfg.metricsRetentionDays > 0) {
+    metricsDeleted = await deleteBatched(pool, (limit) => ({
+      text: `delete from plane_cell_metrics where id in (
+               select id from plane_cell_metrics
+                where created_at < now() - ($1::int * interval '1 day')
+                order by id limit $2
+             )`,
+      values: [cfg.metricsRetentionDays, limit],
+    }))
+  }
   const publications = await store.pruneTerminalPublications({
     keepPerCell: cfg.keepPerCell,
     batchSize: 500,
@@ -111,6 +158,9 @@ export async function pruneRetention(
     logsDeleted,
     d1OpsDeleted,
     cellOpsDeleted,
+    expiredD1OpsDeleted,
+    expiredCellOpsDeleted,
+    metricsDeleted,
     publicationsDeleted: publications.deletedRows,
     publicationsTruncated: publications.truncated,
   }

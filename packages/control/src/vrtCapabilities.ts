@@ -36,6 +36,18 @@ export const VRT_CELL_CAPABILITY_KEYS = [
   'serviceProps',
   /** Queue-level `deliveryDelaySeconds` is understood by this cell generation. */
   'queueDeliveryDelay',
+  // Runtime generations may understand features this control plane does not
+  // emit yet. They MUST still be accepted in an ACK: a strict schema that
+  // rejects a newer cell's capability bit would fail the whole publication
+  // (the cell is healthy; the control plane is simply older). Deploy gating
+  // for these features is added here when the corresponding desired fields
+  // are implemented.
+  'analyticsEngine',
+  'flagship',
+  'k2',
+  'observability',
+  'streamingTailConsumers',
+  'unsafeEval',
 ] as const
 
 export type VrtCellCapabilityKey = (typeof VRT_CELL_CAPABILITY_KEYS)[number]

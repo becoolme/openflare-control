@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { QueueInfo } from '../../composables/useConsoleApi'
+import type { QueueInfo, QueueStatsInfo } from '../../composables/useConsoleApi'
 definePageMeta({
   nav: 'Queues',
   crumbs: () => [{ label: 'storage', to: '/storage' }, { label: 'queues' }],
@@ -16,6 +16,54 @@ const { data, pending, error } = await useAsyncData(
   { watch: [activeCell] }
 )
 const queues = computed(() => data.value?.queues ?? [])
+const statsById = ref<Record<string, QueueStatsInfo>>({})
+const totalBacklog = computed(() =>
+  Object.values(statsById.value).reduce((n, s) => n + (s.backlog ?? 0), 0)
+)
+const totalInFlight = computed(() =>
+  Object.values(statsById.value).reduce((n, s) => n + (s.inFlight ?? 0), 0)
+)
+const totalDead = computed(() =>
+  Object.values(statsById.value).reduce((n, s) => n + (s.deadLetterDepth ?? 0), 0)
+)
+const oldest = computed(() => {
+  const ages = Object.values(statsById.value)
+    .map((s) => s.oldestMessageAgeMs)
+    .filter((v): v is number => v !== null)
+  return ages.length ? Math.max(...ages) : null
+})
+const fmtAge = (ms: number | null | undefined) => {
+  if (ms === null || ms === undefined) return '—'
+  if (ms < 60_000) return `${Math.round(ms / 1000)} s`
+  if (ms < 3_600_000) return `${Math.round(ms / 60_000)} min`
+  return `${(ms / 3_600_000).toFixed(1)} h`
+}
+watch(
+  [activeCell, queues],
+  async () => {
+    if (!activeCell.value) {
+      statsById.value = {}
+      return
+    }
+    const entries = await Promise.all(
+      queues.value.slice(0, 100).map(async (q) => {
+        try {
+          const stats = await consoleApi<QueueStatsInfo>(
+            `/api/v1/cells/${encodeURIComponent(activeCell.value)}/queues/${q.queue_id}/stats`
+          )
+          return [q.queue_id, stats] as const
+        } catch {
+          return [q.queue_id, null] as const
+        }
+      })
+    )
+    statsById.value = Object.fromEntries(entries.filter(([, v]) => v)) as Record<
+      string,
+      QueueStatsInfo
+    >
+  },
+  { immediate: true }
+)
 </script>
 
 <template><div class="wrap pg-queue-list" style="display: flex; flex-direction: column; gap: 20px">
@@ -34,9 +82,9 @@ const queues = computed(() => data.value?.queues ?? [])
 
     <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px">
       <UiMetricCard label="Queues"><template #value>{{ queues.length }}</template><UiMetricFoot>{{ activeCell || 'no cell selected' }}</UiMetricFoot></UiMetricCard>
-      <UiMetricCard label="Backlog"><template #value>—</template><UiMetricFoot>no queue metrics API</UiMetricFoot></UiMetricCard>
-      <UiMetricCard label="Delivered" hint="24h"><template #value>—</template><UiMetricFoot>no queue metrics API</UiMetricFoot></UiMetricCard>
-      <UiMetricCard label="In DLQ" value-style="color: var(--err)"><template #value>—</template><UiMetricFoot>no queue metrics API</UiMetricFoot></UiMetricCard>
+      <UiMetricCard label="Backlog"><template #value>{{ totalBacklog }}</template><UiMetricFoot>{{ totalInFlight }} in flight · oldest {{ fmtAge(oldest) }}</UiMetricFoot></UiMetricCard>
+      <UiMetricCard label="Delivered" hint="24h"><template #value>—</template><UiMetricFoot>the runtime does not report delivered yet</UiMetricFoot></UiMetricCard>
+      <UiMetricCard label="In DLQ" value-style="color: var(--err)"><template #value>{{ totalDead }}</template><UiMetricFoot>dead-letter rows</UiMetricFoot></UiMetricCard>
     </div>
 
     <section class="card" style="padding: 0">
@@ -57,11 +105,11 @@ const queues = computed(() => data.value?.queues ?? [])
             <td><div class="nm"><NuxtLink :to="`/queues/${encodeURIComponent(q.name)}`">{{ q.name }}</NuxtLink></div><div class="sm">{{ q.queue_id }}</div></td>
             <td><UiBadge tone="ok" dot>ACTIVE</UiBadge></td>
             <td><span class="wk">{{ q.team_id }}</span></td>
-            <td class="num dim">—</td>
-            <td class="num dim" style="text-align: right">—</td>
-            <td class="num dim">—</td>
-            <td class="num dim" style="text-align: right">—</td>
-            <td class="num">{{ q.delivery_delay_seconds ?? 0 }} s delay</td>
+            <td class="num dim">{{ statsById[q.queue_id]?.consumers ?? '—' }}</td>
+            <td class="num dim" style="text-align: right">{{ statsById[q.queue_id]?.backlog ?? '—' }}</td>
+            <td class="num dim">{{ statsById[q.queue_id]?.delivered ?? '—' }}</td>
+            <td class="num dim" style="text-align: right">{{ fmtAge(statsById[q.queue_id]?.oldestMessageAgeMs) }}</td>
+            <td class="num">{{ statsById[q.queue_id]?.deadLetterDepth ?? 0 }} dead · {{ q.delivery_delay_seconds ?? 0 }} s delay</td>
             <td style="text-align: right"><UiIconButton icon="more" :size="15" label="More" /></td>
           </UiLinkRow>
         </tbody>

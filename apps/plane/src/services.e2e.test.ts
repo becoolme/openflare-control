@@ -270,9 +270,16 @@ maybe('service resource API e2e', () => {
     expect(doStats.body.data.workers).toBeGreaterThanOrEqual(1)
     expect(doStats.body.data.instances).toBeNull()
 
-    // Typed unsupported surfaces.
-    expect((await call('GET', `${base}/workflows/OrderWorkflow/instances`)).status).toBe(501)
-    expect((await call('GET', `${base}/durable-objects/MyDO/instances`)).status).toBe(501)
+    // Instance listings are live once the runtime reports; before that they
+    // return an empty waiting view instead of a fabricated list.
+    const wfWaiting = await call('GET', `${base}/workflows/OrderWorkflow/instances`)
+    expect(wfWaiting.status).toBe(200)
+    expect(wfWaiting.body.data.waiting).toBe(true)
+    expect(wfWaiting.body.data.instances).toEqual([])
+    const doWaiting = await call('GET', `${base}/durable-objects/MyDO/instances`)
+    expect(doWaiting.status).toBe(200)
+    expect(doWaiting.body.data.waiting).toBe(true)
+    expect(doWaiting.body.data.instances).toEqual([])
 
     // Unauthenticated calls are rejected before any resource lookup.
     expect((await app.request(`/api/v1/cells/${cell}/services`)).status).toBe(401)

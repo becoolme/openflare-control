@@ -27,7 +27,7 @@ const write = process.argv.includes('--write')
 /** Files the control package actually validates against. Keep this list explicit:
  * adding a new fixture here is how a new cross-language contract becomes a
  * dependency of this repository. */
-const FILES = ['desired-ack-partial.json', 'desired-ack-tenant-failures.json']
+const FILES = ['desired-ack-partial.json', 'desired-ack-tenant-failures.json', 'cell-report.json']
 
 const localDir = join(root, 'packages/control/test/fixtures')
 const upstreamDir = join(upstream, 'fixtures/vrt-wire')

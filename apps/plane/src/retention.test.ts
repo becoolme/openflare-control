@@ -6,6 +6,7 @@ describe('retention config', () => {
     expect(retentionFromEnv({})).toEqual({
       logRetentionDays: 7,
       opsRetentionDays: 30,
+      metricsRetentionDays: 14,
       keepPerCell: 20,
       sweepMs: 21_600_000,
     })
@@ -16,17 +17,20 @@ describe('retention config', () => {
       retentionFromEnv({
         PLANE_LOG_RETENTION_DAYS: '14',
         PLANE_OPS_RETENTION_DAYS: '90',
+        PLANE_METRICS_RETENTION_DAYS: '30',
         PLANE_PUBLICATION_KEEP: '5',
         PLANE_RETENTION_SWEEP_MS: '0',
       })
     ).toEqual({
       logRetentionDays: 14,
       opsRetentionDays: 90,
+      metricsRetentionDays: 30,
       keepPerCell: 5,
       sweepMs: 0,
     })
     expect(() => retentionFromEnv({ PLANE_LOG_RETENTION_DAYS: '366' })).toThrow()
     expect(() => retentionFromEnv({ PLANE_OPS_RETENTION_DAYS: '3651' })).toThrow()
+    expect(() => retentionFromEnv({ PLANE_METRICS_RETENTION_DAYS: '366' })).toThrow()
     expect(() => retentionFromEnv({ PLANE_PUBLICATION_KEEP: '10001' })).toThrow()
     expect(() => retentionFromEnv({ PLANE_RETENTION_SWEEP_MS: '1000' })).toThrow()
     // Invalid numbers fall back to defaults, never crash the service.

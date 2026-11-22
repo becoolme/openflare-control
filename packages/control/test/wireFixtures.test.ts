@@ -6,7 +6,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { vrtAckReasonForApi, vrtDesiredAckSchema } from '../src/index.js'
+import { VRT_CELL_CAPABILITY_KEYS, vrtAckReasonForApi, vrtDesiredAckSchema } from '../src/index.js'
 
 const fixture = (name: string): unknown =>
   JSON.parse(readFileSync(join(__dirname, 'fixtures', name), 'utf8'))
@@ -37,6 +37,15 @@ describe('desired/ack wire fixtures', () => {
         },
         { code: 'switch-failed', tenant: 'team-b' },
       ])
+    }
+  })
+
+  it('accepts every capability bit a newer runtime reports', () => {
+    for (const name of ['desired-ack-partial.json', 'desired-ack-tenant-failures.json']) {
+      const body = fixture(name) as { capabilities?: Record<string, unknown> }
+      for (const key of Object.keys(body.capabilities ?? {})) {
+        expect(VRT_CELL_CAPABILITY_KEYS as readonly string[]).toContain(key)
+      }
     }
   })
 

@@ -81,6 +81,37 @@ maybe('retention e2e', () => {
     await call('POST', `/api/internal/clusters/${cell}/vrt/d1-ops/ack`, {
       acks: [{ seq: ops[0]!.seq, status: 'DONE' }],
     })
+    // One old metrics report (the retention target) and one fresh.
+    await call('POST', `/api/internal/clusters/${cell}/vrt/metrics`, {
+      schemaVersion: 1,
+      cellId: cell,
+      sampledAtMs: Date.now(),
+      windowMs: 30000,
+      pods: [],
+    })
+    await pool.query(
+      `update plane_cell_metrics set created_at = now() - interval '40 days' where cell_id=$1`,
+      [cell]
+    )
+    // One expired PENDING D1 op and one expired PENDING cell op: they can
+    // never be dispatched, so the sweep reclaims them (one-day grace).
+    await call('POST', `/api/v1/cells/${cell}/d1-ops`, {
+      databaseId: 'a'.repeat(26),
+      kind: 'EXECUTE',
+      payload: { sql: 'select 2' },
+    })
+    const expiredD1 = (await call('GET', `/api/v1/cells/${cell}/d1-ops`)).body.data.ops.findLast(
+      (op: { status: string }) => op.status === 'PENDING'
+    )
+    await pool.query(
+      `update plane_d1_ops set expires_at = now() - interval '2 days' where seq=$1`,
+      [expiredD1.seq]
+    )
+    await pool.query(
+      `insert into plane_cell_ops (id, cell_id, worker_id, resource_key, kind, payload, status, expires_at)
+       values ('expired-cell-op',$1,'','','WF_GET','{}','PENDING', now() - interval '2 days')`,
+      [cell]
+    )
     // Backdate all logs and the first two ops.
     await pool.query(
       `update plane_logs set created_at = now() - interval '40 days' where cell_id=$1`,
@@ -100,6 +131,9 @@ maybe('retention e2e', () => {
     expect(pruned.status).toBe(200)
     expect(pruned.body.data.logsDeleted).toBe(2)
     expect(pruned.body.data.d1OpsDeleted).toBe(1) // terminal + old only
+    expect(pruned.body.data.expiredD1OpsDeleted).toBe(1)
+    expect(pruned.body.data.expiredCellOpsDeleted).toBe(1)
+    expect(pruned.body.data.metricsDeleted).toBe(1)
 
     const logCount = await pool.query(
       'select count(*)::int as n from plane_logs where cell_id=$1',
@@ -111,6 +145,11 @@ maybe('retention e2e', () => {
       [cell]
     )
     expect(remaining.rows[0].n).toBe(2) // old pending + fresh
+    const metrics = await pool.query(
+      'select count(*)::int as n from plane_cell_metrics where cell_id=$1',
+      [cell]
+    )
+    expect(metrics.rows[0].n).toBe(0)
     const pending = await pool.query(
       `select count(*)::int as n from plane_d1_ops where cell_id=$1 and status='PENDING'`,
       [cell]
