@@ -3,6 +3,27 @@ definePageMeta({
   nav: 'Hyperdrive',
   crumbs: () => [{ label: 'storage', to: '/storage' }, { label: 'hyperdrive' }],
 })
+const { activeCell } = useCellSelection()
+interface HyperdriveRow {
+  hyperdrive_id: string
+  team_id: string
+  cluster_id: string
+  name: string
+  origin: string
+  caching: boolean
+  created_at: string
+}
+const { data, pending, error } = await useAsyncData(
+  () => `hyperdrive:${activeCell.value}`,
+  () =>
+    activeCell.value
+      ? consoleApi<{ hyperdrives: HyperdriveRow[] }>(
+          `/api/v1/cells/${encodeURIComponent(activeCell.value)}/hyperdrive`
+        )
+      : Promise.resolve({ hyperdrives: [] }),
+  { watch: [activeCell] }
+)
+const hyperdrives = computed(() => data.value?.hyperdrives ?? [])
 </script>
 
 <template><div class="wrap pg-hyperdrive-list" style="display: flex; flex-direction: column; gap: 20px">
@@ -36,12 +57,19 @@ definePageMeta({
       <table class="tbl">
         <thead><tr><th>Config</th><th>Origin</th><th>Bound by</th><th>Caching</th><th style="text-align: right">Pool</th><th style="text-align: right">Cache hit</th><th style="text-align: right">Query p50</th><th></th></tr></thead>
         <tbody>
-          <tr><td colspan="8" class="muted" style="padding: 22px">
-            The reference plane has no Hyperdrive resource API yet. Hyperdrive bindings can still be
-            declared inside a version (`bindings[].type = "HYPERDRIVE"`), but there is no resource
-            list/create endpoint to drive this page. Add `/api/v1/cells/{cell}/hyperdrive` before
-            enabling this view.
-          </td></tr>
+          <tr v-if="pending"><td colspan="8" class="muted" style="padding: 18px">Loading Hyperdrive configs…</td></tr>
+          <tr v-else-if="error"><td colspan="8" style="padding: 18px; color: var(--err)">{{ error.message }}</td></tr>
+          <tr v-else-if="hyperdrives.length === 0"><td colspan="8" class="muted" style="padding: 18px">No Hyperdrive configs.</td></tr>
+          <tr v-for="h in hyperdrives" :key="h.hyperdrive_id">
+            <td><div class="nm">{{ h.name }}</div><div class="sm">{{ h.hyperdrive_id }}</div></td>
+            <td><div class="num">{{ h.origin }}</div><div class="sm">{{ h.team_id }}</div></td>
+            <td><span class="wk">{{ h.team_id }}</span></td>
+            <td><UiBadge :tone="h.caching ? 'ok' : 'neu'" dot>{{ h.caching ? 'ON' : 'OFF' }}</UiBadge></td>
+            <td class="num dim" style="text-align: right">—</td>
+            <td class="num dim" style="text-align: right">—</td>
+            <td class="num dim" style="text-align: right">—</td>
+            <td style="text-align: right"><UiIconButton icon="more" :size="15" label="More" /></td>
+          </tr>
         </tbody>
       </table>
       <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; border-top: 1px solid var(--b1); font-size: 12.5px" class="muted">

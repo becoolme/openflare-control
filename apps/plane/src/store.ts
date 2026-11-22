@@ -219,6 +219,8 @@ export class PlaneStore {
       crons: input.crons,
       quotas: input.quotas,
       varValues: input.varValues,
+      bindings: input.bindings,
+      queueConsumers: input.queueConsumers ?? [],
       bindingsFingerprint: input.bindingsFingerprint,
       runtimeConfigDigest: input.runtimeConfigDigest,
       assetsRouting: input.assetsRouting ?? null,
@@ -227,8 +229,7 @@ export class PlaneStore {
       status: 'UPLOADED',
       statusReason: null,
       createdAt: new Date(),
-      bindings: input.bindings,
-    }
+    } as unknown as VrtStoreVersion
     const insert = await this.pool.query(
       `insert into plane_versions (version_id, worker_id, bundle_sha256, bindings_fingerprint, status, row)
        values ($1,$2,$3,$4,'UPLOADED',$5)

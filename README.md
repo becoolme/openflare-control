@@ -184,13 +184,16 @@ store conformance cases.
 
 - Cell channel: desired, ACK, render-inputs, bundles — implemented.
 - Management API (`/api/v1`): cells, workers, versions, vars, secrets,
-  hostnames, bundles, publish/publications, D1/R2/KV/queue/workflow resources,
-  D1/cell ops, logs and retention prune — implemented
+  hostnames, bundles, publish/publications, teams/quotas, D1/R2/KV/queue/
+  workflow/Hyperdrive resources, stats, D1/cell ops, logs and retention prune —
+  implemented
   ([docs/management-api.md](docs/management-api.md)).
 - D1, generic cell-op and log channels: implemented (pull/ACK/ingest), not just
   empty shapes.
-- Assets manifests, DO/workflow management and team quotas: not implemented in
-  the reference plane (the port answers 501).
+- Assets manifests and full DO/workflow instance management: not implemented in
+  the reference plane (instance endpoints answer a typed 501); CPU/cold-start
+  metrics and data-plane size/backlog counters are explicitly `null` because the
+  runtime does not report them yet.
 - Console: list pages (workers, D1, R2, KV, queues, workflows, durable objects)
   read the live management API through a same-origin proxy; `/kit/api` lists the
   remaining gaps (metrics, Hyperdrive, queue/D1/R2/DO stats, workflow instances,

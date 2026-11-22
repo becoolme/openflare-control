@@ -16,6 +16,20 @@ const { data, pending, error } = await useAsyncData(
   { watch: [activeCell] }
 )
 const workers = computed(() => data.value?.workers ?? [])
+const { data: metrics } = await useAsyncData(
+  () => `metrics:${activeCell.value}`,
+  () =>
+    activeCell.value
+      ? consoleApi<{ requests: number; errors: number; serverErrors: number }>(
+          `/api/v1/cells/${encodeURIComponent(activeCell.value)}/metrics`
+        )
+      : Promise.resolve({ requests: 0, errors: 0, serverErrors: 0 }),
+  { watch: [activeCell] }
+)
+const errorRate = computed(() => {
+  const r = metrics.value?.requests ?? 0
+  return r === 0 ? null : ((metrics.value?.errors ?? 0) / r) * 100
+})
 const tone = (s: string) => (s === 'ACTIVE' ? 'ok' : s === 'FAILED' ? 'err' : 'neu')
 </script>
 
@@ -46,10 +60,10 @@ const tone = (s: string) => (s === 'ACTIVE' ? 'ok' : s === 'FAILED' ? 'err' : 'n
 
     <div style="display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px">
       <UiMetricCard label="Workers"><template #value>{{ workers.length }}</template><UiMetricFoot>{{ activeCell || 'no cell selected' }}</UiMetricFoot></UiMetricCard>
-      <UiMetricCard label="Requests" hint="24h"><template #value>—</template><UiMetricFoot>no metrics API yet</UiMetricFoot></UiMetricCard>
-      <UiMetricCard label="Error rate" hint="24h"><template #value>—</template><UiMetricFoot>no metrics API yet</UiMetricFoot></UiMetricCard>
-      <UiMetricCard label="CPU p50 / p99"><template #value>—</template><UiMetricFoot>no metrics API yet</UiMetricFoot></UiMetricCard>
-      <UiMetricCard label="Cold starts" hint="24h"><template #value>—</template><UiMetricFoot>no metrics API yet</UiMetricFoot></UiMetricCard>
+      <UiMetricCard label="Requests" hint="24h"><template #value>{{ metrics?.requests ?? 0 }}</template><UiMetricFoot>from ingested logs</UiMetricFoot></UiMetricCard>
+      <UiMetricCard label="Error rate" hint="24h"><template #value>{{ errorRate === null ? '—' : errorRate.toFixed(2) + '%' }}</template><UiMetricFoot>{{ metrics?.errors ?? 0 }} errors</UiMetricFoot></UiMetricCard>
+      <UiMetricCard label="CPU p50 / p99"><template #value>—</template><UiMetricFoot>runtime does not report CPU</UiMetricFoot></UiMetricCard>
+      <UiMetricCard label="Cold starts" hint="24h"><template #value>—</template><UiMetricFoot>runtime does not report cold starts</UiMetricFoot></UiMetricCard>
     </div>
 
     <section class="card" style="padding: 0; position: relative">

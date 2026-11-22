@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-11-21 — teams, Hyperdrive, stats APIs
+
+- Added teams + quotas CRUD (`plane_teams`, `plane_team_quotas`).
+- Added Hyperdrive resource metadata/binding API (`plane_hyperdrives`), with
+  credentials explicitly provider-managed.
+- Added stats endpoints: log-derived worker metrics, D1/R2 op counts, queue
+  consumer/producer counts, workflow op counts, DO class/binding counts.
+  Data-plane-only values (size, backlog, instances) are `null` with a note.
+- Workflow/DO instance-list endpoints answer typed `501 VRT_NOT_SUPPORTED`.
+- Console Hyperdrive page and worker metric cards are live; `/kit/api` probes the
+  new surfaces.
+- E2E coverage added for teams, Hyperdrive, stats and unsupported paths.
+
 ## 2026-11-21 — console service + live API
 
 - `apps/console` now ships as a service: Nuxt static SPA plus

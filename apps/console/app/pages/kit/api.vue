@@ -23,7 +23,7 @@ async function probe(path: string): Promise<Row['status']> {
     await consoleApi(path)
     return 'live'
   } catch (e) {
-    return e instanceof ConsoleApiError && e.status === 404 ? 'missing' : 'error'
+    return e instanceof ConsoleApiError && (e.status === 404 || e.status === 501) ? 'missing' : 'error'
   }
 }
 
@@ -39,6 +39,7 @@ async function run() {
   }
   const probes: [string, string, string][] = [
     ['Cells', '/api/v1/cells', 'list/select cells'],
+    ['Teams + quotas', '/api/v1/teams', 'list/create/get/patch/delete'],
     ['Workers', `/api/v1/cells/${cell}/workers`, 'list/create/get/patch/delete'],
     ['D1 databases', `/api/v1/cells/${cell}/d1/databases`, 'list/create; query/migrations enqueue'],
     ['R2 buckets', `/api/v1/cells/${cell}/r2/buckets`, 'list/create; object ops via cell-ops'],
@@ -49,6 +50,13 @@ async function run() {
     ['Durable Objects', `/api/v1/cells/${cell}/services`, 'class list via worker durable-objects'],
     ['Publications', `/api/v1/cells/${cell}/publications`, 'publish + ACK state'],
     ['Logs', `/api/v1/cells/${cell}/logs`, 'ingest + query'],
+    ['Worker metrics', `/api/v1/cells/${cell}/metrics`, 'log-derived requests/errors; CPU null'],
+    ['Hyperdrive', `/api/v1/cells/${cell}/hyperdrive`, 'resource metadata + binding'],
+    ['D1 stats', `/api/v1/cells/${cell}/d1/databases`, 'op counts via per-db stats'],
+    ['R2 stats', `/api/v1/cells/${cell}/r2/buckets`, 'op counts via per-bucket stats'],
+    ['Queue stats', `/api/v1/cells/${cell}/queues`, 'consumer/producer counts via per-queue stats'],
+    ['Workflow stats', `/api/v1/cells/${cell}/services`, 'op counts via per-workflow stats'],
+    ['DO stats', `/api/v1/cells/${cell}/services`, 'class/binding counts via per-class stats'],
   ]
   const out: Row[] = []
   for (const [feature, endpoint, note] of probes) {
@@ -57,52 +65,22 @@ async function run() {
   // Features the UI needs but the plane does not expose yet.
   out.push(
     {
-      feature: 'Hyperdrive resources',
-      endpoint: '/api/v1/cells/{cell}/hyperdrive',
-      status: 'missing',
-      note: 'UI page exists; only version bindings can carry HYPERDRIVE',
-    },
-    {
-      feature: 'Worker metrics',
-      endpoint: '/api/v1/cells/{cell}/metrics',
-      status: 'missing',
-      note: 'requests/errors/CPU/cold starts are static in the UI',
-    },
-    {
-      feature: 'D1 stats',
-      endpoint: '/api/v1/cells/{cell}/d1/databases/{id}/stats',
-      status: 'missing',
-      note: 'size/tables/pending migrations not exposed',
-    },
-    {
-      feature: 'R2 stats',
-      endpoint: '/api/v1/cells/{cell}/r2/buckets/{name}/stats',
-      status: 'missing',
-      note: 'object count/size/class A-B ops not aggregated',
-    },
-    {
-      feature: 'Queue metrics',
-      endpoint: '/api/v1/cells/{cell}/queues/{id}/stats',
-      status: 'missing',
-      note: 'backlog/delivered/oldest/DLQ depth not exposed',
-    },
-    {
       feature: 'Workflow instances',
       endpoint: '/api/v1/cells/{cell}/workflows/{name}/instances',
       status: 'missing',
-      note: 'only op channel exists; no instance list/read',
+      note: 'typed 501: runtime has no instance index',
     },
     {
       feature: 'DO instances/storage',
       endpoint: '/api/v1/cells/{cell}/durable-objects/{class}/instances',
       status: 'missing',
-      note: 'class list exists; instances/storage not exposed',
+      note: 'typed 501: runtime has no DO instance registry',
     },
     {
-      feature: 'Team/quota/user',
-      endpoint: '/api/v1/team',
+      feature: 'Team/user profile',
+      endpoint: '/api/v1/me',
       status: 'missing',
-      note: 'shell team/plan/quota data is static',
+      note: 'team/quotas exist; user identity/auth profile is still static',
     }
   )
   rows.value = out

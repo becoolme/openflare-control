@@ -96,6 +96,14 @@ export interface ServiceCatalog {
     className: string
     teamId: string
   }[]
+  hyperdrive: {
+    hyperdriveId: string
+    teamId: string
+    name: string
+    origin: string
+    caching: boolean
+    binding: Record<string, unknown>
+  }[]
 }
 
 export interface OpInfo {

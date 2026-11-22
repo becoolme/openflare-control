@@ -70,16 +70,22 @@ Create/delete forms, metrics panels and detail-page charts are still design
 shells. The `/kit/api` page is the authoritative gap list; it probes the live
 API and marks each surface `LIVE`, `MISSING` or `ERROR`.
 
-## Missing API backlog (visible in `/kit/api`)
+## APIs added for the console
 
-- Hyperdrive resource CRUD.
-- Worker request/error/CPU/cold-start metrics.
-- D1 size/table/pending-migration stats.
-- R2 object-count/size/Class A/B stats.
-- Queue backlog/delivered/oldest/DLQ depth.
-- Workflow instance list/read (only the op channel exists).
-- DO instance/storage listing.
-- Team/quota/user profile (top bar is static).
+- Teams + quotas (`/teams`).
+- Hyperdrive metadata + binding identity (`/hyperdrive`).
+- Log-derived worker metrics (`/metrics`).
+- D1/R2/queue/workflow/DO stats endpoints — real control-plane counts where
+  stored; data-plane-only numbers are explicitly `null`.
+- Typed `501 VRT_NOT_SUPPORTED` for workflow/DO instance lists.
+
+## Remaining gaps (visible in `/kit/api`)
+
+- CPU/cold-start metrics (runtime does not report them).
+- D1 size/tables/pending migrations, R2 object/size/class counts, queue
+  backlog/delivery, workflow instance counters, DO instance/storage — these
+  need data-plane or runtime indexes, not just a control-plane table.
+- User identity/profile (`/me`) — the shell team/user chrome is still static.
 
 These are the next API candidates; adding an endpoint should be paired with
 replacing the corresponding static panel.

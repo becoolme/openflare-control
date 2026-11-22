@@ -35,6 +35,15 @@ state can be produced and inspected over HTTP.
 | GET    | `/api/v1/cells/{cellId}/render-inputs` | vars/secret values for the cell (management view)              |
 | DELETE | `/api/v1/cells/{cellId}`               | delete the cell and all cell-scoped rows                       |
 
+### Teams and quotas
+
+| Method           | Path                     | Purpose                                         |
+| ---------------- | ------------------------ | ----------------------------------------------- |
+| GET/POST         | `/api/v1/teams`          | list/create teams (default quota row)           |
+| GET/PATCH/DELETE | `/api/v1/teams/{teamId}` | read/update plan+quotas; delete only when empty |
+
+Quota fields: `requestsMonth`, `cpuMsMonth`, `workersMax`.
+
 ### Workers and versions
 
 Workers are addressed by `(teamId, name)`; the stored id is `teamId:name`.

@@ -7,6 +7,8 @@ import { registerLogs } from './logs.js'
 import { registerOps } from './ops.js'
 import { registerPublications } from './publications.js'
 import { registerServices } from './services/index.js'
+import { registerStats } from './stats.js'
+import { registerTeams } from './teams.js'
 import { registerWorkers } from './workers.js'
 
 export type { AdminDeps } from './context.js'
@@ -25,11 +27,13 @@ export function createAdminApp(deps: AdminDeps): Hono {
   })
 
   registerCells(app, deps)
+  registerTeams(app, deps)
   registerWorkers(app, deps)
   registerConfig(app, deps)
   registerBundles(app, deps)
   registerPublications(app, deps)
   registerServices(app, deps)
+  registerStats(app, deps)
   registerOps(app, deps)
   registerLogs(app, deps)
   return app

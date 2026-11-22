@@ -6,6 +6,31 @@ create table if not exists plane_cells (
   capabilities jsonb
 );
 
+create table if not exists plane_teams (
+  team_id text primary key,
+  name text not null,
+  plan text not null default 'Free',
+  created_at timestamptz not null default now()
+);
+
+create table if not exists plane_team_quotas (
+  team_id text primary key references plane_teams(team_id) on delete cascade,
+  requests_month bigint not null default 100000000 check (requests_month >= 0),
+  cpu_ms_month bigint not null default 3600000000 check (cpu_ms_month >= 0),
+  workers_max integer not null default 100 check (workers_max >= 0)
+);
+
+create table if not exists plane_hyperdrives (
+  hyperdrive_id text primary key,
+  team_id text not null,
+  cluster_id text not null,
+  name text not null,
+  origin text not null,
+  caching boolean not null default true,
+  created_at timestamptz not null default now(),
+  unique (team_id, cluster_id, name)
+);
+
 create table if not exists plane_workers (
   id text primary key,
   team_id text not null,
