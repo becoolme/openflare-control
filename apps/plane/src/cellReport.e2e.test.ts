@@ -133,6 +133,18 @@ maybe('cell report e2e', () => {
         )
       ).status
     ).toBe(200)
+    // An inactive version must not inflate the queue consumer count.
+    expect(
+      (
+        await call('POST', `${base}/teams/${team}/workers/${worker}/versions`, {
+          versionId: `inactive-${suffix}`,
+          bundleSha256: 'e'.repeat(64),
+          vars: {},
+          queueConsumers: [{ queueId, queueName: 'jobs', maxBatchSize: 10 }],
+          exportedClassNames: ['MyDO'],
+        })
+      ).status
+    ).toBe(201)
 
     const d1 = await call('POST', `${base}/d1/databases`, { teamId: team, name: 'main' })
     expect(d1.status).toBe(201)
@@ -379,6 +391,17 @@ maybe('cell report e2e', () => {
       pending: false,
       stale: false,
     })
+
+    // Class A/B counters are a 24h window, not all-time.
+    await pool.query(
+      `insert into plane_cell_ops (id, cell_id, worker_id, resource_key, kind, payload, status, created_at)
+       values
+         ($1,$3,'',$4,'R2_PUT','{}','DONE', now() - interval '2 days'),
+         ($2,$3,'',$4,'R2_PUT','{}','DONE', now())`,
+      [`r2-old-${suffix}`, `r2-new-${suffix}`, cell, r2.body.data.bucket.bucket_id]
+    )
+    const withOps = await call('GET', `${base}/r2/buckets/${bucket}/stats?waitMs=0`)
+    expect(withOps.body.data.classAOps).toBe(1)
   })
 
   it('falls back to logs before the first report arrives', async () => {

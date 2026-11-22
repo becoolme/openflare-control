@@ -120,7 +120,7 @@ describe('aggregateMetrics', () => {
     const other = aggregateMetrics([report()], 60_000, 'team:other')
     expect(other.requests).toBe(0)
     expect(other.inflight).toBe(0)
-    // The breakdown still describes the whole cell for a list page.
-    expect(other.workers[0]?.requests).toBe(10)
+    // A worker-scoped response does not leak the other workers' breakdown.
+    expect(other.workers).toEqual([])
   })
 })

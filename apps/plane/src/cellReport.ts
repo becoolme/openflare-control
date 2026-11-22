@@ -301,7 +301,12 @@ export function aggregateMetrics(
     note: workerIdFilter
       ? 'request/latency metrics are per worker; CPU, launches and cold starts are reported per tenant/pod, so they stay null here'
       : 'metrics from the runtime cell report; CPU is tenant CPU (all workers of the team); coldStarts are scale-to-zero wakes, launches are reported separately',
-    workers: [...byWorker.entries()]
+    workers: (workerIdFilter
+      ? byWorker.has(workerIdFilter)
+        ? [[workerIdFilter, byWorker.get(workerIdFilter)!] as const]
+        : []
+      : [...byWorker.entries()]
+    )
       .map(([workerId, w]) => ({
         workerId,
         requests: w.requests,

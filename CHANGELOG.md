@@ -16,6 +16,11 @@
 - Added `PLANE_METRICS_RETENTION_DAYS` (14) and metrics pruning.
 - Console: live worker latency, D1 size/tables, R2 objects/size, queue
   backlog, workflow/DO instance pages; `/kit/api` marks true gaps `PARTIAL`.
+- Hardening: report ingest is idempotent per `(cell, sampledAt)`; an
+  out-of-order report cannot regress the resource snapshot; R2 stats support
+  `refresh=1` and coalesce concurrent scans; expired PENDING ops are reclaimed;
+  worker metrics arrive as one `workers[]` breakdown; `coldStarts` counts
+  scale-to-zero wakes while generation `launches` are separate.
 - Tests: report ingest/stats/instances e2e, fixture contract, retention.
 
 ## 2026-11-22 — retention configuration

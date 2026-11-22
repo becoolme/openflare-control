@@ -154,7 +154,10 @@ export function registerStats(app: Hono, deps: AdminDeps): void {
       `select count(*)::int as total,
               count(*) filter (where status='PENDING')::int as pending,
               count(*) filter (where status='FAILED')::int as failed,
-              count(*) filter (where kind='MIGRATIONS_APPLY' and status='PENDING')::int as pending_migrations,
+              count(*) filter (
+                where kind='MIGRATIONS_APPLY' and status='PENDING'
+                  and (expires_at is null or expires_at > now())
+              )::int as pending_migrations,
               max(created_at) as last_op_at
          from plane_d1_ops where cell_id=$1 and database_id=$2`,
       [cell, id]
@@ -198,8 +201,14 @@ export function registerStats(app: Hono, deps: AdminDeps): void {
       `select count(*)::int as total,
               count(*) filter (where status='PENDING')::int as pending,
               count(*) filter (where status='FAILED')::int as failed,
-              count(*) filter (where kind in ('R2_LIST','R2_PUT'))::int as class_a,
-              count(*) filter (where kind in ('R2_GET','R2_HEAD'))::int as class_b,
+              count(*) filter (
+                where kind in ('R2_LIST','R2_PUT')
+                  and created_at >= now() - interval '24 hours'
+              )::int as class_a,
+              count(*) filter (
+                where kind in ('R2_GET','R2_HEAD')
+                  and created_at >= now() - interval '24 hours'
+              )::int as class_b,
               max(created_at) as last_op_at
          from plane_cell_ops
         where cell_id=$1 and resource_key=$2
@@ -305,21 +314,25 @@ export function registerStats(app: Hono, deps: AdminDeps): void {
       [id, cell]
     )
     if (!queue) throw new VrtControlError(404, 'Queue not found')
+    // Only the ACTIVE version of workers on this cell binds the queue;
+    // inactive versions must not inflate the producer/consumer counts.
     const [consumers] = await rows(
       deps,
       `select count(*)::int as n
-         from plane_versions v,
+         from plane_workers w
+         join plane_versions v on v.version_id = w.active_version_id,
               jsonb_array_elements(coalesce(v.row->'queueConsumers','[]'::jsonb)) c
-        where c->>'queueId'=$1`,
-      [id]
+        where w.cluster_id=$1 and c->>'queueId'=$2`,
+      [cell, id]
     )
     const [producers] = await rows(
       deps,
       `select count(*)::int as n
-         from plane_versions v,
+         from plane_workers w
+         join plane_versions v on v.version_id = w.active_version_id,
               jsonb_array_elements(coalesce(v.row->'bindings','[]'::jsonb)) b
-        where b->>'type'='queue' and b->>'resourceId'=$1`,
-      [id]
+        where w.cluster_id=$1 and b->>'type'='queue' and b->>'resourceId'=$2`,
+      [cell, id]
     )
     const snapshot = await loadResources(cell)
     const stats = snapshot?.resources.queues[id]
