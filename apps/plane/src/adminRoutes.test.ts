@@ -117,11 +117,32 @@ maybe('management API edges', () => {
     expect(
       (await call(app, 'GET', `${base}/teams/${team}/workers/${worker}/versions`)).status
     ).toBe(200)
+    const bundle = new TextEncoder().encode('edge-v1')
+    const digest = sha256(bundle)
+    expect(
+      (
+        await app.request(`${base}/bundles/${digest}`, {
+          method: 'PUT',
+          headers: auth,
+          body: bundle,
+        })
+      ).status
+    ).toBe(201)
+    expect(
+      (
+        await call(app, 'POST', `${base}/teams/${team}/workers/${worker}/versions`, {
+          versionId: 'missing-bundle',
+          bundleSha256: 'a'.repeat(64),
+          vars: {},
+        })
+      ).status
+    ).toBe(409)
     expect(
       (
         await call(app, 'POST', `${base}/teams/${team}/workers/${worker}/versions`, {
           versionId: 'v1',
-          bundleSha256: 'f'.repeat(64),
+          bundleSha256: digest,
+          bundleBytes: bundle.byteLength,
           vars: {},
         })
       ).status

@@ -627,7 +627,7 @@ class PlaneCellTx {
       `select w.*, v.row as version_row
        from plane_workers w
        join plane_versions v on v.worker_id = w.id and v.version_id = w.active_version_id
-       where w.cluster_id=$1 and w.runtime='VRT'`,
+       where w.cluster_id=$1 and w.runtime='VRT' and w.status='ACTIVE'`,
       [this.clusterId]
     )
     const out: VrtCellWorkerView[] = []

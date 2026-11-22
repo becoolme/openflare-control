@@ -59,6 +59,7 @@ Workers are addressed by `(teamId, name)`; the stored id is `teamId:name`.
 | GET    | `.../versions`                                     | version history                                          |
 | POST   | `.../versions`                                     | create a version (see below)                             |
 | POST   | `.../versions/{versionId}/activate`                | activate (rollback = activate an older version)          |
+| POST   | `.../workers/{name}/deploy`                        | create version + optional activate/publish in one call   |
 
 Version body:
 
@@ -82,8 +83,22 @@ Version body:
 }
 ```
 
-The bundle digest must already be uploaded (below); the plane records the
-bundle object and the version row with a deterministic bindings fingerprint.
+The bundle digest **must already be uploaded** (below). `POST /versions` and
+`POST /deploy` fail closed with `409 VRT_BUNDLE_NOT_UPLOADED` when the digest
+has no uploaded object, and `409 VRT_BUNDLE_SIZE_MISMATCH` when the claimed
+`bundleBytes` differs from the stored size.
+
+`POST /workers/{name}/deploy` accepts the same body plus `activate` (default
+`true`) and `publish` (default `false`). It creates the version, activates it,
+and optionally publishes the cell, returning
+`{version,created,activated,revision}`. The returned `version.versionId` is
+authoritative: identical content (bundle + bindings fingerprint) reuses the
+existing version row instead of creating a duplicate.
+
+`PATCH /workers/{name}` metadata (including `status`) changes the stored row;
+call `POST /publish` for it to reach the cell. Only `status='ACTIVE'` workers
+are included in `compute.desired`; `SUSPENDED`/`DELETED` workers stop serving
+after the next publish.
 
 ### Vars, secrets, hostnames
 
