@@ -48,7 +48,7 @@ const STUB_BIN = process.env.STUB_BIN ?? join(RUNTIME_DIR, 'target/debug/vrt-stu
 const FACADE_DIR = process.env.FACADE_DIR ?? join(RUNTIME_DIR, 'facade')
 const suffix = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`
 const cell = `fullstack-${suffix}`
-const team = `team-${suffix}`
+const team = `t${Date.now().toString(36)}${Math.floor(Math.random() * 1e4).toString(36)}`
 const worker = 'edge'
 const hostname = `app-${suffix}.fullstack.test`
 
@@ -271,7 +271,7 @@ async function main() {
   else assert.ok(existsSync(WORKERD_BIN), `workerd binary missing: ${WORKERD_BIN}`)
   assert.ok(existsSync(join(FACADE_DIR, 'manifest.json')), `facade manifest missing: ${FACADE_DIR}`)
 
-  const root = await mkdtemp(join(tmpdir(), 'openflare-fullstack-'))
+  const root = await mkdtemp(join(tmpdir(), 'ofs-'))
   const podDir = join(root, 'pod')
   const delivery = join(podDir, 'delivery')
   const workDir = join(podDir, 'work')
@@ -433,7 +433,7 @@ enabled = false
   // controller writes the envelope/assignment; vrt-host starts once both exist.
   const v1 = bundle('v1')
   await uploadBundle(v1)
-  const rev1 = await deploy(v1, 'v1')
+  const rev1 = await deploy(v1, `v1-${suffix}`)
 
   start('cell-controller', CELL_CONTROLLER_BIN, [cellControllerConfigPath], {
     env: { RUST_LOG: 'info' },
@@ -475,7 +475,7 @@ enabled = false
   // the switch, so poll until the new code answers.
   const v2 = bundle('v2')
   await uploadBundle(v2)
-  const rev2 = await deploy(v2, 'v2')
+  const rev2 = await deploy(v2, `v2-${suffix}`)
   await waitPublication(rev2)
   const expectedV2 = STUB ? 'stub ok' : 'v2'
   const second = await waitFor(
