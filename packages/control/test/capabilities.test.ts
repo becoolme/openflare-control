@@ -48,6 +48,8 @@ describe('capability requirements', () => {
     for (const key of [
       'analyticsEngine',
       'flagship',
+      'email',
+      'images',
       'k2',
       'observability',
       'streamingTailConsumers',

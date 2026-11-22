@@ -83,7 +83,9 @@ Version body:
 }
 ```
 
-The bundle digest **must already be uploaded** (below). `POST /versions` and
+The bundle is the runtime's canonical stored document (produced by
+`buildRuntimeBundle` / `vrt`); the object key is the manifest digest, not
+sha256(document bytes). The bundle **must already be uploaded** (below). `POST /versions` and
 `POST /deploy` fail closed with `409 VRT_BUNDLE_NOT_UPLOADED` when the digest
 has no uploaded object, and `409 VRT_BUNDLE_SIZE_MISMATCH` when the claimed
 `bundleBytes` differs from the stored size.
@@ -116,10 +118,10 @@ values out of `desired` and out of reads.
 
 ### Bundles
 
-| Method | Path                                    | Purpose                               |
-| ------ | --------------------------------------- | ------------------------------------- |
-| PUT    | `/api/v1/cells/{cell}/bundles/{sha256}` | raw bytes; digest must match the body |
-| GET    | `/api/v1/cells/{cell}/bundles/{sha256}` | download (content-addressed)          |
+| Method | Path                                    | Purpose                                                                                                                                                                                           |
+| ------ | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| PUT    | `/api/v1/cells/{cell}/bundles/{digest}` | runtime stored document; `digest` is sha256(canonical manifest) and the inner `digest` is re-verified. Legacy raw bytes whose sha256 equals the path are accepted for control-plane-only fixtures |
+| GET    | `/api/v1/cells/{cell}/bundles/{sha256}` | download (content-addressed)                                                                                                                                                                      |
 
 ### Service resources
 

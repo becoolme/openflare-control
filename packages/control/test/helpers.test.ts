@@ -54,6 +54,8 @@ describe('capability bits', () => {
         queueDeliveryDelay: false,
         analyticsEngine: false,
         flagship: false,
+        email: false,
+        images: false,
         k2: false,
         observability: false,
         streamingTailConsumers: false,
