@@ -1,5 +1,19 @@
 # Changelog
 
+## 2026-11-22 — full-stack execution e2e
+
+- Added the runtime bundle format (`buildRuntimeBundle` /
+  `verifyRuntimeBundle`): the object key is sha256(canonical manifest) and the
+  inner stored-document digest is re-derived. `PUT /bundles/{digest}` accepts
+  it (legacy raw fixture bytes remain accepted for control-plane-only tests);
+  `DirBundleStore` stores by the key digest, not sha256(body).
+- Added `scripts/e2e-fullstack.mjs` and the `e2e-fullstack` CI job: management
+  API → real cell-controller → real vrt-host → pinned workerd → ingress, v1
+  response, redeploy v2, v2 response.
+- Runtime fix (openflare#77): control-event socket names accept
+  `sock-<teamId>:<workerName>` (colon) and the 256-byte bound, otherwise a real
+  cell rejected the listen event as `control`/circuit-open.
+
 ## 2026-11-22 — worker deploy lifecycle
 
 - Added `POST /cells/{cell}/teams/{team}/workers/{name}/deploy`: create a
