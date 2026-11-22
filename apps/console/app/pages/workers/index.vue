@@ -20,16 +20,44 @@ const { data: metrics } = await useAsyncData(
   () => `metrics:${activeCell.value}`,
   () =>
     activeCell.value
-      ? consoleApi<{ requests: number; errors: number; serverErrors: number }>(
+      ? consoleApi<MetricsInfo>(
           `/api/v1/cells/${encodeURIComponent(activeCell.value)}/metrics`
         )
-      : Promise.resolve({ requests: 0, errors: 0, serverErrors: 0 }),
+      : Promise.resolve(null),
   { watch: [activeCell] }
 )
 const errorRate = computed(() => {
   const r = metrics.value?.requests ?? 0
   return r === 0 ? null : ((metrics.value?.errors ?? 0) / r) * 100
 })
+const fmtMs = (v: number | null | undefined) => (v === null || v === undefined ? '—' : `${v} ms`)
+const workerMetrics = ref<Record<string, { requests: number; errors: number; p99: number | null }>>(
+  {}
+)
+watch(
+  [activeCell, workers],
+  async () => {
+    if (!activeCell.value) {
+      workerMetrics.value = {}
+      return
+    }
+    const list = workers.value.slice(0, 100)
+    const entries = await Promise.all(
+      list.map(async (w) => {
+        try {
+          const m = await consoleApi<MetricsInfo>(
+            `/api/v1/cells/${encodeURIComponent(activeCell.value)}/teams/${encodeURIComponent(w.teamId)}/workers/${encodeURIComponent(w.name)}/metrics`
+          )
+          return [w.workerId, { requests: m.requests, errors: m.errors, p99: m.latency.p99 }] as const
+        } catch {
+          return [w.workerId, { requests: 0, errors: 0, p99: null }] as const
+        }
+      })
+    )
+    workerMetrics.value = Object.fromEntries(entries)
+  },
+  { immediate: true }
+)
 const tone = (s: string) => (s === 'ACTIVE' ? 'ok' : s === 'FAILED' ? 'err' : 'neu')
 </script>
 
@@ -60,10 +88,10 @@ const tone = (s: string) => (s === 'ACTIVE' ? 'ok' : s === 'FAILED' ? 'err' : 'n
 
     <div style="display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px">
       <UiMetricCard label="Workers"><template #value>{{ workers.length }}</template><UiMetricFoot>{{ activeCell || 'no cell selected' }}</UiMetricFoot></UiMetricCard>
-      <UiMetricCard label="Requests" hint="24h"><template #value>{{ metrics?.requests ?? 0 }}</template><UiMetricFoot>from ingested logs</UiMetricFoot></UiMetricCard>
+      <UiMetricCard label="Requests" hint="24h"><template #value>{{ metrics?.requests ?? 0 }}</template><UiMetricFoot>from the {{ metrics?.source ?? 'logs' }} source</UiMetricFoot></UiMetricCard>
       <UiMetricCard label="Error rate" hint="24h"><template #value>{{ errorRate === null ? '—' : errorRate.toFixed(2) + '%' }}</template><UiMetricFoot>{{ metrics?.errors ?? 0 }} errors</UiMetricFoot></UiMetricCard>
-      <UiMetricCard label="CPU p50 / p99"><template #value>—</template><UiMetricFoot>runtime does not report CPU</UiMetricFoot></UiMetricCard>
-      <UiMetricCard label="Cold starts" hint="24h"><template #value>—</template><UiMetricFoot>runtime does not report cold starts</UiMetricFoot></UiMetricCard>
+      <UiMetricCard label="Latency p50 / p99" hint="24h"><template #value>{{ fmtMs(metrics?.latency.p50) }} / {{ fmtMs(metrics?.latency.p99) }}</template><UiMetricFoot>worker wall time</UiMetricFoot></UiMetricCard>
+      <UiMetricCard label="CPU / cold starts" hint="24h"><template #value>{{ metrics?.cpuMs === null || metrics?.cpuMs === undefined ? '—' : metrics.cpuMs + ' ms' }}</template><UiMetricFoot>{{ metrics?.coldStarts ?? 0 }} launches · tenant CPU</UiMetricFoot></UiMetricCard>
     </div>
 
     <section class="card" style="padding: 0; position: relative">
@@ -82,7 +110,7 @@ const tone = (s: string) => (s === 'ACTIVE' ? 'ok' : s === 'FAILED' ? 'err' : 'n
         <UiButton variant="secondary" size="sm"><UiIcon name="updown" :size="12" />Requests ↓</UiButton>
       </div>
       <table class="tbl">
-        <thead><tr><th>Worker</th><th>Status</th><th>Deployment</th><th>Bindings</th><th>Requests 24h</th><th>Errors</th><th>CPU p99</th><th></th></tr></thead>
+        <thead><tr><th>Worker</th><th>Status</th><th>Deployment</th><th>Bindings</th><th>Requests 24h</th><th>Errors</th><th>p99 latency</th><th></th></tr></thead>
         <tbody>
           <tr v-if="pending"><td colspan="8" class="muted" style="padding: 18px">Loading workers…</td></tr>
           <tr v-else-if="error"><td colspan="8" style="padding: 18px; color: var(--err)">{{ error.message }}</td></tr>
@@ -92,9 +120,9 @@ const tone = (s: string) => (s === 'ACTIVE' ? 'ok' : s === 'FAILED' ? 'err' : 'n
             <td><UiBadge :tone="tone(w.status)" dot>{{ w.status }}</UiBadge></td>
             <td><div class="num">{{ w.activeVersionId || '—' }}</div><div class="sm">{{ w.compatibilityDate }}</div></td>
             <td><span class="sm">entrypoint {{ w.entrypoint }}</span></td>
-            <td class="num dim">—</td>
-            <td class="num dim">—</td>
-            <td class="num dim">—</td>
+            <td class="num">{{ workerMetrics[w.workerId]?.requests ?? '—' }}</td>
+            <td class="num" :style="workerMetrics[w.workerId]?.errors ? 'color: var(--err)' : ''">{{ workerMetrics[w.workerId]?.errors ?? '—' }}</td>
+            <td class="num dim">{{ fmtMs(workerMetrics[w.workerId]?.p99) }}</td>
             <td style="text-align: right"><UiIconButton icon="more" :size="15" label="More actions" /></td>
           </UiLinkRow>
         </tbody>

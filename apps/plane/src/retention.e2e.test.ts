@@ -81,6 +81,18 @@ maybe('retention e2e', () => {
     await call('POST', `/api/internal/clusters/${cell}/vrt/d1-ops/ack`, {
       acks: [{ seq: ops[0]!.seq, status: 'DONE' }],
     })
+    // One old metrics report (the retention target) and one fresh.
+    await call('POST', `/api/internal/clusters/${cell}/vrt/metrics`, {
+      schemaVersion: 1,
+      cellId: cell,
+      sampledAtMs: Date.now(),
+      windowMs: 30000,
+      pods: [],
+    })
+    await pool.query(
+      `update plane_cell_metrics set created_at = now() - interval '40 days' where cell_id=$1`,
+      [cell]
+    )
     // Backdate all logs and the first two ops.
     await pool.query(
       `update plane_logs set created_at = now() - interval '40 days' where cell_id=$1`,
@@ -100,6 +112,7 @@ maybe('retention e2e', () => {
     expect(pruned.status).toBe(200)
     expect(pruned.body.data.logsDeleted).toBe(2)
     expect(pruned.body.data.d1OpsDeleted).toBe(1) // terminal + old only
+    expect(pruned.body.data.metricsDeleted).toBe(1)
 
     const logCount = await pool.query(
       'select count(*)::int as n from plane_logs where cell_id=$1',
@@ -111,6 +124,11 @@ maybe('retention e2e', () => {
       [cell]
     )
     expect(remaining.rows[0].n).toBe(2) // old pending + fresh
+    const metrics = await pool.query(
+      'select count(*)::int as n from plane_cell_metrics where cell_id=$1',
+      [cell]
+    )
+    expect(metrics.rows[0].n).toBe(0)
     const pending = await pool.query(
       `select count(*)::int as n from plane_d1_ops where cell_id=$1 and status='PENDING'`,
       [cell]

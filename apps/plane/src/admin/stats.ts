@@ -1,20 +1,64 @@
+import { randomUUID } from 'node:crypto'
 import type { Hono } from 'hono'
 import { VrtControlError } from 'openflare-control'
+import {
+  aggregateMetrics,
+  type CellReport,
+  type CellReportInstanceSet,
+  type CellReportResources,
+} from '../cellReport.js'
 import { type AdminDeps, rows, workerId } from './context.js'
 
 /**
- * Stats surfaces. Numbers that the reference plane actually stores (op counts,
- * log-derived request/error counts, consumer/producer rows) are real; data that
- * only the data plane can measure is explicitly `null` with a note, never a
- * fabricated value. Instance-list endpoints that the runtime does not expose
- * answer a typed 501 so the console can render the gap honestly.
+ * Stats surfaces. Values are real wherever the runtime reports them:
+ * - request/error/latency/CPU/cold-start metrics come from the periodic
+ *   cell report (falling back to ingested logs only when no report exists);
+ * - D1 size/tables, queue backlog, workflow/DO instances come from the
+ *   report's data-plane snapshot;
+ * - R2 object counts are fetched on demand with an `R2_STATS` cell op
+ *   (bucket ids are control-plane knowledge, so they cannot ride the
+ *   desired-driven periodic report).
+ * A value the runtime cannot measure is `null` with an explicit note, never
+ * a fabricated number.
  */
 export function registerStats(app: Hono, deps: AdminDeps): void {
-  const metrics = async (cell: string, worker?: string | null, window?: string | null) => {
-    const windowMs = Math.min(
-      Math.max(Number(window ?? '86400000') || 86_400_000, 1000),
-      30 * 86_400_000
+  const windowFrom = (raw: string | null | undefined): number =>
+    Math.min(Math.max(Number(raw ?? '86400000') || 86_400_000, 1000), 30 * 86_400_000)
+
+  const loadReports = async (cell: string, windowMs: number): Promise<CellReport[]> => {
+    const list = await rows(
+      deps,
+      `select payload from plane_cell_metrics
+        where cell_id=$1 and sampled_at >= now() - ($2::bigint * interval '1 millisecond')
+        order by sampled_at asc limit 10000`,
+      [cell, windowMs]
     )
+    return list.map((r) => r.payload as CellReport)
+  }
+
+  const loadResources = async (
+    cell: string
+  ): Promise<{ resources: CellReportResources; sampledAt: string | null } | null> => {
+    const [row] = await rows(
+      deps,
+      'select payload, sampled_at from plane_cell_resources where cell_id=$1',
+      [cell]
+    )
+    if (!row) return null
+    return {
+      resources: row.payload as CellReportResources,
+      sampledAt: row.sampled_at ? new Date(String(row.sampled_at)).toISOString() : null,
+    }
+  }
+
+  const metrics = async (cell: string, worker?: string | null, window?: string | null) => {
+    const windowMs = windowFrom(window)
+    const reports = await loadReports(cell, windowMs)
+    if (reports.length > 0) {
+      return aggregateMetrics(reports, windowMs, worker ?? null)
+    }
+    // Older cells before the report channel existed: logs are the only
+    // source of request/error counts.
     const since = Date.now() - windowMs
     const [row] = await rows(
       deps,
@@ -32,11 +76,18 @@ export function registerStats(app: Hono, deps: AdminDeps): void {
       requests: Number(row?.requests ?? 0),
       errors: Number(row?.errors ?? 0),
       serverErrors: Number(row?.server_errors ?? 0),
-      lastEventAt: row?.last_event_ms ? new Date(Number(row.last_event_ms)).toISOString() : null,
-      // Not emitted by the runtime logs channel yet.
+      exceptions: 0,
+      requestBytes: 0,
+      responseBytes: 0,
+      inflight: 0,
       cpuMs: null,
       coldStarts: null,
-      note: 'request/error counts come from ingested logs; CPU and cold starts are not reported by the runtime',
+      latency: { p50: null, p99: null },
+      durationCount: 0,
+      durationSumSeconds: 0,
+      lastEventAt: row?.last_event_ms ? new Date(Number(row.last_event_ms)).toISOString() : null,
+      source: 'logs' as const,
+      note: 'fallback: request/error counts come from ingested logs; the runtime report has not arrived yet (CPU/cold starts/latency unavailable)',
     }
   }
 
@@ -72,10 +123,13 @@ export function registerStats(app: Hono, deps: AdminDeps): void {
       `select count(*)::int as total,
               count(*) filter (where status='PENDING')::int as pending,
               count(*) filter (where status='FAILED')::int as failed,
+              count(*) filter (where kind='MIGRATIONS_APPLY' and status='PENDING')::int as pending_migrations,
               max(created_at) as last_op_at
          from plane_d1_ops where cell_id=$1 and database_id=$2`,
       [cell, id]
     )
+    const snapshot = await loadResources(cell)
+    const stats = snapshot?.resources.d1[id]
     return c.json({
       data: {
         databaseId: id,
@@ -83,10 +137,18 @@ export function registerStats(app: Hono, deps: AdminDeps): void {
         pendingOps: Number(ops?.pending ?? 0),
         failedOps: Number(ops?.failed ?? 0),
         lastOpAt: ops?.last_op_at ?? null,
-        sizeBytes: null,
-        tableCount: null,
-        pendingMigrations: null,
-        note: 'size/tables/migrations require a live D1 data-plane query',
+        pendingMigrations: Number(ops?.pending_migrations ?? 0),
+        sizeBytes: stats?.sizeBytes ?? null,
+        pageCount: stats?.pageCount ?? null,
+        pageSize: stats?.pageSize ?? null,
+        tableCount: stats?.tableCount ?? null,
+        tables: stats?.tables ?? null,
+        indexCount: stats?.indexCount ?? null,
+        userVersion: stats?.userVersion ?? null,
+        sampledAt: snapshot?.sampledAt ?? null,
+        note: stats
+          ? 'size/tables from the D1 data plane; op counts from the control-plane ledger'
+          : 'the runtime has not reported D1 stats yet (it reports every collection interval)',
       },
     })
   })
@@ -96,7 +158,7 @@ export function registerStats(app: Hono, deps: AdminDeps): void {
     const name = c.req.param('bucketName')
     const [bucket] = await rows(
       deps,
-      'select bucket_id from plane_r2_buckets where bucket_name=$1 and cluster_id=$2',
+      'select * from plane_r2_buckets where bucket_name=$1 and cluster_id=$2',
       [name, cell]
     )
     if (!bucket) throw new VrtControlError(404, 'R2 bucket not found')
@@ -105,23 +167,86 @@ export function registerStats(app: Hono, deps: AdminDeps): void {
       `select count(*)::int as total,
               count(*) filter (where status='PENDING')::int as pending,
               count(*) filter (where status='FAILED')::int as failed,
+              count(*) filter (where kind in ('R2_LIST','R2_PUT'))::int as class_a,
+              count(*) filter (where kind in ('R2_GET','R2_HEAD'))::int as class_b,
               max(created_at) as last_op_at
          from plane_cell_ops
-        where cell_id=$1 and resource_key=$2 and kind like 'R2\\_%'`,
+        where cell_id=$1 and resource_key=$2
+          and kind in ('R2_LIST','R2_HEAD','R2_GET','R2_PUT','R2_DELETE')`,
       [cell, bucket.bucket_id]
     )
+    const waitMs = Math.min(Math.max(Number(c.req.query('waitMs') ?? '5000') || 0, 0), 15_000)
+    const [cached] = await rows(
+      deps,
+      `select result, status, created_at from plane_cell_ops
+        where cell_id=$1 and resource_key=$2 and kind='R2_STATS'
+        order by seq desc limit 1`,
+      [cell, bucket.bucket_id]
+    )
+    let stats =
+      cached?.status === 'DONE' && cached.result ? (cached.result as Record<string, unknown>) : null
+    let pending = false
+    let opError: string | null = null
+    if (!stats && waitMs > 0) {
+      const [cellRow] = await rows(deps, 'select capabilities from plane_cells where cell_id=$1', [
+        cell,
+      ])
+      const caps = (cellRow?.capabilities ?? {}) as Record<string, unknown>
+      if (caps.r2 === true) {
+        const opId = randomUUID()
+        await deps.pool.query(
+          `insert into plane_cell_ops (id, cell_id, worker_id, resource_key, kind, payload, expires_at)
+           values ($1,$2,'',$3,'R2_STATS',$4, now() + interval '30 seconds')`,
+          [opId, cell, bucket.bucket_id, { tenantId: bucket.team_id, bucketId: bucket.bucket_id }]
+        )
+        const deadline = Date.now() + waitMs
+        while (Date.now() < deadline) {
+          const [op] = await rows(
+            deps,
+            'select status, result, error from plane_cell_ops where id=$1',
+            [opId]
+          )
+          if (op?.status === 'DONE' && op.result) {
+            stats = op.result as Record<string, unknown>
+            break
+          }
+          if (op?.status === 'FAILED' || op?.status === 'EXPIRED') {
+            opError = String(op.error ?? op.status)
+            break
+          }
+          await new Promise((r) => setTimeout(r, 100))
+        }
+        pending = !stats && !opError
+      } else {
+        opError = 'cell does not advertise the r2 capability'
+      }
+    }
     return c.json({
       data: {
         bucketName: name,
         ops: Number(ops?.total ?? 0),
         pendingOps: Number(ops?.pending ?? 0),
         failedOps: Number(ops?.failed ?? 0),
+        classAOps: Number(ops?.class_a ?? 0),
+        classBOps: Number(ops?.class_b ?? 0),
         lastOpAt: ops?.last_op_at ?? null,
-        objects: null,
-        sizeBytes: null,
-        classAOps: null,
-        classBOps: null,
-        note: 'object/size/class counts require the R2 data plane',
+        objects: stats ? Number(stats.objects ?? 0) : null,
+        sizeBytes: stats ? Number(stats.sizeBytes ?? 0) : null,
+        truncated: stats ? stats.truncated === true : null,
+        sampledAt: stats
+          ? new Date(Number(stats.sampledAtMs) || Date.now()).toISOString()
+          : cached?.created_at
+            ? new Date(String(cached.created_at)).toISOString()
+            : null,
+        pending,
+        error: opError,
+        note: stats
+          ? 'object/size counts from a bounded R2 list scan; class A/B from the control-plane op ledger'
+          : opError
+            ? `bucket stats unavailable: ${opError}`
+            : pending
+              ? 'the R2 stats op is still pending on the cell'
+              : 'no R2 stats yet; retry with waitMs to request one',
       },
     })
   })
@@ -151,17 +276,29 @@ export function registerStats(app: Hono, deps: AdminDeps): void {
         where b->>'type'='queue' and b->>'resourceId'=$1`,
       [id]
     )
+    const snapshot = await loadResources(cell)
+    const stats = snapshot?.resources.queues[id]
+    const oldest = stats?.oldestMessageTimestampMs ?? null
     return c.json({
       data: {
         queueId: id,
         deliveryDelaySeconds: queue.delivery_delay_seconds,
         consumers: Number(consumers?.n ?? 0),
         producers: Number(producers?.n ?? 0),
-        backlog: null,
+        backlog: stats?.backlog ?? null,
+        backlogBytes: stats?.backlogBytes ?? null,
+        visible: stats?.visible ?? null,
+        inFlight: stats?.inFlight ?? null,
+        delayed: stats?.delayed ?? null,
+        oldestMessageAgeMs: oldest === null ? null : Math.max(0, Date.now() - oldest),
+        deadLetterDepth: stats?.dead ?? null,
+        // The delivered counter lives in the cell-controller's local
+        // registry; it is not part of the pod scrape yet.
         delivered: null,
-        oldestMessageAgeMs: null,
-        deadLetterDepth: null,
-        note: 'backlog/delivery metrics require the queue data plane',
+        sampledAt: snapshot?.sampledAt ?? null,
+        note: stats
+          ? 'backlog/visible/in-flight/delayed/DLQ from the queue data plane; delivered is not reported yet'
+          : 'the runtime has not reported queue stats yet',
       },
     })
   })
@@ -187,6 +324,8 @@ export function registerStats(app: Hono, deps: AdminDeps): void {
           where cell_id=$1 and worker_id=$2 and resource_key=$3 and kind like 'WF\\_%'`,
         [cell, id, workflowName]
       )
+      const snapshot = await loadResources(cell)
+      const set = snapshot?.resources.workflows[id]?.[workflowName]
       return c.json({
         data: {
           workflow: workflowName,
@@ -194,11 +333,17 @@ export function registerStats(app: Hono, deps: AdminDeps): void {
           ops: Number(ops?.total ?? 0),
           pendingOps: Number(ops?.pending ?? 0),
           failedOps: Number(ops?.failed ?? 0),
+          instances: set?.instanceCount ?? null,
+          storageBytes: set?.storageBytes ?? null,
+          truncated: set?.truncated ?? null,
+          sampledAt: snapshot?.sampledAt ?? null,
           runningInstances: null,
           waitingInstances: null,
           completedInstances: null,
           erroredInstances: null,
-          note: 'instance counters require a workflow instance index in the runtime',
+          note: set
+            ? 'instance count/storage from the engine class dir; per-state counters (running/waiting/completed) need engine status indexing'
+            : 'the runtime has not reported workflow instances yet',
         },
       })
     }
@@ -207,14 +352,14 @@ export function registerStats(app: Hono, deps: AdminDeps): void {
   app.get('/api/v1/cells/:cellId/durable-objects/:className/stats', async (c) => {
     const cell = c.req.param('cellId')
     const className = c.req.param('className')
-    const [declared] = await rows(
+    const declared = await rows(
       deps,
-      `select count(*)::int as n
+      `select w.id
          from plane_workers w join plane_versions v on v.version_id = w.active_version_id
         where w.cluster_id=$1 and coalesce(v.row->'exportedClassNames','[]'::jsonb) ? $2`,
       [cell, className]
     )
-    if (!declared || Number(declared.n) === 0) {
+    if (declared.length === 0) {
       throw new VrtControlError(404, 'Durable Object class not found')
     }
     const [bindings] = await rows(
@@ -226,28 +371,127 @@ export function registerStats(app: Hono, deps: AdminDeps): void {
           and split_part(b->>'resourceId', ':', 2) = $2`,
       [cell, className]
     )
+    const snapshot = await loadResources(cell)
+    const sets = declared
+      .map((w) => snapshot?.resources.durableObjects[w.id as string]?.[className])
+      .filter((s): s is CellReportInstanceSet => Boolean(s))
+    const instances = sets.reduce((n, s) => n + s.instanceCount, 0)
+    const storageBytes = sets.reduce((n, s) => n + s.storageBytes, 0)
     return c.json({
       data: {
         className,
-        workers: Number(declared.n),
+        workers: declared.length,
         bindings: Number(bindings?.n ?? 0),
-        instances: null,
+        instances: sets.length > 0 ? instances : null,
         activeInstances: null,
-        storageBytes: null,
-        note: 'instance/storage counts require a DO registry in the runtime',
+        storageBytes: sets.length > 0 ? storageBytes : null,
+        truncated: sets.some((s) => s.truncated),
+        sampledAt: snapshot?.sampledAt ?? null,
+        note:
+          sets.length > 0
+            ? 'instances/storage from the declared class dirs; activeInstances needs engine liveness indexing'
+            : 'the runtime has not reported DO instances yet',
       },
     })
   })
 
-  // Explicit unsupported surfaces: a typed 501 lets the console distinguish
-  // "API missing" from "network/auth failure" without guessing.
-  const unsupported = (what: string) =>
-    new VrtControlError(501, `${what} is not exposed by the runtime`, 'VRT_NOT_SUPPORTED')
+  const instanceList = async (
+    cell: string,
+    kind: 'workflow' | 'durableObject',
+    name: string
+  ): Promise<{
+    instances: { id: string; bytes: number; workerId: string }[]
+    total: number
+    storageBytes: number
+    truncated: boolean
+    sampledAt: string | null
+    waiting: boolean
+  }> => {
+    const snapshot = await loadResources(cell)
+    const pairs: { workerId: string; set: CellReportInstanceSet | undefined }[] = []
+    if (kind === 'workflow') {
+      const workflows = await rows(
+        deps,
+        'select worker_id from plane_workflows where cluster_id=$1 and name=$2',
+        [cell, name]
+      )
+      for (const w of workflows) {
+        pairs.push({
+          workerId: w.worker_id as string,
+          set: snapshot?.resources.workflows[w.worker_id as string]?.[name],
+        })
+      }
+    } else {
+      const workers = await rows(
+        deps,
+        `select w.id
+           from plane_workers w join plane_versions v on v.version_id = w.active_version_id
+          where w.cluster_id=$1 and coalesce(v.row->'exportedClassNames','[]'::jsonb) ? $2`,
+        [cell, name]
+      )
+      for (const w of workers) {
+        pairs.push({
+          workerId: w.id as string,
+          set: snapshot?.resources.durableObjects[w.id as string]?.[name],
+        })
+      }
+    }
+    const instances = pairs.flatMap(({ workerId, set }) =>
+      (set?.instances ?? []).map((i) => ({ id: i.id, bytes: i.bytes, workerId }))
+    )
+    return {
+      instances,
+      total: pairs.reduce((n, { set }) => n + (set?.instanceCount ?? 0), 0),
+      storageBytes: pairs.reduce((n, { set }) => n + (set?.storageBytes ?? 0), 0),
+      truncated: pairs.some(({ set }) => set?.truncated === true),
+      sampledAt: snapshot?.sampledAt ?? null,
+      waiting: pairs.length === 0 || pairs.every(({ set }) => !set),
+    }
+  }
 
-  app.get('/api/v1/cells/:cellId/workflows/:name/instances', () => {
-    throw unsupported('Workflow instance listing')
+  app.get('/api/v1/cells/:cellId/workflows/:name/instances', async (c) => {
+    const cell = c.req.param('cellId')
+    const name = c.req.param('name')
+    const workflows = await rows(
+      deps,
+      'select worker_id from plane_workflows where cluster_id=$1 and name=$2',
+      [cell, name]
+    )
+    if (workflows.length === 0) throw new VrtControlError(404, 'Workflow not found')
+    const list = await instanceList(cell, 'workflow', name)
+    return c.json({
+      data: {
+        workflow: name,
+        ...list,
+        note: list.waiting
+          ? 'the runtime has not reported instances yet (collection runs every interval)'
+          : 'instance ids are the engine class-dir file stems',
+      },
+    })
   })
-  app.get('/api/v1/cells/:cellId/durable-objects/:className/instances', () => {
-    throw unsupported('Durable Object instance listing')
+
+  app.get('/api/v1/cells/:cellId/durable-objects/:className/instances', async (c) => {
+    const cell = c.req.param('cellId')
+    const className = c.req.param('className')
+    const declared = await rows(
+      deps,
+      `select w.id
+         from plane_workers w join plane_versions v on v.version_id = w.active_version_id
+        where w.cluster_id=$1 and coalesce(v.row->'exportedClassNames','[]'::jsonb) ? $2`,
+      [cell, className]
+    )
+    if (declared.length === 0) {
+      throw new VrtControlError(404, 'Durable Object class not found')
+    }
+    const list = await instanceList(cell, 'durableObject', className)
+    return c.json({
+      data: {
+        className,
+        ...list,
+        note: list.waiting
+          ? 'the runtime has not reported instances yet (collection runs every interval)'
+          : 'instance ids are the DO class-dir sqlite stems',
+      },
+    })
   })
 }

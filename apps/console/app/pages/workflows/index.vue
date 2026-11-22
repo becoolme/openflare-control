@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { ServiceCatalog } from '../../composables/useConsoleApi'
+import type { ServiceCatalog, WorkflowStatsInfo } from '../../composables/useConsoleApi'
 definePageMeta({
   nav: 'Workflows',
   crumbs: () => [{ label: 'workers', to: '/workers' }, { label: 'workflows' }],
@@ -16,6 +16,53 @@ const { data, pending, error } = await useAsyncData(
   { watch: [activeCell] }
 )
 const workflows = computed(() => data.value?.workflows ?? [])
+const statsById = ref<Record<string, WorkflowStatsInfo>>({})
+const formatBytes = (n: number | null | undefined) => {
+  if (n === null || n === undefined) return '—'
+  if (n < 1024) return `${n} B`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KiB`
+  return `${(n / (1024 * 1024)).toFixed(1)} MiB`
+}
+const totalInstances = computed(() =>
+  Object.values(statsById.value).reduce((n, s) => n + (s.instances ?? 0), 0)
+)
+const totalStorage = computed(() =>
+  Object.values(statsById.value).reduce((n, s) => n + (s.storageBytes ?? 0), 0)
+)
+const totalOps = computed(() =>
+  Object.values(statsById.value).reduce((n, s) => n + s.ops, 0)
+)
+const totalPending = computed(() =>
+  Object.values(statsById.value).reduce((n, s) => n + s.pendingOps, 0)
+)
+watch(
+  [activeCell, workflows],
+  async () => {
+    if (!activeCell.value) {
+      statsById.value = {}
+      return
+    }
+    const entries = await Promise.all(
+      workflows.value.map(async (w) => {
+        const [teamId, ...nameParts] = w.workerId.split(':')
+        const name = nameParts.join(':')
+        try {
+          const stats = await consoleApi<WorkflowStatsInfo>(
+            `/api/v1/cells/${encodeURIComponent(activeCell.value)}/teams/${encodeURIComponent(teamId ?? '')}/workers/${encodeURIComponent(name)}/workflows/${encodeURIComponent(w.name)}/stats`
+          )
+          return [w.workflowId, stats] as const
+        } catch {
+          return [w.workflowId, null] as const
+        }
+      })
+    )
+    statsById.value = Object.fromEntries(entries.filter(([, v]) => v)) as Record<
+      string,
+      WorkflowStatsInfo
+    >
+  },
+  { immediate: true }
+)
 </script>
 
 <template><div class="wrap pg-workflows-list" style="display: flex; flex-direction: column; gap: 20px">
@@ -33,9 +80,9 @@ const workflows = computed(() => data.value?.workflows ?? [])
 
     <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px">
       <UiMetricCard label="Workflows"><template #value>{{ workflows.length }}</template><UiMetricFoot>{{ activeCell || 'no cell selected' }}</UiMetricFoot></UiMetricCard>
-      <UiMetricCard label="Running / waiting"><template #value>—</template><UiMetricFoot>no workflow metrics API</UiMetricFoot></UiMetricCard>
-      <UiMetricCard label="Complete" hint="24h"><template #value>—</template><UiMetricFoot>no workflow metrics API</UiMetricFoot></UiMetricCard>
-      <UiMetricCard label="Errored" hint="24h" value-style="color: var(--err)"><template #value>—</template><UiMetricFoot>no workflow metrics API</UiMetricFoot></UiMetricCard>
+      <UiMetricCard label="Instances"><template #value>{{ totalInstances }}</template><UiMetricFoot>{{ formatBytes(totalStorage) }} on disk</UiMetricFoot></UiMetricCard>
+      <UiMetricCard label="Ops" hint="all time"><template #value>{{ totalOps }}</template><UiMetricFoot>{{ totalPending }} pending</UiMetricFoot></UiMetricCard>
+      <UiMetricCard label="Per-state counters"><template #value>—</template><UiMetricFoot>the engine has no status index yet</UiMetricFoot></UiMetricCard>
     </div>
 
     <section class="card" style="padding: 0">
@@ -53,21 +100,21 @@ const workflows = computed(() => data.value?.workflows ?? [])
         <UiButton variant="secondary" size="sm"><UiIcon name="updown" :size="12" />Last run ↓</UiButton>
       </div>
       <table class="tbl">
-        <thead><tr><th>Workflow</th><th>Worker</th><th>Class</th><th style="text-align: right">Running</th><th style="text-align: right">Waiting</th><th style="text-align: right">Complete 24h</th><th style="text-align: right">Errored 24h</th><th>Last run</th><th></th></tr></thead>
+        <thead><tr><th>Workflow</th><th>Worker</th><th>Class</th><th style="text-align: right">Instances</th><th style="text-align: right">Storage</th><th style="text-align: right">Ops</th><th style="text-align: right">Pending</th><th>Sampled</th><th></th></tr></thead>
         <tbody>
           <tr v-if="pending"><td colspan="9" class="muted" style="padding: 18px">Loading workflows…</td></tr>
           <tr v-else-if="error"><td colspan="9" style="padding: 18px; color: var(--err)">{{ error.message }}</td></tr>
           <tr v-else-if="workflows.length === 0"><td colspan="9" class="muted" style="padding: 18px">No workflows.</td></tr>
           <tr v-for="w in workflows" :key="w.workflowId">
-            <td><div class="nm">{{ w.name }}</div><div class="sm">{{ w.workflowId }}</div></td>
+            <td><div class="nm"><NuxtLink :to="`/workflows/${encodeURIComponent(w.name)}`">{{ w.name }}</NuxtLink></div><div class="sm">{{ w.workflowId }}</div></td>
             <td><span class="wk">{{ w.workerId }}</span></td>
             <td class="num muted">{{ w.className }}</td>
-            <td class="num dim" style="text-align: right">—</td>
-            <td class="num dim" style="text-align: right">—</td>
-            <td class="num dim" style="text-align: right">—</td>
-            <td class="num dim" style="text-align: right">—</td>
-            <td class="num muted">{{ w.teamId }}</td>
-            <td style="text-align: right"><UiIcon name="chevr" /></td>
+            <td class="num" style="text-align: right">{{ statsById[w.workflowId]?.instances ?? '—' }}</td>
+            <td class="num dim" style="text-align: right">{{ formatBytes(statsById[w.workflowId]?.storageBytes) }}</td>
+            <td class="num dim" style="text-align: right">{{ statsById[w.workflowId]?.ops ?? '—' }}</td>
+            <td class="num dim" style="text-align: right">{{ statsById[w.workflowId]?.pendingOps ?? '—' }}</td>
+            <td class="num muted">{{ statsById[w.workflowId]?.sampledAt ? new Date(statsById[w.workflowId]!.sampledAt!).toLocaleTimeString() : 'waiting' }}</td>
+            <td style="text-align: right"><NuxtLink :to="`/workflows/${encodeURIComponent(w.name)}`"><UiIcon name="chevr" /></NuxtLink></td>
           </tr>
         </tbody>
       </table>

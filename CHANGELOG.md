@@ -1,5 +1,23 @@
 # Changelog
 
+## 2026-11-22 — runtime metrics/report collection
+
+- Added the cell report wire contract (`fixtures/vrt-wire/cell-report.json`)
+  and ingest endpoint `POST /api/internal/clusters/{cell}/vrt/metrics`.
+- Metrics now come from the runtime: request/error/latency/CPU/cold-start
+  deltas (logs remain a fallback before the first report).
+- D1 size/tables/pages, queue backlog/visible/in-flight/delayed/DLQ,
+  Workflow/DO instance ids/storage are real.
+- Workflow/DO instance listings replaced the typed 501s.
+- R2 object/size stats are fetched on demand with a read-only `R2_STATS`
+  cell op (cached; `waitMs` requests a refresh).
+- Per-worker CPU/cold starts, queue `delivered`, workflow per-state counters
+  and DO active instances remain `null` with explicit notes.
+- Added `PLANE_METRICS_RETENTION_DAYS` (14) and metrics pruning.
+- Console: live worker latency, D1 size/tables, R2 objects/size, queue
+  backlog, workflow/DO instance pages; `/kit/api` marks true gaps `PARTIAL`.
+- Tests: report ingest/stats/instances e2e, fixture contract, retention.
+
 ## 2026-11-22 — retention configuration
 
 - Added deployment retention knobs: `PLANE_LOG_RETENTION_DAYS` (7),

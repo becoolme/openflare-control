@@ -171,9 +171,110 @@ async function main() {
     deliveryDelaySeconds: 5,
   })
   assert.equal(r.status, 201, JSON.stringify(r.body))
+  const queueId = r.body.data.queue.queue_id
   r = await request('GET', `/api/v1/cells/${cell}/services`)
   assert.equal(r.status, 200)
   assert.equal(r.body.data.queues[0].binding.type, 'queue')
+
+  // Runtime cell report: the deployed plane ingests the exact wire shape the
+  // cell controller pushes, and the console sees real metrics/stats.
+  r = await request('POST', `/api/v1/cells/${cell}/d1/databases`, {
+    teamId: team,
+    name: 'main',
+  })
+  assert.equal(r.status, 201, JSON.stringify(r.body))
+  const dbId = r.body.data.database.database_id
+  const now = Date.now()
+  const workerId = `${team}:hello`
+  const report = {
+    schemaVersion: 1,
+    cellId: cell,
+    sampledAtMs: now,
+    windowMs: 30_000,
+    pods: [
+      {
+        podId: 'pod-1',
+        bootId: 'boot-1',
+        windowMs: 30_000,
+        firstSample: false,
+        reset: false,
+        workers: [
+          {
+            workerId,
+            requests: 7,
+            errorRequests: 1,
+            serverErrors: 1,
+            exceptions: 0,
+            requestBytes: 10,
+            responseBytes: 20,
+            inflight: 0,
+            requestDuration: {
+              count: 7,
+              sumSeconds: 0.2,
+              buckets: [
+                { le: 0.005, count: 2 },
+                { le: 0.05, count: 7 },
+              ],
+            },
+          },
+        ],
+        tenants: [{ tenantId: team, cpuSeconds: 0.25, memoryRssBytes: 1024, doStorage: [] }],
+        launches: { ready: 1, failed: 0 },
+        wakes: { ok: 0, failed: 0 },
+        wakeSeconds: { count: 0, sumSeconds: 0, buckets: [] },
+        processStartTimeSeconds: now / 1000 - 30,
+      },
+    ],
+    resources: {
+      sampledAtMs: now,
+      d1: {
+        [dbId]: {
+          sizeBytes: 8192,
+          pageCount: 2,
+          pageSize: 4096,
+          tableCount: 1,
+          tables: ['t'],
+          indexCount: 0,
+          userVersion: 0,
+        },
+      },
+      queues: {
+        [queueId]: {
+          backlog: 2,
+          backlogBytes: 20,
+          oldestMessageTimestampMs: now - 1000,
+          visible: 2,
+          inFlight: 0,
+          delayed: 0,
+          dead: 0,
+        },
+      },
+      workflows: {},
+      durableObjects: {},
+      errors: [],
+    },
+  }
+  r = await request('POST', `/api/internal/clusters/${cell}/vrt/metrics`, report, json)
+  assert.equal(r.status, 200, JSON.stringify(r.body))
+  assert.equal(r.body.data.stored, true)
+  r = await request('GET', `/api/v1/cells/${cell}/metrics`)
+  assert.equal(r.body.data.source, 'runtime')
+  assert.equal(r.body.data.requests, 7)
+  assert.equal(r.body.data.cpuMs, 250)
+  assert.equal(r.body.data.coldStarts, 1)
+  assert.equal(r.body.data.latency.p50, 50)
+  r = await request('GET', `/api/v1/cells/${cell}/d1/databases/${dbId}/stats`)
+  assert.equal(r.body.data.sizeBytes, 8192)
+  assert.equal(r.body.data.tableCount, 1)
+  r = await request('GET', `/api/v1/cells/${cell}/queues/${queueId}/stats`)
+  assert.equal(r.body.data.backlog, 2)
+  assert.equal(r.body.data.visible, 2)
+  r = await request('GET', `/api/v1/cells/${cell}/teams/${team}/workers/hello/metrics`)
+  assert.equal(r.body.data.requests, 7)
+  assert.equal(r.body.data.cpuMs, null)
+  const proxiedMetrics = await fetch(`${consoleBase}/api/v1/cells/${cell}/metrics`)
+  assert.equal(proxiedMetrics.status, 200)
+  assert.equal((await proxiedMetrics.json()).data.source, 'runtime')
 
   // The console service is a real static UI + same-origin API proxy.
   const ui = await fetch(`${consoleBase}/`)

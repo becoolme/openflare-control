@@ -9,7 +9,7 @@ definePageMeta({
 type Row = {
   feature: string
   endpoint: string
-  status: 'live' | 'missing' | 'error'
+  status: 'live' | 'partial' | 'missing' | 'error'
   note: string
 }
 
@@ -37,44 +37,87 @@ async function run() {
     pending.value = false
     return
   }
+  const base = `/api/v1/cells/${cell}`
+  const [dbs, buckets, queues, catalog] = await Promise.all([
+    consoleApi<{ databases: { database_id: string }[] }>(`${base}/d1/databases`),
+    consoleApi<{ buckets: { bucket_name: string }[] }>(`${base}/r2/buckets`),
+    consoleApi<{ queues: { queue_id: string }[] }>(`${base}/queues`),
+    consoleApi<{ workflows: { workerId: string; name: string }[] }>(`${base}/services`),
+  ])
   const probes: [string, string, string][] = [
     ['Cells', '/api/v1/cells', 'list/select cells'],
     ['Teams + quotas', '/api/v1/teams', 'list/create/get/patch/delete'],
-    ['Workers', `/api/v1/cells/${cell}/workers`, 'list/create/get/patch/delete'],
-    ['D1 databases', `/api/v1/cells/${cell}/d1/databases`, 'list/create; query/migrations enqueue'],
-    ['R2 buckets', `/api/v1/cells/${cell}/r2/buckets`, 'list/create; object ops via cell-ops'],
-    ['KV namespaces', `/api/v1/cells/${cell}/kv/namespaces`, 'list/create; data ops via cell-ops'],
-    ['Queues', `/api/v1/cells/${cell}/queues`, 'list/create/patch delay'],
-    ['Service catalog', `/api/v1/cells/${cell}/services`, 'aggregated bindings'],
-    ['Workflows', `/api/v1/cells/${cell}/services`, 'declarations + instance ops'],
-    ['Durable Objects', `/api/v1/cells/${cell}/services`, 'class list via worker durable-objects'],
-    ['Publications', `/api/v1/cells/${cell}/publications`, 'publish + ACK state'],
-    ['Logs', `/api/v1/cells/${cell}/logs`, 'ingest + query'],
-    ['Worker metrics', `/api/v1/cells/${cell}/metrics`, 'log-derived requests/errors; CPU null'],
-    ['Hyperdrive', `/api/v1/cells/${cell}/hyperdrive`, 'resource metadata + binding'],
-    ['D1 stats', `/api/v1/cells/${cell}/d1/databases`, 'op counts via per-db stats'],
-    ['R2 stats', `/api/v1/cells/${cell}/r2/buckets`, 'op counts via per-bucket stats'],
-    ['Queue stats', `/api/v1/cells/${cell}/queues`, 'consumer/producer counts via per-queue stats'],
-    ['Workflow stats', `/api/v1/cells/${cell}/services`, 'op counts via per-workflow stats'],
-    ['DO stats', `/api/v1/cells/${cell}/services`, 'class/binding counts via per-class stats'],
+    ['Workers', `${base}/workers`, 'list/create/get/patch/delete'],
+    ['D1 databases', `${base}/d1/databases`, 'list/create; query/migrations enqueue'],
+    ['R2 buckets', `${base}/r2/buckets`, 'list/create; object ops via cell-ops'],
+    ['KV namespaces', `${base}/kv/namespaces`, 'list/create; data ops via cell-ops'],
+    ['Queues', `${base}/queues`, 'list/create/patch delay'],
+    ['Service catalog', `${base}/services`, 'aggregated bindings'],
+    ['Publications', `${base}/publications`, 'publish + ACK state'],
+    ['Logs', `${base}/logs`, 'ingest + query'],
+    ['Worker metrics', `${base}/metrics`, 'runtime deltas: requests/errors/latency/CPU/cold starts'],
+    ['Hyperdrive', `${base}/hyperdrive`, 'resource metadata + binding'],
   ]
+  if (dbs.databases[0]) {
+    probes.push([
+      'D1 stats',
+      `${base}/d1/databases/${dbs.databases[0].database_id}/stats`,
+      'size/tables from the data plane; pending migrations from the ledger',
+    ])
+  }
+  if (buckets.buckets[0]) {
+    probes.push([
+      'R2 stats',
+      `${base}/r2/buckets/${encodeURIComponent(buckets.buckets[0].bucket_name)}/stats?waitMs=0`,
+      'cached object/size scan; refresh with waitMs',
+    ])
+  }
+  if (queues.queues[0]) {
+    probes.push([
+      'Queue stats',
+      `${base}/queues/${queues.queues[0].queue_id}/stats`,
+      'backlog/visible/in-flight/delayed/DLQ',
+    ])
+  }
+  const wf = catalog.workflows[0]
+  if (wf) {
+    const [teamId, ...parts] = wf.workerId.split(':')
+    const worker = parts.join(':')
+    const wfBase = `${base}/teams/${encodeURIComponent(teamId ?? '')}/workers/${encodeURIComponent(worker)}/workflows/${encodeURIComponent(wf.name)}`
+    probes.push(
+      ['Workflow stats', `${wfBase}/stats`, 'instance count/storage + op ledger'],
+      ['Workflow instances', `${base}/workflows/${encodeURIComponent(wf.name)}/instances`, 'engine class-dir files']
+    )
+  }
   const out: Row[] = []
   for (const [feature, endpoint, note] of probes) {
     out.push({ feature, endpoint, note, status: await probe(endpoint) })
   }
-  // Features the UI needs but the plane does not expose yet.
+  // Honest partials: the endpoint is live, but the runtime cannot measure this.
   out.push(
     {
-      feature: 'Workflow instances',
-      endpoint: '/api/v1/cells/{cell}/workflows/{name}/instances',
-      status: 'missing',
-      note: 'typed 501: runtime has no instance index',
+      feature: 'Per-worker CPU / cold starts',
+      endpoint: `${base}/teams/{team}/workers/{name}/metrics`,
+      status: 'partial',
+      note: 'null by design: CPU is per tenant process, launches are per pod',
     },
     {
-      feature: 'DO instances/storage',
-      endpoint: '/api/v1/cells/{cell}/durable-objects/{class}/instances',
-      status: 'missing',
-      note: 'typed 501: runtime has no DO instance registry',
+      feature: 'Workflow per-state counters',
+      endpoint: `${base}/teams/{team}/workers/{name}/workflows/{name}/stats`,
+      status: 'partial',
+      note: 'instance files are listed; running/waiting/completed need an engine status index',
+    },
+    {
+      feature: 'DO active instances',
+      endpoint: `${base}/durable-objects/{class}/stats`,
+      status: 'partial',
+      note: 'instance/storage real; active count needs a liveness index',
+    },
+    {
+      feature: 'Queue delivered',
+      endpoint: `${base}/queues/{id}/stats`,
+      status: 'partial',
+      note: 'backlog real; the delivered counter is not in the pod scrape yet',
     },
     {
       feature: 'Team/user profile',
@@ -115,7 +158,7 @@ onMounted(run)
             <td><div class="nm">{{ row.feature }}</div></td>
             <td class="mono" style="font-size: 12px">{{ row.endpoint }}</td>
             <td>
-              <UiBadge :tone="row.status === 'live' ? 'ok' : row.status === 'missing' ? 'warn' : 'err'" dot>
+              <UiBadge :tone="row.status === 'live' ? 'ok' : row.status === 'partial' ? 'warn' : row.status === 'missing' ? 'neu' : 'err'" dot>
                 {{ row.status.toUpperCase() }}
               </UiBadge>
             </td>

@@ -33,19 +33,20 @@ accepts the keys in its config, and an unknown key fails closed.
 The plane keeps three kinds of operator data, each with a deployment-level
 window (set these in the plane's Deployment/env):
 
-| Env                        | Default         | Data                                                                      |
-| -------------------------- | --------------- | ------------------------------------------------------------------------- |
-| `PLANE_LOG_RETENTION_DAYS` | `7`             | ingested worker logs — the source of request/error metrics                |
-| `PLANE_OPS_RETENTION_DAYS` | `30`            | terminal D1/cell ops — the source of op stats; `PENDING` is never deleted |
-| `PLANE_PUBLICATION_KEEP`   | `20`            | terminal-acked publications per cell                                      |
-| `PLANE_RETENTION_SWEEP_MS` | `21600000` (6h) | background sweep interval; `0` disables it                                |
+| Env                            | Default         | Data                                                                      |
+| ------------------------------ | --------------- | ------------------------------------------------------------------------- |
+| `PLANE_LOG_RETENTION_DAYS`     | `7`             | ingested worker logs (fallback request/error source)                      |
+| `PLANE_OPS_RETENTION_DAYS`     | `30`            | terminal D1/cell ops — the source of op stats; `PENDING` is never deleted |
+| `PLANE_METRICS_RETENTION_DAYS` | `14`            | runtime cell reports (metrics + resource snapshot history)                |
+| `PLANE_PUBLICATION_KEEP`       | `20`            | terminal-acked publications per cell                                      |
+| `PLANE_RETENTION_SWEEP_MS`     | `21600000` (6h) | background sweep interval; `0` disables it                                |
 
 The plane runs the sweep in-process (unref'd timer). The same policy is
 available from cron, with per-run overrides:
 
 ```sh
 DATABASE_URL=... pnpm --filter openflare-plane exec tsx src/maintain.ts \
-  --keep 20 --log-days 7 --ops-days 30
+  --keep 20 --log-days 7 --ops-days 30 --metrics-days 14
 ```
 
 `POST /api/v1/maintenance/prune` accepts the same overrides for an on-demand

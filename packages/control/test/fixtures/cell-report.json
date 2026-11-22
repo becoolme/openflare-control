@@ -1,0 +1,133 @@
+{
+  "schemaVersion": 1,
+  "cellId": "cell-001",
+  "sampledAtMs": 1760000000000,
+  "windowMs": 30000,
+  "pods": [
+    {
+      "podId": "pod-0",
+      "bootId": "1759999970:pod-0",
+      "windowMs": 30000,
+      "firstSample": false,
+      "reset": false,
+      "workers": [
+        {
+          "workerId": "team-001:api",
+          "requests": 10,
+          "errorRequests": 1,
+          "serverErrors": 1,
+          "exceptions": 0,
+          "requestBytes": 120,
+          "responseBytes": 2048,
+          "inflight": 0,
+          "requestDuration": {
+            "count": 10,
+            "sumSeconds": 0.42,
+            "buckets": [
+              {
+                "le": 0.005,
+                "count": 4
+              },
+              {
+                "le": 0.05,
+                "count": 9
+              },
+              {
+                "le": 0.5,
+                "count": 10
+              }
+            ]
+          }
+        }
+      ],
+      "tenants": [
+        {
+          "tenantId": "team-001",
+          "cpuSeconds": 0.25,
+          "memoryRssBytes": 104857600,
+          "doStorage": [
+            {
+              "workerId": "team-001:api",
+              "objects": 2,
+              "storageBytes": 8192
+            }
+          ]
+        }
+      ],
+      "launches": {
+        "ready": 1,
+        "failed": 0
+      },
+      "wakes": {
+        "ok": 0,
+        "failed": 0
+      },
+      "wakeSeconds": {
+        "count": 0,
+        "sumSeconds": 0.0,
+        "buckets": []
+      },
+      "processStartTimeSeconds": 1759999970.0
+    }
+  ],
+  "resources": {
+    "sampledAtMs": 1760000000000,
+    "d1": {
+      "01jqqm3b4y6zq8f0v2w5x7k9ae": {
+        "sizeBytes": 16384,
+        "pageCount": 4,
+        "pageSize": 4096,
+        "tableCount": 1,
+        "tables": ["t"],
+        "indexCount": 0,
+        "userVersion": 0
+      }
+    },
+    "queues": {
+      "qqqqqqqqqqqqqqqqqqqqqqqqqq": {
+        "backlog": 1,
+        "backlogBytes": 2,
+        "oldestMessageTimestampMs": 1760000000000,
+        "visible": 1,
+        "inFlight": 0,
+        "delayed": 0,
+        "dead": 0
+      }
+    },
+    "workflows": {
+      "team-001:api": {
+        "order": {
+          "declared": true,
+          "instances": [
+            {
+              "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "bytes": 4096
+            }
+          ],
+          "instanceCount": 1,
+          "storageBytes": 4096,
+          "truncated": false,
+          "sampledAtMs": 1760000000000
+        }
+      }
+    },
+    "durableObjects": {
+      "team-001:api": {
+        "Counter": {
+          "declared": true,
+          "instances": [
+            {
+              "id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "bytes": 8192
+            }
+          ],
+          "instanceCount": 1,
+          "storageBytes": 8192,
+          "truncated": false,
+          "sampledAtMs": 1760000000000
+        }
+      }
+    },
+    "errors": []
+  }
+}

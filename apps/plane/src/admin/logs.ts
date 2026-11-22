@@ -24,6 +24,7 @@ export function registerLogs(app: Hono, deps: AdminDeps): void {
           keepPerCell: z.number().int().min(0).max(10_000).optional(),
           logRetentionDays: z.number().int().min(0).max(365).optional(),
           opsRetentionDays: z.number().int().min(0).max(3650).optional(),
+          metricsRetentionDays: z.number().int().min(0).max(365).optional(),
         })
         .strict(),
       (await c.req.text()) ? await readJson(c) : {}
@@ -34,6 +35,7 @@ export function registerLogs(app: Hono, deps: AdminDeps): void {
       keepPerCell: body.keepPerCell ?? base.keepPerCell,
       logRetentionDays: body.logRetentionDays ?? base.logRetentionDays,
       opsRetentionDays: body.opsRetentionDays ?? base.opsRetentionDays,
+      metricsRetentionDays: body.metricsRetentionDays ?? base.metricsRetentionDays,
     })
     return c.json({ data: result })
   })

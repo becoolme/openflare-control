@@ -1,6 +1,7 @@
 Wire fixtures copied from OpenFlare's `fixtures/vrt-wire/` (MIT, © 2026
 becoolme). The Rust cell-controller and this TypeScript plane validate the
-same JSON, so these files are the cross-language contract for `desired/ack`.
+same JSON, so these files are the cross-language contract for `desired/ack`
+and the periodic `cell-report`.
 
 **The runtime owns this contract.** Do not edit these files locally. CI checks
 out the exact OpenFlare commit in [`OPENFLARE_CONTRACT_REV`](../../../../OPENFLARE_CONTRACT_REV)

@@ -108,12 +108,9 @@ maybe('management API stats edges', () => {
     ).toBe(404)
     expect((await call('GET', `${base}/durable-objects/NopeDO/stats`)).status).toBe(404)
 
-    // Typed unsupported surfaces.
-    expect((await call('GET', `${base}/workflows/x/instances`)).status).toBe(501)
-    expect((await call('GET', `${base}/durable-objects/X/instances`)).status).toBe(501)
-    expect((await call('GET', `${base}/workflows/x/instances`)).body.error.code).toBe(
-      'VRT_NOT_SUPPORTED'
-    )
+    // Instance listings are live; unknown names fail closed with 404.
+    expect((await call('GET', `${base}/workflows/x/instances`)).status).toBe(404)
+    expect((await call('GET', `${base}/durable-objects/X/instances`)).status).toBe(404)
 
     // Cleanup: delete worker, then the now-empty team and cell.
     expect((await call('DELETE', `${base}/teams/${team}/workers/${worker}`)).status).toBe(200)

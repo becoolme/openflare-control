@@ -212,3 +212,21 @@ create table if not exists plane_d1_ops (
   created_at timestamptz not null default now()
 );
 create index if not exists plane_d1_ops_status_created on plane_d1_ops (status, created_at);
+
+create table if not exists plane_cell_metrics (
+  id bigserial primary key,
+  cell_id text not null,
+  sampled_at timestamptz not null,
+  window_ms bigint not null default 0,
+  payload jsonb not null,
+  created_at timestamptz not null default now()
+);
+create index if not exists plane_cell_metrics_cell_sampled on plane_cell_metrics (cell_id, sampled_at desc);
+create index if not exists plane_cell_metrics_created on plane_cell_metrics (created_at);
+
+create table if not exists plane_cell_resources (
+  cell_id text primary key,
+  sampled_at timestamptz not null,
+  payload jsonb not null,
+  updated_at timestamptz not null default now()
+);
