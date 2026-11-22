@@ -17,6 +17,7 @@ const { data, pending, error } = await useAsyncData(
 )
 const queues = computed(() => data.value?.queues ?? [])
 const statsById = ref<Record<string, QueueStatsInfo>>({})
+let statsSeq = 0
 const totalBacklog = computed(() =>
   Object.values(statsById.value).reduce((n, s) => n + (s.backlog ?? 0), 0)
 )
@@ -41,6 +42,7 @@ const fmtAge = (ms: number | null | undefined) => {
 watch(
   [activeCell, queues],
   async () => {
+    const seq = ++statsSeq
     if (!activeCell.value) {
       statsById.value = {}
       return
@@ -57,6 +59,7 @@ watch(
         }
       })
     )
+    if (seq !== statsSeq) return
     statsById.value = Object.fromEntries(entries.filter(([, v]) => v)) as Record<
       string,
       QueueStatsInfo

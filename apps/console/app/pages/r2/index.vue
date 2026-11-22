@@ -17,6 +17,7 @@ const { data, pending, error } = await useAsyncData(
 )
 const buckets = computed(() => data.value?.buckets ?? [])
 const statsById = ref<Record<string, R2StatsInfo>>({})
+let statsSeq = 0
 const refreshing = ref(false)
 const formatBytes = (n: number | null | undefined) => {
   if (n === null || n === undefined) return '—'
@@ -38,6 +39,7 @@ const totalClassB = computed(() =>
   Object.values(statsById.value).reduce((n, s) => n + s.classBOps, 0)
 )
 async function loadStats(waitMs: number) {
+  const seq = ++statsSeq
   if (!activeCell.value || buckets.value.length === 0) {
     statsById.value = {}
     return
@@ -57,6 +59,7 @@ async function loadStats(waitMs: number) {
         }
       })
     )
+    if (seq !== statsSeq) return
     statsById.value = Object.fromEntries(entries.filter(([, v]) => v)) as Record<string, R2StatsInfo>
   } finally {
     refreshing.value = false
@@ -81,7 +84,7 @@ watch([activeCell, buckets], () => loadStats(0), { immediate: true })
 
     <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px">
       <UiMetricCard label="Buckets"><template #value>{{ buckets.length }}</template><UiMetricFoot>{{ activeCell || 'no cell selected' }}</UiMetricFoot></UiMetricCard>
-      <UiMetricCard label="Objects"><template #value>{{ totalObjects }}</template><UiMetricFoot>{{ formatBytes(totalBytes) }} · bounded list scan</UiMetricFoot></UiMetricCard>
+      <UiMetricCard label="Objects"><template #value>{{ totalObjects }}</template><UiMetricFoot>{{ buckets.length > 20 ? 'first 20 buckets' : 'bounded list scan' }} · {{ formatBytes(totalBytes) }}</UiMetricFoot></UiMetricCard>
       <UiMetricCard label="Class A / B ops" hint="24h"><template #value>{{ totalClassA }} / {{ totalClassB }}</template><UiMetricFoot>from the control-plane op ledger</UiMetricFoot></UiMetricCard>
       <UiMetricCard label="Public buckets"><template #value>—</template><UiMetricFoot><span class="miss"><UiIcon name="warn" :size="10" />no public URL API</span></UiMetricFoot></UiMetricCard>
     </div>

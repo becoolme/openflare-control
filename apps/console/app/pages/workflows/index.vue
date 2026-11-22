@@ -17,6 +17,7 @@ const { data, pending, error } = await useAsyncData(
 )
 const workflows = computed(() => data.value?.workflows ?? [])
 const statsById = ref<Record<string, WorkflowStatsInfo>>({})
+let statsSeq = 0
 const formatBytes = (n: number | null | undefined) => {
   if (n === null || n === undefined) return '—'
   if (n < 1024) return `${n} B`
@@ -38,6 +39,7 @@ const totalPending = computed(() =>
 watch(
   [activeCell, workflows],
   async () => {
+    const seq = ++statsSeq
     if (!activeCell.value) {
       statsById.value = {}
       return
@@ -56,6 +58,7 @@ watch(
         }
       })
     )
+    if (seq !== statsSeq) return
     statsById.value = Object.fromEntries(entries.filter(([, v]) => v)) as Record<
       string,
       WorkflowStatsInfo

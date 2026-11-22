@@ -17,6 +17,7 @@ const { data, pending, error } = await useAsyncData(
 )
 const databases = computed(() => data.value?.databases ?? [])
 const statsById = ref<Record<string, D1StatsInfo>>({})
+let statsSeq = 0
 const formatBytes = (n: number | null | undefined) => {
   if (n === null || n === undefined) return '—'
   if (n < 1024) return `${n} B`
@@ -35,6 +36,7 @@ const pendingMigrations = computed(() =>
 watch(
   [activeCell, databases],
   async () => {
+    const seq = ++statsSeq
     if (!activeCell.value) {
       statsById.value = {}
       return
@@ -51,6 +53,7 @@ watch(
         }
       })
     )
+    if (seq !== statsSeq) return
     statsById.value = Object.fromEntries(entries.filter(([, v]) => v)) as Record<string, D1StatsInfo>
   },
   { immediate: true }
