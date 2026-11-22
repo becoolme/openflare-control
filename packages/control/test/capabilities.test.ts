@@ -43,5 +43,16 @@ describe('capability requirements', () => {
     expect(VRT_CELL_CAPABILITY_KEYS).toContain('queueDeliveryDelay')
     expect(VRT_CELL_CAPABILITY_KEYS).toContain('workerLoader')
     expect(VRT_CELL_CAPABILITY_KEYS).toContain('quotas')
+    // Newer runtime bits are accepted so an older control plane never
+    // rejects a healthy cell's ACK.
+    for (const key of [
+      'analyticsEngine',
+      'flagship',
+      'observability',
+      'streamingTailConsumers',
+      'unsafeEval',
+    ]) {
+      expect(VRT_CELL_CAPABILITY_KEYS).toContain(key)
+    }
   })
 })
