@@ -57,7 +57,7 @@ const sampled = computed(() =>
           instances are the engine class-dir sqlite files.
         </p>
       </div>
-      <NuxtLink to="/workflows"><UiButton variant="secondary"><UiIcon name="chev" :size="13" />All workflows</UiButton></NuxtLink>
+      <UiButton to="/workflows" variant="secondary"><UiIcon name="chev" :size="13" />All workflows</UiButton>
     </div>
 
     <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px">

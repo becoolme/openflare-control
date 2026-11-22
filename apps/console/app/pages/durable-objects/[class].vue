@@ -53,7 +53,7 @@ const sampled = computed(() =>
           <span v-if="stats">{{ stats.workers }} worker(s) · {{ stats.bindings }} binding(s).</span>
         </p>
       </div>
-      <NuxtLink to="/durable-objects"><UiButton variant="secondary"><UiIcon name="chev" :size="13" />All classes</UiButton></NuxtLink>
+      <UiButton to="/durable-objects" variant="secondary"><UiIcon name="chev" :size="13" />All classes</UiButton>
     </div>
 
     <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px">

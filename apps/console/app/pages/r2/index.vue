@@ -62,7 +62,7 @@ async function loadStats(waitMs: number) {
     if (seq !== statsSeq) return
     statsById.value = Object.fromEntries(entries.filter(([, v]) => v)) as Record<string, R2StatsInfo>
   } finally {
-    refreshing.value = false
+    if (seq === statsSeq) refreshing.value = false
   }
 }
 watch([activeCell, buckets], () => loadStats(0), { immediate: true })
