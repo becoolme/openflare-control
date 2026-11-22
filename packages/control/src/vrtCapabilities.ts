@@ -44,6 +44,7 @@ export const VRT_CELL_CAPABILITY_KEYS = [
   // are implemented.
   'analyticsEngine',
   'flagship',
+  'k2',
   'observability',
   'streamingTailConsumers',
   'unsafeEval',
