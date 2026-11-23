@@ -28,6 +28,9 @@ if (!adminToken) throw new Error('PLANE_ADMIN_TOKEN is required')
 // for liveness probes.
 const authPassword = process.env.CONSOLE_AUTH_PASSWORD ?? ''
 if (!authPassword) throw new Error('CONSOLE_AUTH_PASSWORD is required')
+if (authPassword.length < 16) {
+  throw new Error('CONSOLE_AUTH_PASSWORD must be at least 16 characters')
+}
 const expectedAuth = Buffer.from(`Basic ${Buffer.from(`admin:${authPassword}`).toString('base64')}`)
 const wantsAuth = (req) => {
   const got = Buffer.from(req.headers.authorization ?? '')
