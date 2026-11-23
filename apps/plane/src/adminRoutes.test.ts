@@ -401,6 +401,69 @@ maybe('management API edges', () => {
     )
   })
 
+  it('issues cell-scoped tokens and keeps admin auth separate', async () => {
+    const tokenCell = `token-${suffix}`
+    const otherCell = `token-other-${suffix}`
+    expect((await call(app, 'POST', '/api/v1/cells', { cellId: tokenCell })).status).toBe(201)
+    expect((await call(app, 'POST', '/api/v1/cells', { cellId: otherCell })).status).toBe(201)
+
+    const issued = await call(app, 'POST', `/api/v1/cells/${tokenCell}/token`)
+    expect(issued.status).toBe(201)
+    const token = issued.body.data.token as string
+    expect(token).toMatch(/^[0-9a-f]{64}$/)
+    const [stored] = (
+      await pool.query('select token_hash from plane_cell_tokens where cell_id=$1', [tokenCell])
+    ).rows as { token_hash: string }[]
+    expect(stored!.token_hash).toBe(sha256(token))
+    expect(stored!.token_hash).not.toBe(token)
+
+    const cellAuth = { authorization: `Bearer ${token}` }
+    // Each credential is valid only on its own surface.
+    expect((await app.request('/api/v1/cells', { headers: cellAuth })).status).toBe(401)
+    expect(
+      (
+        await app.request(`/api/internal/clusters/${tokenCell}/vrt/desired`, {
+          headers: auth,
+        })
+      ).status
+    ).toBe(401)
+    expect(
+      (
+        await app.request(`/api/internal/clusters/${tokenCell}/vrt/desired`, {
+          headers: cellAuth,
+        })
+      ).status
+    ).toBe(404)
+    // A cell token is scoped to its own cell id.
+    expect(
+      (
+        await app.request(`/api/internal/clusters/${otherCell}/vrt/desired`, {
+          headers: cellAuth,
+        })
+      ).status
+    ).toBe(401)
+
+    // Rotation invalidates the previous credential immediately.
+    const rotated = await call(app, 'POST', `/api/v1/cells/${tokenCell}/token`)
+    expect(rotated.status).toBe(201)
+    const nextToken = rotated.body.data.token as string
+    expect(nextToken).not.toBe(token)
+    expect(
+      (
+        await app.request(`/api/internal/clusters/${tokenCell}/vrt/desired`, {
+          headers: cellAuth,
+        })
+      ).status
+    ).toBe(401)
+    expect(
+      (
+        await app.request(`/api/internal/clusters/${tokenCell}/vrt/desired`, {
+          headers: { authorization: `Bearer ${nextToken}` },
+        })
+      ).status
+    ).toBe(404)
+  })
+
   it('deletes the cell and reports missing deletes', async () => {
     expect((await call(app, 'DELETE', `${base}/teams/${team}/workers/missing`)).status).toBe(404)
     expect((await call(app, 'DELETE', `/api/v1/cells/${cell}`)).status).toBe(200)
