@@ -368,6 +368,29 @@ export function serializeBinding(
         permissions: { read: binding.permissionRead, write: binding.permissionWrite },
       }
     }
+    case 'VECTORIZE': {
+      if (!/^[0-9a-z]{26}$/.test(resourceId)) throw invalid('bindings.vectorize.indexId')
+      if (binding.indexName == null || !/^[a-z0-9]+(-[a-z0-9]+){0,15}$/.test(binding.indexName)) {
+        throw invalid('bindings.vectorize.indexName')
+      }
+      const dims = binding.dimensions
+      if (dims == null || !Number.isInteger(dims) || dims < 1 || dims > 1536) {
+        throw invalid('bindings.vectorize.dimensions')
+      }
+      const metric = binding.metric
+      if (metric !== 'cosine' && metric !== 'euclidean' && metric !== 'dot-product') {
+        throw invalid('bindings.vectorize.metric')
+      }
+      return {
+        type: 'vectorize',
+        name,
+        indexId: resourceId,
+        indexName: binding.indexName,
+        dimensions: dims,
+        metric,
+        permissions: { read: binding.permissionRead, write: binding.permissionWrite },
+      }
+    }
     case 'IMAGES':
       // CF Images: pure capability — the transform engine lives in the
       // facade-images system worker, so the wire carries name only.

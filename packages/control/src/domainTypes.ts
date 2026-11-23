@@ -30,6 +30,7 @@ export interface VrtBindingRecord {
     | 'K2'
     | 'SEND_EMAIL'
     | 'IMAGES'
+    | 'VECTORIZE'
   readonly resourceId: string
   readonly permissionRead: boolean
   readonly permissionWrite: boolean
@@ -49,6 +50,10 @@ export interface VrtBindingRecord {
   readonly destinationAddress?: string
   readonly allowedDestinationAddresses?: readonly string[]
   readonly allowedSenderAddresses?: readonly string[]
+  /** VECTORIZE only: index spec signed at deploy. */
+  readonly indexName?: string
+  readonly dimensions?: number
+  readonly metric?: 'cosine' | 'euclidean' | 'dot-product'
 }
 
 /** P3c-1: a DO class DECLARED by the worker — the rowset member the
