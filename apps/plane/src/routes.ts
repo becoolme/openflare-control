@@ -1,5 +1,5 @@
 import { Hono, type Context } from 'hono'
-import { createHash, timingSafeEqual } from 'node:crypto'
+import { createHash, randomUUID, timingSafeEqual } from 'node:crypto'
 import {
   VrtControlError,
   bundleKeyFor,
@@ -422,7 +422,8 @@ export function createApp(deps: AppDeps): Hono {
         }
         const r = await deps.pool.query(
           `update plane_cell_ops set status=$1, result=$2, error=$3
-            where cell_id=$4 and seq=$5 and status='PENDING'`,
+            where cell_id=$4 and seq=$5 and status='PENDING'
+            returning id, kind, payload, resource_key`,
           [
             status,
             ack.result ?? null,
@@ -431,6 +432,33 @@ export function createApp(deps: AppDeps): Hono {
             seq,
           ]
         )
+        const done = r.rows[0] as
+          { id: string; kind: string; payload: unknown; resource_key: string } | undefined
+        if (done && status === 'DONE' && done.kind === 'STORAGE_PURGE') {
+          const p = done.payload as Record<string, unknown> | null
+          if (
+            p &&
+            p.storage === 'vectorize' &&
+            typeof p.storageId === 'string' &&
+            typeof p.tenantId === 'string'
+          ) {
+            const result = (ack.result ?? {}) as Record<string, unknown>
+            if (result.complete === true) {
+              await deps.pool.query(
+                `delete from plane_vectorize_indexes
+                  where index_id=$1 and team_id=$2 and cluster_id=$3`,
+                [p.storageId, p.tenantId, cellId]
+              )
+            } else if (result.complete === false) {
+              await deps.pool.query(
+                `insert into plane_cell_ops
+                   (id, cell_id, worker_id, resource_key, kind, payload, expires_at)
+                 values ($1,$2,'',$3,'STORAGE_PURGE',$4,now() + interval '1 hour')`,
+                [randomUUID(), cellId, done.resource_key, done.payload]
+              )
+            }
+          }
+        }
         acked += r.rowCount ?? 0
       }
       return c.json({ data: { acked, malformed } })

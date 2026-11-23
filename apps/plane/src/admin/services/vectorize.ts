@@ -1,7 +1,7 @@
 import type { Hono } from 'hono'
 import { z } from 'zod'
 import { VrtControlError } from 'openflare-control'
-import { randomBytes } from 'node:crypto'
+import { randomBytes, randomUUID } from 'node:crypto'
 import { type AdminDeps, generatedId, parse, readJson, rows, teamId } from '../context.js'
 
 const metric = z.enum(['cosine', 'euclidean', 'dot-product'])
@@ -80,6 +80,14 @@ export function registerVectorizeService(app: Hono, deps: AdminDeps): void {
   app.delete(`${base}/:indexId`, async (c) => {
     const cell = c.req.param('cellId')
     const indexId = c.req.param('indexId')
+    const [index] = await rows(
+      deps,
+      `select index_id, team_id
+         from plane_vectorize_indexes
+        where index_id=$1 and cluster_id=$2`,
+      [indexId, cell]
+    )
+    if (!index) throw new VrtControlError(404, 'Vectorize index not found')
     const [referenced] = await rows(
       deps,
       `select 1
@@ -95,12 +103,60 @@ export function registerVectorizeService(app: Hono, deps: AdminDeps): void {
       [cell, indexId]
     )
     if (referenced) throw new VrtControlError(409, 'Vectorize index is referenced by a version')
-    const deleted = await deps.pool.query(
-      'delete from plane_vectorize_indexes where index_id=$1 and cluster_id=$2',
-      [indexId, cell]
+    // Purge is a runtime storage operation. A cell that cannot prove both
+    // the storage-purge channel and a Vectorize store must not lose the
+    // metadata (which would orphan the data with no retry path).
+    const caps = await deps.store.cellCapabilities(cell)
+    if (!caps?.storagePurge || !caps.vectorizePurge) {
+      throw new VrtControlError(409, 'Cell does not support Vectorize storage purge')
+    }
+    const [pending] = await rows(
+      deps,
+      `select id, seq
+         from plane_cell_ops
+        where cell_id=$1 and kind='STORAGE_PURGE' and status='PENDING'
+          and resource_key=$2 and payload->>'storage'='vectorize'
+          and payload->>'storageId'=$2 and payload->>'tenantId'=$3
+        order by seq limit 1`,
+      [cell, indexId, String(index.team_id)]
     )
-    if (deleted.rowCount === 0) throw new VrtControlError(404, 'Vectorize index not found')
-    return c.json({ data: { deleted: true } })
+    if (pending) {
+      return c.json(
+        {
+          data: {
+            opId: pending.id,
+            seq: Number(pending.seq),
+            channel: 'cell',
+            status: 'PURGE_PENDING',
+          },
+        },
+        202
+      )
+    }
+    const opId = randomUUID()
+    const payload = {
+      storage: 'vectorize',
+      storageId: indexId,
+      tenantId: String(index.team_id),
+    }
+    const inserted = await deps.pool.query(
+      `insert into plane_cell_ops
+         (id, cell_id, worker_id, resource_key, kind, payload, expires_at)
+       values ($1,$2,'',$3,'STORAGE_PURGE',$4,now() + interval '1 hour')
+       returning seq`,
+      [opId, cell, indexId, payload]
+    )
+    return c.json(
+      {
+        data: {
+          opId,
+          seq: Number(inserted.rows[0]!.seq),
+          channel: 'cell',
+          status: 'PURGE_PENDING',
+        },
+      },
+      202
+    )
   })
 
   app.get(`${base}/:indexId/binding`, async (c) => {
