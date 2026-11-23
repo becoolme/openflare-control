@@ -117,7 +117,9 @@ describe('flagship model', () => {
     expect(flagshipConfigIsValid('not json')).toBe(false)
     expect(() =>
       validateFlagshipConfig('app-1', {
-        flags: { x: { enabled: true, type: 'boolean', variants: { on: true }, defaultVariant: 'off' } },
+        flags: {
+          x: { enabled: true, type: 'boolean', variants: { on: true }, defaultVariant: 'off' },
+        },
       })
     ).toThrow(/defaultVariant/)
   })
@@ -125,7 +127,15 @@ describe('flagship model', () => {
   it('a FLAGSHIP binding must name one of the tenant apps; apps ride the tenant', () => {
     const withBinding = (appId: string) =>
       worker({
-        bindings: [{ name: 'FLAGS', type: 'FLAGSHIP', resourceId: appId, permissionRead: true, permissionWrite: false }],
+        bindings: [
+          {
+            name: 'FLAGS',
+            type: 'FLAGSHIP',
+            resourceId: appId,
+            permissionRead: true,
+            permissionWrite: false,
+          },
+        ],
       })
     const payload = build(withBinding('app-1'), {
       flagshipApps: [{ tenantId: 'team-1', appId: 'app-1', config: flagConfig }],
@@ -163,9 +173,7 @@ describe('version-scoped worker fields', () => {
   })
 
   it('tail consumers must be same-tenant workers and are deduped', () => {
-    const ok = build(
-      worker({ tailConsumers: ['w-1'] })
-    ).payload.tenants[0]!.workers[0]!
+    const ok = build(worker({ tailConsumers: ['w-1'] })).payload.tenants[0]!.workers[0]!
     expect(ok).toMatchObject({ tailConsumers: [{ workerId: 'w-1' }] })
 
     const bad = build(worker({ tailConsumers: ['someone-else'] }))
@@ -206,7 +214,15 @@ describe('version-scoped worker fields', () => {
 
 describe('capability gating for the new binding kinds', () => {
   it('requires the cell bit that proves the binding can render', () => {
-    const types = (t: string) => requiredCapabilities({ cronCount: 0, bindingTypes: [t], queueConsumerCount: 0, workflowCount: 0, crossWorkerWorkflowCount: 0, serviceEntrypointCount: 0 })
+    const types = (t: string) =>
+      requiredCapabilities({
+        cronCount: 0,
+        bindingTypes: [t],
+        queueConsumerCount: 0,
+        workflowCount: 0,
+        crossWorkerWorkflowCount: 0,
+        serviceEntrypointCount: 0,
+      })
     expect(types('K2')).toEqual(expect.arrayContaining(['d1', 'k2']))
     expect(types('SEND_EMAIL')).toEqual(['email'])
     expect(types('IMAGES')).toEqual(['images'])
