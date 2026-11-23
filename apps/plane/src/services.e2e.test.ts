@@ -10,11 +10,13 @@ import { Pool } from 'pg'
 import { createApp } from './routes.js'
 import { createPlaneStore } from './store.js'
 import { resolvePlaneSigningKey } from './signing.js'
+import { createSecretsCipher } from './secretsCipher.js'
 import type { BundleStore } from 'openflare-control'
 
 const url = process.env.DATABASE_URL
 const maybe = url ? describe : describe.skip
 const TOKEN = 'services-e2e-token'
+const TEST_SECRETS_CIPHER = createSecretsCipher('test-secrets-cipher-key-0001')
 
 class NoBundles implements BundleStore {
   async put() {
@@ -30,6 +32,17 @@ maybe('service resource API e2e', () => {
   let app: ReturnType<typeof createApp>
   const suffix = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`
   const cell = `svc-${suffix}`
+  const provisionCellToken = async (cellId: string) => {
+    await pool.query(
+      'insert into plane_cells (cell_id, cluster_id) values ($1,$1) on conflict (cell_id) do nothing',
+      [cellId]
+    )
+    await pool.query(
+      `insert into plane_cell_tokens (cell_id, token_hash) values ($1,$2)
+         on conflict (cell_id) do update set token_hash=excluded.token_hash`,
+      [cellId, createHash('sha256').update(TOKEN).digest('hex')]
+    )
+  }
   const team = `team-${suffix}`
   const worker = 'w'
   const auth = { authorization: `Bearer ${TOKEN}` }
@@ -42,10 +55,11 @@ maybe('service resource API e2e', () => {
       store: createPlaneStore(pool),
       pool,
       bundleStore: new NoBundles(),
-      token: TOKEN,
       adminToken: TOKEN,
+      secrets: TEST_SECRETS_CIPHER,
       signing: resolvePlaneSigningKey('services-signing-secret-1234'),
     })
+    await provisionCellToken(cell)
   })
   afterAll(async () => {
     await pool.end()

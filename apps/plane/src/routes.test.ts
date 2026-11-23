@@ -13,10 +13,12 @@ import { createApp } from './routes.js'
 import { createPlaneStore } from './store.js'
 import { publishCell } from './publish.js'
 import { resolvePlaneSigningKey } from './signing.js'
+import { createSecretsCipher } from './secretsCipher.js'
 
 const url = process.env.DATABASE_URL
 const maybe = url ? describe : describe.skip
 const TOKEN = 'routes-test-token'
+const TEST_SECRETS_CIPHER = createSecretsCipher('test-secrets-cipher-key-0001')
 const sha256 = (b: Uint8Array | string) => createHash('sha256').update(b).digest('hex')
 
 class MemoryBundles implements BundleStore {
@@ -49,6 +51,17 @@ maybe('reference plane routes', () => {
   let bundles: MemoryBundles
   let app: ReturnType<typeof createApp>
   const cluster = `route-${Date.now()}`
+  const provisionCellToken = async (cellId: string, token = TOKEN) => {
+    await pool.query(
+      'insert into plane_cells (cell_id, cluster_id) values ($1,$1) on conflict (cell_id) do nothing',
+      [cellId]
+    )
+    await pool.query(
+      `insert into plane_cell_tokens (cell_id, token_hash) values ($1,$2)
+         on conflict (cell_id) do update set token_hash=excluded.token_hash`,
+      [cellId, createHash('sha256').update(token).digest('hex')]
+    )
+  }
   const team = `team-${Date.now()}`
 
   const auth = { authorization: `Bearer ${TOKEN}` }
@@ -59,7 +72,8 @@ maybe('reference plane routes', () => {
     store = createPlaneStore(pool)
     signing = resolvePlaneSigningKey('routes-test-secret-1234')
     bundles = new MemoryBundles()
-    app = createApp({ store, pool, bundleStore: bundles, token: TOKEN })
+    app = createApp({ store, pool, bundleStore: bundles, secrets: TEST_SECRETS_CIPHER })
+    await provisionCellToken(cluster)
   })
   afterAll(async () => {
     await pool.end()
@@ -184,6 +198,16 @@ maybe('reference plane routes', () => {
       headers: auth,
     })
     expect(await inputs.text()).toContain('s3cr3t-value')
+    // Reading a legacy plaintext row seals it in place.
+    const [sealed] = (
+      await pool.query('select value from plane_secrets where worker_id=$1 and key=$2', [
+        workerId,
+        'API_KEY',
+      ])
+    ).rows as { value: string }[]
+    expect(sealed!.value).not.toBe('s3cr3t-value')
+    expect(TEST_SECRETS_CIPHER.isEncrypted(sealed!.value)).toBe(true)
+    expect(TEST_SECRETS_CIPHER.decrypt(sealed!.value)).toBe('s3cr3t-value')
   })
 
   it('does not serve a bundle to a cell that did not publish it', async () => {
@@ -193,8 +217,23 @@ maybe('reference plane routes', () => {
     const { workerId, versionId } = await seedWorker(`iso-${Date.now()}`, digest)
     await publishCell(store, { cellId: cluster, signing, workerId, versionId })
 
-    const other = await app.request(`/api/internal/clusters/other-cell/vrt/bundles/${digest}`, {
+    const otherCell = `other-${Date.now()}`
+    const otherToken = 'other-cell-token-0123456789abcdef'
+    // Unauthenticated/unknown cells and a different cell's token both fail 401.
+    const foreign = await app.request(`/api/internal/clusters/${otherCell}/vrt/bundles/${digest}`, {
       headers: auth,
+    })
+    expect(foreign.status).toBe(401)
+    await provisionCellToken(otherCell, otherToken)
+    const crossCell = await app.request(
+      `/api/internal/clusters/${otherCell}/vrt/bundles/${digest}`,
+      { headers: auth }
+    )
+    expect(crossCell.status).toBe(401)
+    // The other cell's own token authenticates but its publication set does
+    // not reference this digest.
+    const other = await app.request(`/api/internal/clusters/${otherCell}/vrt/bundles/${digest}`, {
+      headers: { authorization: `Bearer ${otherToken}` },
     })
     expect(other.status).toBe(404)
   })
@@ -313,7 +352,13 @@ maybe('reference plane routes', () => {
   })
 
   it('refuses payloads and bundles over the configured limits', async () => {
-    const tiny = createApp({ store, pool, bundleStore: bundles, token: TOKEN, maxBundleBytes: 4 })
+    const tiny = createApp({
+      store,
+      pool,
+      bundleStore: bundles,
+      maxBundleBytes: 4,
+      secrets: TEST_SECRETS_CIPHER,
+    })
     const bytes = Buffer.from('too-large')
     const digest = sha256(bytes)
     await bundles.put(bundleKeyFor(digest), bytes)
