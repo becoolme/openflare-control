@@ -20,6 +20,7 @@
     "storagePurge": true,
     "streamingTailConsumers": true,
     "unsafeEval": true,
+    "vectorize": true,
     "versionMetadata": true,
     "workerLoader": true,
     "workflows": true,

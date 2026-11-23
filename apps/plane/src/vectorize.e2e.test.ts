@@ -120,6 +120,12 @@ maybe('vectorize', () => {
       ).status
     ).toBe(400)
 
+    await createPlaneStore(pool).recordCellCapabilities(cell, {
+      cron: true,
+      assets: true,
+      vectorize: true,
+    })
+
     const bundle = new TextEncoder().encode('export default { fetch: () => new Response("vx") }')
     const digest = sha256(bundle)
     const put = await app.request(`${base}/bundles/${digest}`, {
