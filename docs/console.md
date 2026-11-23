@@ -18,8 +18,9 @@ browser ──▶ console:8788
   `apps/console/server/main.mjs`.
 - No CORS configuration is needed because the UI and API are same-origin.
 - `PLANE_URL` defaults to `http://127.0.0.1:8787`.
-- `PLANE_ADMIN_TOKEN` is required, at least 32 characters, and must differ
-  from `PLANE_TOKEN` — the plane refuses to boot otherwise.
+- `PLANE_ADMIN_TOKEN` is required and at least 32 characters — the plane
+  refuses to boot otherwise. Cell pull auth is per-cell
+  (`POST /api/v1/cells/:cellId/token`), not a shared token.
 - Static output is `apps/console/.output/public`; the Docker image copies it to
   `/app/public`.
 
@@ -28,7 +29,7 @@ browser ──▶ console:8788
 Docker Compose starts Postgres, the plane and the console:
 
 ```sh
-export PLANE_TOKEN="$(openssl rand -hex 32)"
+export PLANE_ADMIN_TOKEN="$(openssl rand -hex 32)"
 export PLANE_SIGNING_SECRET="$(openssl rand -hex 32)"
 docker compose up -d --build
 docker compose exec plane node dist/migrate.js

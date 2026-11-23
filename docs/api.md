@@ -5,7 +5,9 @@ versions, vars/secrets/hostnames, bundles, publish, ops, logs) see
 [management-api.md](management-api.md).
 
 All routes are under `/api/internal/clusters/<cellId>/vrt` and require
-`Authorization: Bearer <PLANE_TOKEN>` unless noted. Responses are
+`Authorization: Bearer <cell-token>` — the per-cell credential issued by
+`POST /api/v1/cells/:cellId/token` (admin-only, returned once, only its
+sha256 is stored). Responses are
 `Cache-Control: no-store`. Typed errors use
 `{"data":null,"error":{"code":"...","message":"..."}}`.
 `<cellId>` must equal the cell id configured on the cell (`VRT_CELL_ID`); it is

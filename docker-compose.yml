@@ -20,7 +20,6 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: postgresql://vrt:vrt@postgres:5432/vrt_plane
-      PLANE_TOKEN: ${PLANE_TOKEN:?set PLANE_TOKEN}
       PLANE_ADMIN_TOKEN: ${PLANE_ADMIN_TOKEN:?set PLANE_ADMIN_TOKEN}
       PLANE_SIGNING_SECRET: ${PLANE_SIGNING_SECRET:?set PLANE_SIGNING_SECRET}
       PLANE_BUNDLE_DIR: /data/bundles
@@ -38,7 +37,6 @@ services:
     depends_on: [plane]
     environment:
       PLANE_URL: http://plane:8787
-      PLANE_TOKEN: ${PLANE_TOKEN:?set PLANE_TOKEN}
       PLANE_ADMIN_TOKEN: ${PLANE_ADMIN_TOKEN:?set PLANE_ADMIN_TOKEN}
       PORT: '8788'
     ports: ['8788:8788']

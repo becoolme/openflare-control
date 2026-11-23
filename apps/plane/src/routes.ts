@@ -20,8 +20,7 @@ export interface AppDeps {
   store: VrtControlStore
   pool: Pool
   bundleStore: BundleStore
-  token: string
-  /** Management API token; falls back to `token` for single-token setups. */
+  /** Management API token — required, distinct from every cell token. */
   adminToken?: string
   /** Needed by the management publish endpoint. */
   signing?: SnapshotSigningContext
@@ -33,15 +32,29 @@ export interface AppDeps {
 
 const MAX_BODY = 16 * 1024
 
-function auth(c: Context, token: string): string {
+// Cell pull auth is per-cell: the bearer token's sha256 must match the hash
+// provisioned for the `clusterId` in the URL (POST .../cells/:cellId/token,
+// admin-only). A single global token would let any one cell's leaked
+// credential read every other cell's desired state — including every worker
+// secret via render-inputs. Unknown cells fail the same way as a bad token.
+async function auth(c: Context, deps: AppDeps): Promise<string> {
   const header = c.req.header('authorization') ?? ''
   const got = header.startsWith('Bearer ') ? header.slice(7).trim() : ''
-  const a = createHash('sha256').update(got).digest()
-  const b = createHash('sha256').update(token).digest()
-  if (!got || !timingSafeEqual(a, b)) {
+  const cellId = c.req.param('clusterId')!
+  if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(cellId) || !got) {
     throw new VrtControlError(401, 'Invalid cell controller token')
   }
-  return c.req.param('clusterId')!
+  const { rows } = await deps.pool.query(
+    'select token_hash from plane_cell_tokens where cell_id=$1',
+    [cellId]
+  )
+  const expected = (rows[0] as { token_hash?: string } | undefined)?.token_hash ?? ''
+  const a = Buffer.from(createHash('sha256').update(got).digest('hex'))
+  const b = Buffer.from(expected)
+  if (a.length !== b.length || !timingSafeEqual(a, b)) {
+    throw new VrtControlError(401, 'Invalid cell controller token')
+  }
+  return cellId
 }
 
 function errorResponse(c: Context, error: unknown): Response {
@@ -88,7 +101,7 @@ export function createApp(deps: AppDeps): Hono {
 
   app.get('/api/internal/clusters/:clusterId/vrt/desired', async (c) => {
     try {
-      const cellId = auth(c, deps.token)
+      const cellId = await auth(c, deps)
       const envelope = await latestDesiredEnvelope(deps.store, cellId)
       return c.body(JSON.stringify(envelope), 200, { 'Content-Type': 'application/json' })
     } catch (error) {
@@ -98,7 +111,7 @@ export function createApp(deps: AppDeps): Hono {
 
   app.post('/api/internal/clusters/:clusterId/vrt/desired/ack', async (c) => {
     try {
-      const cellId = auth(c, deps.token)
+      const cellId = await auth(c, deps)
       const parsed = vrtDesiredAckSchema.safeParse(await readJson(c, MAX_BODY))
       if (!parsed.success) throw new VrtControlError(400, 'Invalid ack payload')
       // The echoed cell id is untrusted; a mismatch is a cross-cell attempt.
@@ -134,7 +147,7 @@ export function createApp(deps: AppDeps): Hono {
 
   app.get('/api/internal/clusters/:clusterId/vrt/render-inputs', async (c) => {
     try {
-      const cellId = auth(c, deps.token)
+      const cellId = await auth(c, deps)
       const inputs = await collectRenderInputs(deps.pool, cellId)
       return c.body(JSON.stringify(inputs), 200, { 'Content-Type': 'application/json' })
     } catch (error) {
@@ -144,7 +157,7 @@ export function createApp(deps: AppDeps): Hono {
 
   app.get('/api/internal/clusters/:clusterId/vrt/bundles/:digest', async (c) => {
     try {
-      const cellId = auth(c, deps.token)
+      const cellId = await auth(c, deps)
       const digest = c.req.param('digest')
       if (!/^[0-9a-f]{64}$/.test(digest)) throw new VrtControlError(404, 'Not found')
       const publications = await deps.store.recentPublications(cellId, 200)
@@ -172,7 +185,7 @@ export function createApp(deps: AppDeps): Hono {
   // the ACK moves the row terminal.
   app.get('/api/internal/clusters/:clusterId/vrt/d1-ops', async (c) => {
     try {
-      const cellId = auth(c, deps.token)
+      const cellId = await auth(c, deps)
       const { rows } = await deps.pool.query(
         `select id, seq, database_id, kind, payload, expires_at
            from plane_d1_ops
@@ -200,7 +213,7 @@ export function createApp(deps: AppDeps): Hono {
 
   app.post('/api/internal/clusters/:clusterId/vrt/d1-ops/ack', async (c) => {
     try {
-      const cellId = auth(c, deps.token)
+      const cellId = await auth(c, deps)
       const body = (await readJson(c, 2 * 1024 * 1024)) as { acks?: unknown }
       const acks = Array.isArray(body.acks) ? body.acks : []
       let acked = 0
@@ -234,7 +247,7 @@ export function createApp(deps: AppDeps): Hono {
 
   app.get('/api/internal/clusters/:clusterId/vrt/cell-ops', async (c) => {
     try {
-      const cellId = auth(c, deps.token)
+      const cellId = await auth(c, deps)
       const { rows } = await deps.pool.query(
         `select id, seq, worker_id, resource_key, kind, payload, expires_at
            from plane_cell_ops
@@ -263,7 +276,7 @@ export function createApp(deps: AppDeps): Hono {
 
   app.post('/api/internal/clusters/:clusterId/vrt/cell-ops/ack', async (c) => {
     try {
-      const cellId = auth(c, deps.token)
+      const cellId = await auth(c, deps)
       const body = (await readJson(c, 2 * 1024 * 1024)) as { acks?: unknown }
       const acks = Array.isArray(body.acks) ? body.acks : []
       let acked = 0
@@ -305,7 +318,7 @@ export function createApp(deps: AppDeps): Hono {
   // push because of one malformed record.
   app.post('/api/internal/clusters/:clusterId/vrt/logs', async (c) => {
     try {
-      const cellId = auth(c, deps.token)
+      const cellId = await auth(c, deps)
       const body = (await readJson(c, 2 * 1024 * 1024)) as {
         podId?: unknown
         bootId?: unknown
@@ -353,7 +366,7 @@ export function createApp(deps: AppDeps): Hono {
   // Workflow/DO instance listings. Strict schema; unknown fields fail closed.
   app.post('/api/internal/clusters/:clusterId/vrt/metrics', async (c) => {
     try {
-      const cellId = auth(c, deps.token)
+      const cellId = await auth(c, deps)
       const parsed = cellReportSchema.safeParse(await readJson(c, 8 * 1024 * 1024))
       if (!parsed.success) {
         const path = parsed.error.issues[0]?.path.join('.') ?? 'body'

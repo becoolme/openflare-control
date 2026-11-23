@@ -17,7 +17,6 @@ export interface AdminDeps {
   pool: Pool
   store: VrtControlStore
   bundleStore: BundleStore
-  token: string
   adminToken?: string
   signing?: SnapshotSigningContext
   maxBundleBytes?: number
