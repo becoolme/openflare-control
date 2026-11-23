@@ -3,9 +3,9 @@
  * Real deployment e2e: talks to the built `openflare-plane` container over
  * HTTP (not `app.request`) with a real Postgres behind it.
  *
- *   PLANE_ADMIN_TOKEN=... docker compose up -d --build
+ *   PLANE_ADMIN_TOKEN=... CONSOLE_AUTH_PASSWORD=... docker compose up -d --build
  *   docker compose exec -T plane node dist/migrate.js
- *   PLANE_ADMIN_TOKEN=... node scripts/e2e-docker.mjs
+ *   PLANE_ADMIN_TOKEN=... CONSOLE_AUTH_PASSWORD=... node scripts/e2e-docker.mjs
  *
  * CI runs the same sequence; the script is also the local smoke command.
  */
@@ -16,6 +16,8 @@ const base = (process.env.PLANE_BASE_URL ?? 'http://127.0.0.1:8787').replace(/\/
 const consoleBase = (process.env.CONSOLE_BASE_URL ?? 'http://127.0.0.1:8788').replace(/\/$/, '')
 const adminToken = process.env.PLANE_ADMIN_TOKEN
 if (!adminToken) throw new Error('PLANE_ADMIN_TOKEN is required')
+const consolePassword = process.env.CONSOLE_AUTH_PASSWORD
+if (!consolePassword) throw new Error('CONSOLE_AUTH_PASSWORD is required')
 
 // Filled in by provisioning the cell's own pull token below — the per-cell
 // credential is exactly what a deployed cell would carry.
@@ -70,6 +72,16 @@ async function main() {
   assert.ok(cellToken)
   auth = { authorization: `Bearer ${cellToken}` }
   json = { ...auth, 'content-type': 'application/json' }
+
+  // Console path: unauthenticated request is rejected; Basic auth proxies the
+  // admin API with the server-side credential.
+  const basic = `Basic ${Buffer.from(`admin:${consolePassword}`).toString('base64')}`
+  const unauth = await fetch(`${consoleBase}/api/v1/cells`)
+  assert.equal(unauth.status, 401)
+  const viaConsole = await fetch(`${consoleBase}/api/v1/cells`, {
+    headers: { authorization: basic },
+  })
+  assert.equal(viaConsole.status, 200)
   assert.equal(r.status, 201, JSON.stringify(r.body))
   r = await request('POST', `/api/v1/cells/${cell}/workers`, { teamId: team, name: 'hello' })
   assert.equal(r.status, 201, JSON.stringify(r.body))
@@ -289,15 +301,19 @@ async function main() {
   r = await request('GET', `/api/v1/cells/${cell}/teams/${team}/workers/hello/metrics`)
   assert.equal(r.body.data.requests, 7)
   assert.equal(r.body.data.cpuMs, null)
-  const proxiedMetrics = await fetch(`${consoleBase}/api/v1/cells/${cell}/metrics`)
+  const proxiedMetrics = await fetch(`${consoleBase}/api/v1/cells/${cell}/metrics`, {
+    headers: { authorization: basic },
+  })
   assert.equal(proxiedMetrics.status, 200)
   assert.equal((await proxiedMetrics.json()).data.source, 'runtime')
 
   // The console service is a real static UI + same-origin API proxy.
-  const ui = await fetch(`${consoleBase}/`)
+  const ui = await fetch(`${consoleBase}/`, { headers: { authorization: basic } })
   assert.equal(ui.status, 200)
   assert.match(await ui.text(), /OpenFlare/i)
-  const proxied = await fetch(`${consoleBase}/api/v1/cells`, { headers: auth })
+  const proxied = await fetch(`${consoleBase}/api/v1/cells`, {
+    headers: { authorization: basic },
+  })
   assert.equal(proxied.status, 200)
   const proxiedBody = await proxied.json()
   assert.ok(Array.isArray(proxiedBody.data.cells))

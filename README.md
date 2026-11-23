@@ -56,6 +56,7 @@ pnpm --filter openflare-control build
 
 export PLANE_ADMIN_TOKEN="$(openssl rand -hex 32)"
 export PLANE_SIGNING_SECRET="$(openssl rand -hex 32)"
+export CONSOLE_AUTH_PASSWORD="$(openssl rand -hex 16)"
 docker compose up -d --build
 docker compose exec plane node dist/migrate.js
 
@@ -141,6 +142,9 @@ cell API is in [docs/api.md](docs/api.md).
 - The management API requires a separate, at-least-32-character
   `PLANE_ADMIN_TOKEN`; it never falls back to a cell token, so a leaked cell
   credential cannot become a management credential.
+- The console proxies the management API with that token, so it requires HTTP
+  Basic auth (`admin:<CONSOLE_AUTH_PASSWORD>`, at least 16 characters) on every
+  request except its health check.
 - Desired snapshots are Ed25519-signed over canonical JSON v2; the key is
   derived from `PLANE_SIGNING_SECRET` and its public key must be listed in each
   component's `trustedKeys`. Cells reject replayed, tampered, mis-scoped or
@@ -179,9 +183,11 @@ OPENFLARE_DIR=../openflare pnpm run check:openflare-contract  # checks the pinne
 pnpm run check:package-consumption          # pack + install + import in an empty project
 pnpm run check:sanitized                    # no private refs in deploy/
 # real container + real Postgres (requires docker compose):
-PLANE_ADMIN_TOKEN=... PLANE_SIGNING_SECRET=... pnpm test:e2e:docker
+PLANE_ADMIN_TOKEN=... PLANE_SIGNING_SECRET=... CONSOLE_AUTH_PASSWORD=... \
+  pnpm test:e2e:docker
 # real kind cluster + Postgres (requires kind/kubectl):
-PLANE_ADMIN_TOKEN=... PLANE_SIGNING_SECRET=... pnpm test:e2e:kind
+PLANE_ADMIN_TOKEN=... PLANE_SIGNING_SECRET=... CONSOLE_AUTH_PASSWORD=... \
+  pnpm test:e2e:kind
 OPENFLARE_DIR=../openflare node scripts/vrt-k8s-check.mjs --template deploy/k8s/overlays/example
 ```
 

@@ -22,6 +22,9 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    # Loopback by default: the plane API authenticates by bearer token only.
+    # Cells in this compose stack use the internal network; expose off-host
+    # (PLANE_BIND=0.0.0.0) only behind TLS on a trusted network.
     environment:
       DATABASE_URL: postgresql://vrt:vrt@postgres:5432/vrt_plane
       PLANE_ADMIN_TOKEN: ${PLANE_ADMIN_TOKEN:?set PLANE_ADMIN_TOKEN}
@@ -33,7 +36,7 @@ services:
       PLANE_PUBLICATION_KEEP: ${PLANE_PUBLICATION_KEEP:-20}
       PLANE_RETENTION_SWEEP_MS: ${PLANE_RETENTION_SWEEP_MS:-21600000}
       PORT: '8787'
-    ports: ['8787:8787']
+    ports: ['${PLANE_BIND:-127.0.0.1}:8787:8787']
     volumes: ['plane-bundles:/data/bundles']
 
   console:
@@ -42,8 +45,12 @@ services:
     environment:
       PLANE_URL: http://plane:8787
       PLANE_ADMIN_TOKEN: ${PLANE_ADMIN_TOKEN:?set PLANE_ADMIN_TOKEN}
+      CONSOLE_AUTH_PASSWORD: ${CONSOLE_AUTH_PASSWORD:?set CONSOLE_AUTH_PASSWORD}
       PORT: '8788'
-    ports: ['8788:8788']
+    # Loopback by default: the console proxies the admin API with an injected
+    # credential, so it is a full management gateway. Basic auth protects it;
+    # expose off-host only behind TLS (CONSOLE_BIND=0.0.0.0).
+    ports: ['${CONSOLE_BIND:-127.0.0.1}:8788:8788']
 
 volumes:
   plane-db:
