@@ -16,6 +16,9 @@ export const VRT_MAX_BINDINGS_PER_WORKER = 64
 export const VRT_MAX_ROUTES_PER_WORKER = 64
 export const VRT_MAX_CRONS_PER_WORKER = 32
 export const VRT_MAX_COMPAT_FLAGS = 32
+/** Bound for one `{"type":"json"}` literal binding (typed `[vars]`,
+ * `[version_metadata]`) — same order as Cloudflare's value bound. */
+export const VRT_MAX_JSON_BINDING_BYTES = 16 * 1024
 export const VRT_MAX_IDENTIFIER_LEN = 128
 export const VRT_MAX_REF_LEN = 256
 export const VRT_MAX_WORKER_NAME_LEN = 63

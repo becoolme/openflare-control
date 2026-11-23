@@ -494,6 +494,11 @@ class PlaneCellTx {
     return Number(r.revision)
   }
 
+  async flagshipApps(): Promise<readonly { tenantId: string; appId: string; config: string }[]> {
+    // The reference plane does not store CF Flagship apps yet.
+    return []
+  }
+
   async activateVersion(workerId: string, versionId: string): Promise<void> {
     await this.client.query('update plane_workers set active_version_id=$2 where id=$1', [
       workerId,
