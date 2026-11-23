@@ -59,6 +59,7 @@ Workers are addressed by `(teamId, name)`; the stored id is `teamId:name`.
 | GET    | `.../versions`                                     | version history                                          |
 | POST   | `.../versions`                                     | create a version (see below)                             |
 | POST   | `.../versions/{versionId}/activate`                | activate (rollback = activate an older version)          |
+| POST   | `.../workers/{name}/deploy`                        | create version + optional activate/publish in one call   |
 
 Version body:
 
@@ -72,7 +73,7 @@ Version body:
   "compatibilityDate": "2025-01-01",
   "compatibilityFlags": [],
   "crons": [{ "scheduleId": "c1", "expression": "*/5 * * * *" }],
-  "quotas": { "cpuMs": 10000, "memoryMb": 128, "subrequests": 50, "outboundConnections": 6 },
+  "quotas": { "cpuMs": 10000, "memoryMb": 128, "subrequests": 50, "outboundConnections": 16 },
   "vars": { "GREETING": "hi" },
   "bindings": [],
   "queueConsumers": [{ "queueId": "<26>", "queueName": "jobs", "maxBatchSize": 10 }],
@@ -82,8 +83,24 @@ Version body:
 }
 ```
 
-The bundle digest must already be uploaded (below); the plane records the
-bundle object and the version row with a deterministic bindings fingerprint.
+The bundle is the runtime's canonical stored document (produced by
+`buildRuntimeBundle` / `vrt`); the object key is the manifest digest, not
+sha256(document bytes). The bundle **must already be uploaded** (below). `POST /versions` and
+`POST /deploy` fail closed with `409 VRT_BUNDLE_NOT_UPLOADED` when the digest
+has no uploaded object, and `409 VRT_BUNDLE_SIZE_MISMATCH` when the claimed
+`bundleBytes` differs from the stored size.
+
+`POST /workers/{name}/deploy` accepts the same body plus `activate` (default
+`true`) and `publish` (default `false`). It creates the version, activates it,
+and optionally publishes the cell, returning
+`{version,created,activated,revision}`. The returned `version.versionId` is
+authoritative: identical content (bundle + bindings fingerprint) reuses the
+existing version row instead of creating a duplicate.
+
+`PATCH /workers/{name}` metadata (including `status`) changes the stored row;
+call `POST /publish` for it to reach the cell. Only `status='ACTIVE'` workers
+are included in `compute.desired`; `SUSPENDED`/`DELETED` workers stop serving
+after the next publish.
 
 ### Vars, secrets, hostnames
 
@@ -101,10 +118,10 @@ values out of `desired` and out of reads.
 
 ### Bundles
 
-| Method | Path                                    | Purpose                               |
-| ------ | --------------------------------------- | ------------------------------------- |
-| PUT    | `/api/v1/cells/{cell}/bundles/{sha256}` | raw bytes; digest must match the body |
-| GET    | `/api/v1/cells/{cell}/bundles/{sha256}` | download (content-addressed)          |
+| Method | Path                                    | Purpose                                                                                                                                                                                           |
+| ------ | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| PUT    | `/api/v1/cells/{cell}/bundles/{digest}` | runtime stored document; `digest` is sha256(canonical manifest) and the inner `digest` is re-verified. Legacy raw bytes whose sha256 equals the path are accepted for control-plane-only fixtures |
+| GET    | `/api/v1/cells/{cell}/bundles/{sha256}` | download (content-addressed)                                                                                                                                                                      |
 
 ### Service resources
 

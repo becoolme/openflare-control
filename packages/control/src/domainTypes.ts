@@ -23,18 +23,32 @@ export interface VrtBindingRecord {
     | 'DO'
     | 'HYPERDRIVE'
     | 'RATELIMIT'
+    | 'WORKER_LOADER'
+    | 'UNSAFE_EVAL'
+    | 'ANALYTICS_ENGINE'
+    | 'FLAGSHIP'
+    | 'K2'
+    | 'SEND_EMAIL'
+    | 'IMAGES'
   readonly resourceId: string
   readonly permissionRead: boolean
   readonly permissionWrite: boolean
   /** SERVICE only: named `WorkerEntrypoint` export; null/absent = default. */
   readonly entrypoint?: string | null
-  /** SERVICE only: JSON object exposed to the callee as `ctx.props`.
-   * Absent/null keeps the signed bytes unchanged; arrays/scalars are rejected
-   * (Cloudflare documents an object). Max 8 KiB compact JSON. */
-  readonly props?: Record<string, unknown> | null
+  /** SERVICE only: canonical JSON **text** for `ctx.props` (the DB column
+   * stores text; the cell embeds it verbatim). Absent/null keeps the signed
+   * bytes unchanged; the text must parse to a JSON object and is bounded by
+   * `VRT_MAX_SERVICE_PROPS_BYTES`. */
+  readonly props?: string | null
   /** QUEUE only: queue-level default delivery delay in seconds
    * (0..86400). Absent = no default; explicit `0` is a real value. */
   readonly deliveryDelaySeconds?: number | null
+  /** SEND_EMAIL only: CF send-bindings restriction set (signed into the
+   * desired document, enforced provider-side). `destinationAddress`
+   * and `allowedDestinationAddresses` are mutually exclusive. */
+  readonly destinationAddress?: string
+  readonly allowedDestinationAddresses?: readonly string[]
+  readonly allowedSenderAddresses?: readonly string[]
 }
 
 /** P3c-1: a DO class DECLARED by the worker — the rowset member the
@@ -74,6 +88,15 @@ export interface VrtQuotasRecord {
   readonly memoryMb: number
   readonly subrequests: number
   readonly outboundConnections: number
+}
+
+/** CF `[observability]` — effective Worker Logs gates + head sampling
+ * stored on the serving version (`null` = collection defaults). */
+export interface VrtObservability {
+  readonly enabled: boolean
+  readonly logsEnabled: boolean
+  readonly invocationLogs: boolean
+  readonly headSamplingRatePpm: number
 }
 
 /** Wire shape emitted into WorkerDesired.workflows — uniqueKey included;
@@ -116,6 +139,16 @@ export interface VrtCellWorkerView {
    * across redeploys while the name persists). Absent ⇒ the worker
    * owns no workflow engine namespace. */
   readonly workflows?: readonly VrtWorkflowView[]
+  /** Tail Workers: resolved consumer workerIds; absent/empty ⇒ no tails. */
+  readonly tailConsumers?: readonly string[]
+  /** Streaming Tail Workers: resolved consumer workerIds. */
+  readonly streamingTailConsumers?: readonly string[]
+  /** CF `[version_metadata]`: env binding name for `{id, tag, timestamp}`. */
+  readonly versionMetadata?: string | null
+  /** CF `[observability]`: gates + sampling; absent ⇒ defaults. */
+  readonly observability?: VrtObservability | null
+  /** CF typed `[vars]`: non-string values emitted as `{"type":"json"}`. */
+  readonly jsonVars?: Readonly<Record<string, unknown>> | null
   readonly quotas: VrtQuotasRecord
   /** T31c: Cloudflare-compatible assets routing for this version.
    * `null`/absent ⇒ legacy worker-first (no router service emitted). */

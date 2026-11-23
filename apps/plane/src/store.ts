@@ -494,6 +494,11 @@ class PlaneCellTx {
     return Number(r.revision)
   }
 
+  async flagshipApps(): Promise<readonly { tenantId: string; appId: string; config: string }[]> {
+    // The reference plane does not store CF Flagship apps yet.
+    return []
+  }
+
   async activateVersion(workerId: string, versionId: string): Promise<void> {
     await this.client.query('update plane_workers set active_version_id=$2 where id=$1', [
       workerId,
@@ -627,7 +632,7 @@ class PlaneCellTx {
       `select w.*, v.row as version_row
        from plane_workers w
        join plane_versions v on v.worker_id = w.id and v.version_id = w.active_version_id
-       where w.cluster_id=$1 and w.runtime='VRT'`,
+       where w.cluster_id=$1 and w.runtime='VRT' and w.status='ACTIVE'`,
       [this.clusterId]
     )
     const out: VrtCellWorkerView[] = []

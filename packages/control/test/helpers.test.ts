@@ -54,10 +54,15 @@ describe('capability bits', () => {
         queueDeliveryDelay: false,
         analyticsEngine: false,
         flagship: false,
+        email: false,
+        images: false,
         k2: false,
         observability: false,
+        secretsStore: false,
+        tailConsumers: false,
         streamingTailConsumers: false,
         unsafeEval: false,
+        versionMetadata: false,
       }
     )
     expect(normalizeVrtCellCapabilities(null)).toBeNull()
