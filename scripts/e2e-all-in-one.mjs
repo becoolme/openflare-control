@@ -154,6 +154,45 @@ const deploy = async (versionId, vars) => {
 await deploy(`v1-${suffix}`, {})
 await deploy(`v2-${suffix}`, { E2E_VAR: 'all-in-one-var' })
 
+// Diagnostics for the vars channel: whether the plane serves them and
+// what the cell-controller wrote — KEYS ONLY, values may be secrets.
+const ri = await api('GET', `/api/v1/cells/${CELL}/render-inputs`)
+const riKeys = (d) =>
+  d?.tenants
+    ? Object.fromEntries(
+        Object.entries(d.tenants).map(([t, v]) => [
+          t,
+          { vars: Object.keys(v.vars ?? {}), secrets: Object.keys(v.secrets ?? {}) },
+        ])
+      )
+    : d
+console.log('plane render-inputs:', ri.status, JSON.stringify(riKeys(ri.body?.data)))
+try {
+  const file = execFileSync(
+    'docker',
+    [
+      'compose',
+      '-f',
+      'docker-compose.all-in-one.yml',
+      'exec',
+      '-T',
+      'vrt-host',
+      'cat',
+      '/run/vrt/render-inputs/render-inputs.json',
+    ],
+    { encoding: 'utf8' }
+  )
+  let parsed
+  try {
+    parsed = JSON.stringify(riKeys(JSON.parse(file)))
+  } catch {
+    parsed = `<unparseable ${file.length}b>`
+  }
+  console.log('cell render-inputs file:', parsed)
+} catch (e) {
+  console.log('cell render-inputs file unreadable:', e.message)
+}
+
 // Ingress: Host header routes to the worker; the var travels through
 // the cell's render-inputs into the worker env. Raw http.request —
 // fetch treats Host as forbidden.
