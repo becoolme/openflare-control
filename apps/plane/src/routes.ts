@@ -153,13 +153,34 @@ export function createApp(deps: AppDeps): Hono {
       // the SQL twin of `bundleDigestsInEnvelope` (packages/control/
       // publicationDigests.ts) — keep the two paths in sync if the envelope
       // shape moves.
+      // Guard every SRF input with jsonb_typeof: a malformed/legacy row must
+      // read as "no reference" (404), never as a SQL error that turns into a
+      // 500. This preserves `bundleDigestsInEnvelope`'s defensive traversal.
       const { rowCount } = await deps.pool.query(
         `select 1
-           from plane_publications p,
-                jsonb_array_elements(p.envelope -> 'payload' -> 'tenants') as tenant,
-                jsonb_array_elements(tenant -> 'workers') as worker
+           from plane_publications p
           where p.cell_id = $1
-            and worker -> 'activeVersion' ->> 'artifactDigest' = $2
+            and exists (
+              select 1
+                from jsonb_array_elements(
+                  case
+                    when jsonb_typeof(p.envelope -> 'payload' -> 'tenants') = 'array'
+                      then p.envelope -> 'payload' -> 'tenants'
+                    else '[]'::jsonb
+                  end
+                ) as tenant
+               where exists (
+                 select 1
+                   from jsonb_array_elements(
+                     case
+                       when jsonb_typeof(tenant -> 'workers') = 'array'
+                         then tenant -> 'workers'
+                       else '[]'::jsonb
+                     end
+                   ) as worker
+                  where worker -> 'activeVersion' ->> 'artifactDigest' = $2
+               )
+            )
           limit 1`,
         [cellId, digest]
       )

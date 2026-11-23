@@ -199,6 +199,29 @@ maybe('reference plane routes', () => {
     expect(other.status).toBe(404)
   })
 
+  it('treats malformed publication envelopes as unreferenced', async () => {
+    const badCell = `bad-envelope-${Date.now()}`
+    const now = new Date()
+    const expires = new Date(now.getTime() + 3_600_000)
+    for (const [revision, envelope] of [
+      [1, { payload: { tenants: null } }],
+      [2, { payload: { tenants: [{ workers: null }] } }],
+      [3, { payload: { tenants: [{ workers: [{ activeVersion: null }] }] } }],
+    ] as const) {
+      await pool.query(
+        `insert into plane_publications
+           (cell_id, revision, envelope, payload_digest, envelope_digest, cause, issued_at, expires_at)
+         values ($1,$2,$3,$4,$4,'TEST',$5,$6)`,
+        [badCell, revision, JSON.stringify(envelope), sha256(`bad-${revision}`), now, expires]
+      )
+    }
+    const res = await app.request(
+      `/api/internal/clusters/${badCell}/vrt/bundles/${'a'.repeat(64)}`,
+      { headers: auth }
+    )
+    expect(res.status).toBe(404)
+  })
+
   it('rejects an ack that echoes a different cell id', async () => {
     const desired = await app.request(`/api/internal/clusters/${cluster}/vrt/desired`, {
       headers: auth,
