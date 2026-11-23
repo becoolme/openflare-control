@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto'
 import type { Hono } from 'hono'
 import { z } from 'zod'
 import {
@@ -6,6 +7,7 @@ import {
   VrtControlError,
   missingCapabilities,
   requiredCapabilities,
+  workerDoClassNameSchema,
   bundleKeyFor,
   type VrtBindingRecord,
   type VrtCreateVersionInput,
@@ -109,7 +111,7 @@ const versionBody = z
       .optional(),
     assetsRouting: z.enum(['ASSETS_FIRST', 'WORKER_FIRST']).nullable().optional(),
     assetsRunWorkerFirst: z.array(z.string()).optional(),
-    exportedClassNames: z.array(z.string()).optional(),
+    exportedClassNames: z.array(workerDoClassNameSchema).optional(),
   })
   .strict()
 
@@ -232,6 +234,39 @@ async function createVersion(
         400,
         'tail consumers must be existing workers of the same team and cell'
       )
+    }
+  }
+
+  // `exportedClassNames` predates the class resource API. Keep it as an
+  // alias that declares the classes instead of silently ignoring it.
+  for (const className of body.exportedClassNames ?? []) {
+    await deps.pool.query(
+      `insert into plane_do_classes (worker_id, class_name, unique_key, enable_sql)
+       values ($1,$2,$3,true) on conflict (worker_id, class_name) do nothing`,
+      [workerId, className, randomBytes(32).toString('hex')]
+    )
+  }
+
+  for (const binding of body.bindings) {
+    if (binding.type !== 'DO' || typeof binding.resourceId !== 'string') continue
+    const sep = binding.resourceId.lastIndexOf(':')
+    const declaringId = sep === -1 ? '' : binding.resourceId.slice(0, sep)
+    const className = sep === -1 ? '' : binding.resourceId.slice(sep + 1)
+    const [declaringWorker] = await rows(
+      deps,
+      'select id from plane_workers where id=$1 and team_id=$2 and cluster_id=$3',
+      [declaringId, owner.team_id, owner.cluster_id]
+    )
+    if (!declaringWorker) {
+      throw new VrtControlError(400, 'DO binding declaring worker is not in this team/cell')
+    }
+    const [declared] = await rows(
+      deps,
+      'select 1 from plane_do_classes where worker_id=$1 and class_name=$2',
+      [declaringId, className]
+    )
+    if (!declared) {
+      throw new VrtControlError(400, `Durable Object class is not declared: ${className}`)
     }
   }
 
@@ -394,7 +429,11 @@ async function isActiveTailTarget(
 interface ActivatableVersion {
   readonly versionId: string
   readonly varValues: Readonly<Record<string, string>>
-  readonly bindings?: readonly { readonly name?: string }[]
+  readonly bindings?: readonly {
+    readonly name?: string
+    readonly type?: string
+    readonly resourceId?: string
+  }[]
   readonly jsonVars?: Readonly<Record<string, unknown>> | null
   readonly versionMetadata?: string | null
   readonly queueConsumers?: readonly VrtQueueConsumerDraft[] | null
@@ -533,14 +572,23 @@ export function registerWorkers(app: Hono, deps: AdminDeps): void {
     )
     if (!worker) throw new VrtControlError(404, 'Worker not found')
     const versionId = worker.active_version_id as string | null
-    if (!versionId) return c.json({ data: { classes: [], bindings: [] } })
-    const version = await deps.store.getVersionByVersionId(id, versionId)
-    if (!version) throw new VrtControlError(404, 'Active version not found')
-    const bindings = (version.bindings ?? []).filter((b) => b.type === 'DO')
+    const version = versionId ? await deps.store.getVersionByVersionId(id, versionId) : null
+    const classes = await rows(
+      deps,
+      `select class_name, unique_key, enable_sql, transfer_from_worker_id
+         from plane_do_classes where worker_id=$1 order by class_name`,
+      [id]
+    )
+    const bindings = (version?.bindings ?? []).filter((b) => b.type === 'DO')
     return c.json({
       data: {
         versionId,
-        classes: version.exportedClassNames ?? [],
+        classes: classes.map((row) => ({
+          className: String(row.class_name),
+          uniqueKey: String(row.unique_key),
+          enableSql: row.enable_sql === true,
+          transferFromWorkerId: (row.transfer_from_worker_id as string | null) ?? null,
+        })),
         bindings,
       },
     })
@@ -591,6 +639,14 @@ export function registerWorkers(app: Hono, deps: AdminDeps): void {
     }
     if (await isWorkflowTarget(deps, cell, id)) {
       throw new VrtControlError(409, 'Worker is the target of a workflow binding')
+    }
+    const [transferSource] = await rows(
+      deps,
+      'select 1 from plane_do_classes where transfer_from_worker_id=$1 limit 1',
+      [id]
+    )
+    if (transferSource) {
+      throw new VrtControlError(409, 'Worker is a DO class transfer source')
     }
     const deleted = await deps.pool.query(
       'delete from plane_workers where id=$1 and cluster_id=$2',

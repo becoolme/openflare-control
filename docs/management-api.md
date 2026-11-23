@@ -121,6 +121,17 @@ call `POST /publish` for it to reach the cell. Only `status='ACTIVE'` workers
 are included in `compute.desired`; `SUSPENDED`/`DELETED` workers stop serving
 after the next publish.
 
+### Durable Object classes
+
+`GET/POST/DELETE .../workers/{name}/durable-object-classes[/{className}]`
+manages the classes a worker declares. POST accepts
+`{className, enableSql?, transferFromWorkerId?}`; `enableSql` defaults to true.
+`POST .../durable-object-classes/migrations` applies
+`{newClasses?, newSqliteClasses?, renamedClasses?, deletedClasses?}` in one
+transaction; `transferredClasses` is rejected. Declared classes are emitted as
+`durableObjectClasses[]` in `compute.desired`, and DO bindings must target a
+declared class in the same team/cell.
+
 ### Vars, secrets, hostnames
 
 | Method         | Path                       | Purpose                                   |

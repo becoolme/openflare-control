@@ -522,7 +522,11 @@ class PlaneCellTx {
     teamId: string,
     workerIdToActivate: string,
     version: {
-      readonly bindings?: readonly { readonly name?: string }[]
+      readonly bindings?: readonly {
+        readonly name?: string
+        readonly type?: string
+        readonly resourceId?: string
+      }[]
       readonly varValues?: Readonly<Record<string, string>>
       readonly jsonVars?: Readonly<Record<string, unknown>> | null
       readonly versionMetadata?: string | null
@@ -573,6 +577,29 @@ class PlaneCellTx {
           409,
           `Workflow binding "${String(workflow.binding)}" collides with the activated version`
         )
+      }
+    }
+
+    for (const binding of version.bindings ?? []) {
+      if (binding.type !== 'DO' || typeof binding.resourceId !== 'string') continue
+      const sep = binding.resourceId.lastIndexOf(':')
+      const declaringId = sep === -1 ? '' : binding.resourceId.slice(0, sep)
+      const className = sep === -1 ? '' : binding.resourceId.slice(sep + 1)
+      const [declaringWorker] = await this.rows(
+        `select id from plane_workers
+          where id=$1 and team_id=$2 and cluster_id=$3 for share`,
+        [declaringId, teamId, this.clusterId]
+      )
+      if (!declaringWorker) {
+        throw new VrtControlError(409, 'DO binding declaring worker is not in this team/cell')
+      }
+      const [declared] = await this.rows(
+        `select 1 from plane_do_classes
+          where worker_id=$1 and class_name=$2 for share`,
+        [declaringId, className]
+      )
+      if (!declared) {
+        throw new VrtControlError(409, `Durable Object class is not declared: ${className}`)
       }
     }
 
@@ -743,6 +770,12 @@ class PlaneCellTx {
           order by name`,
         [r.id as string]
       )
+      const doClasses = await this.rows(
+        `select class_name, unique_key, enable_sql, transfer_from_worker_id
+           from plane_do_classes
+          where worker_id=$1 order by class_name`,
+        [r.id as string]
+      )
       out.push({
         workerId: r.id as string,
         teamId: r.team_id as string,
@@ -762,6 +795,14 @@ class PlaneCellTx {
           uniqueKey: String(w.unique_key),
           limitsSteps: w.limits_steps == null ? null : Number(w.limits_steps),
           serviceWorkerId: (w.service_worker_id as string | null) ?? null,
+        })),
+        durableObjectClasses: doClasses.map((c) => ({
+          className: String(c.class_name),
+          uniqueKey: String(c.unique_key),
+          enableSql: c.enable_sql === true,
+          ...(c.transfer_from_worker_id
+            ? { transferFromWorkerId: String(c.transfer_from_worker_id) }
+            : {}),
         })),
         tailConsumers: version.tailConsumers ?? [],
         streamingTailConsumers: version.streamingTailConsumers ?? [],

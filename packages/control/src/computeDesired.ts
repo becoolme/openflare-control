@@ -403,7 +403,7 @@ export function serializeBinding(
     case 'DO': {
       // P3c-1: resourceId encodes `<declaringWorkerId>:<className>` —
       // minted + ownership-checked at deploy; re-parse fail-closed.
-      const sep = resourceId.indexOf(':')
+      const sep = resourceId.lastIndexOf(':')
       const declaringId = sep === -1 ? '' : resourceId.slice(0, sep)
       const className = sep === -1 ? '' : resourceId.slice(sep + 1)
       if (!validVrtIdentifier(declaringId) || !validDoClassName(className)) {
@@ -480,7 +480,7 @@ export function crossWorkerEdges(workerId: string, refs: CrossWorkerRefs): Cross
 /** Parse a stored DO binding resourceId `<declaringWorkerId>:<className>`
  * into the declaring worker id (null when malformed). */
 export function doBindingDeclaringWorkerId(resourceId: string): string | null {
-  const sep = resourceId.indexOf(':')
+  const sep = resourceId.lastIndexOf(':')
   return sep <= 0 ? null : resourceId.slice(0, sep)
 }
 

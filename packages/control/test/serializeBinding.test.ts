@@ -142,6 +142,12 @@ describe('serializeBinding', () => {
   })
 
   it('DO names the declaring worker only for cross-worker classes', () => {
+    expect(binding({ type: 'DO', resourceId: 'team-a:w2:Klass' })).toEqual({
+      type: 'durableObject',
+      name: 'B',
+      className: 'Klass',
+      serviceWorkerId: 'team-a:w2',
+    })
     expect(binding({ type: 'DO', resourceId: 'w2:Klass' })).toEqual({
       type: 'durableObject',
       name: 'B',
