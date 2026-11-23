@@ -4,9 +4,12 @@ import {
   VRT_DEFAULT_QUOTAS,
   VRT_MAX_JSON_BINDING_BYTES,
   VrtControlError,
+  missingCapabilities,
+  requiredCapabilities,
   bundleKeyFor,
   type VrtBindingRecord,
   type VrtCreateVersionInput,
+  type VrtQueueConsumerDraft,
 } from 'openflare-control'
 import { publishCell } from '../publish.js'
 import {
@@ -232,6 +235,42 @@ async function createVersion(
     }
   }
 
+  const capabilities = await deps.store.cellCapabilities(owner.cluster_id)
+  if (capabilities !== null) {
+    const required = requiredCapabilities({
+      cronCount: body.crons.length,
+      bindingTypes: body.bindings
+        .map((binding) => (typeof binding.type === 'string' ? binding.type : ''))
+        .filter((type) => type.length > 0),
+      queueConsumerCount: queueConsumers.length,
+      workflowCount: 0,
+      crossWorkerWorkflowCount: 0,
+      serviceEntrypointCount: body.bindings.filter(
+        (binding) => binding.type === 'SERVICE' && typeof binding.entrypoint === 'string'
+      ).length,
+      servicePropsCount: body.bindings.filter(
+        (binding) => binding.type === 'SERVICE' && binding.props != null
+      ).length,
+      queueDeliveryDelayCount: body.bindings.filter(
+        (binding) => binding.type === 'QUEUE' && typeof binding.deliveryDelaySeconds === 'number'
+      ).length,
+      workerLoaderCount: body.bindings.filter((binding) => binding.type === 'WORKER_LOADER').length,
+      nonDefaultQuotaCount: body.quotas ? 1 : 0,
+      tailConsumerCount: tailConsumers.length,
+      streamingTailConsumerCount: streamingTailConsumers.length,
+      observabilityDeclared: body.observability != null,
+      versionMetadata: body.versionMetadata != null,
+    })
+    const missing = missingCapabilities(required, capabilities)
+    if (missing.length > 0) {
+      throw new VrtControlError(
+        409,
+        `Cell lacks capabilities: ${missing.join(', ')}`,
+        'VRT_CELL_CAPABILITY_MISSING'
+      )
+    }
+  }
+
   const envNames = new Set<string>()
   const claimEnvName = (name: string, source: string): void => {
     if (envNames.has(name)) {
@@ -332,28 +371,34 @@ async function isActiveTailTarget(
 /** Activate a version and replace its render-input vars atomically. The
  * reference plane's `PlaneCellTx` exposes `applyVersionVars`; keep this cast
  * local so the portable VrtCellTx interface stays unchanged. */
+interface ActivatableVersion {
+  readonly versionId: string
+  readonly varValues: Readonly<Record<string, string>>
+  readonly queueConsumers?: readonly VrtQueueConsumerDraft[] | null
+  readonly tailConsumers?: readonly string[] | null
+  readonly streamingTailConsumers?: readonly string[] | null
+}
+
 async function activateVersionWithVars(
   deps: AdminDeps,
   cell: string,
+  teamIdValue: string,
   workerIdToActivate: string,
-  versionId: string
+  version: ActivatableVersion
 ): Promise<void> {
   await deps.store.runCellTransaction(cell, async (tx) => {
-    await tx.activateVersion(workerIdToActivate, versionId)
-    const apply = (
-      tx as unknown as {
-        applyVersionVars?: (
-          workerId: string,
-          vars: Readonly<Record<string, string>>
-        ) => Promise<void>
-      }
-    ).applyVersionVars
-    if (typeof apply !== 'function') {
+    const referenceTx = tx as unknown as {
+      assertVersionReferences?: (teamId: string, version: ActivatableVersion) => Promise<void>
+      applyVersionVars?: (workerId: string, vars: Readonly<Record<string, string>>) => Promise<void>
+    }
+    if (referenceTx.assertVersionReferences) {
+      await referenceTx.assertVersionReferences(teamIdValue, version)
+    }
+    await tx.activateVersion(workerIdToActivate, version.versionId)
+    if (typeof referenceTx.applyVersionVars !== 'function') {
       throw new VrtControlError(501, 'store does not support version vars')
     }
-    const version = await deps.store.getVersionByVersionId(workerIdToActivate, versionId)
-    if (!version) throw new VrtControlError(404, 'Version not found')
-    await apply.call(tx, workerIdToActivate, version.varValues ?? {})
+    await referenceTx.applyVersionVars(workerIdToActivate, version.varValues ?? {})
   })
 }
 
@@ -561,7 +606,7 @@ export function registerWorkers(app: Hono, deps: AdminDeps): void {
     let activated = false
     let revision: number | null = null
     if (body.activate) {
-      await activateVersionWithVars(deps, cell, id, version.versionId)
+      await activateVersionWithVars(deps, cell, team, id, version)
       activated = true
     }
     if (body.publish) {
@@ -581,9 +626,15 @@ export function registerWorkers(app: Hono, deps: AdminDeps): void {
     async (c) => {
       const { cellId: cell, teamId: team, name, versionId } = c.req.param()
       const id = workerId(team, name)
+      const [worker] = await rows(
+        deps,
+        'select id from plane_workers where id=$1 and cluster_id=$2',
+        [id, cell]
+      )
+      if (!worker) throw new VrtControlError(404, 'Worker not found')
       const version = await deps.store.getVersionByVersionId(id, versionId)
       if (!version) throw new VrtControlError(404, 'Version not found')
-      await activateVersionWithVars(deps, cell, id, versionId)
+      await activateVersionWithVars(deps, cell, team, id, version)
       return c.json({ data: { workerId: id, versionId, activated: true } })
     }
   )

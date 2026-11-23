@@ -47,6 +47,7 @@ class MemoryBundles implements BundleStore {
 
 maybe('version-scoped fields', () => {
   let pool: Pool
+  let store: ReturnType<typeof createPlaneStore>
   let app: ReturnType<typeof createApp>
   const suffix = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`
   const cell = `fields-${suffix}`
@@ -75,8 +76,9 @@ maybe('version-scoped fields', () => {
   beforeAll(async () => {
     pool = new Pool({ connectionString: url })
     await pool.query(await readFile(new URL('./schema.sql', import.meta.url), 'utf8'))
+    store = createPlaneStore(pool)
     app = createApp({
-      store: createPlaneStore(pool),
+      store,
       pool,
       bundleStore: new MemoryBundles(),
       adminToken: TOKEN,
@@ -106,6 +108,15 @@ maybe('version-scoped fields', () => {
 
   it('publishes every version-scoped field and fingerprints the full config', async () => {
     expect((await call('POST', '/api/v1/cells', { cellId: cell })).status).toBe(201)
+    await store.recordCellCapabilities(cell, {
+      cron: true,
+      assets: true,
+      queue: true,
+      tailConsumers: true,
+      streamingTailConsumers: true,
+      observability: true,
+      versionMetadata: true,
+    })
     for (const name of [worker, tail]) {
       expect((await call('POST', `${base}/workers`, { teamId: team, name })).status).toBe(201)
     }
@@ -294,5 +305,92 @@ maybe('version-scoped fields', () => {
       ).status
     ).toBe(409)
     expect((await call('DELETE', `${base}/queues/${queueId}`)).status).toBe(409)
+    // Rollback restores the older version's string vars.
+    expect(
+      (
+        await call(
+          'POST',
+          `${base}/teams/${team}/workers/${worker}/versions/staged-${suffix}/activate`,
+          {}
+        )
+      ).status
+    ).toBe(200)
+    let rolled = await app.request(`/api/internal/clusters/${cell}/vrt/render-inputs`, {
+      headers: auth,
+    })
+    expect((await rolled.json()).tenants[team].vars.GREETING).toBe('staged')
+    expect(
+      (
+        await call(
+          'POST',
+          `${base}/teams/${team}/workers/${worker}/versions/v-${suffix}/activate`,
+          {}
+        )
+      ).status
+    ).toBe(200)
+    rolled = await app.request(`/api/internal/clusters/${cell}/vrt/render-inputs`, {
+      headers: auth,
+    })
+    expect((await rolled.json()).tenants[team].vars.GREETING).toBe('hi')
+
+    // Activation is scoped to the URL cell.
+    expect(
+      (
+        await call(
+          'POST',
+          `/api/v1/cells/other-${suffix}/teams/${team}/workers/${worker}/versions/v-${suffix}/activate`,
+          {}
+        )
+      ).status
+    ).toBe(404)
+
+    // A secret cannot reuse a var/env name, even after the version exists.
+    expect(
+      (
+        await call('PUT', `${base}/teams/${team}/workers/${worker}/secrets/GREETING`, {
+          value: 'x',
+        })
+      ).status
+    ).toBe(409)
+
+    // Queue name/timeout validation is fail-fast.
+    expect(
+      (
+        await create(`queue-name-${suffix}`, {
+          queueConsumers: [{ queueId, queueName: 'other' }],
+        })
+      ).status
+    ).toBe(400)
+    expect(
+      (
+        await create(`queue-timeout-${suffix}`, {
+          queueConsumers: [{ queueId, queueName: 'jobs', maxBatchTimeoutMs: 1500 }],
+        })
+      ).status
+    ).toBe(400)
+
+    // Optional fields fail closed on a cell that does not report the bit.
+    const capsCell = `caps-${suffix}`
+    expect((await call('POST', '/api/v1/cells', { cellId: capsCell })).status).toBe(201)
+    expect(
+      (await call('POST', `/api/v1/cells/${capsCell}/workers`, { teamId: team, name: 'obs' }))
+        .status
+    ).toBe(201)
+    await store.recordCellCapabilities(capsCell, { cron: true, assets: true })
+    expect(
+      (
+        await call('POST', `/api/v1/cells/${capsCell}/teams/${team}/workers/obs/versions`, {
+          versionId: `obs-${suffix}`,
+          bundleSha256: digest,
+          bundleBytes: bundle.byteLength,
+          observability: {
+            enabled: true,
+            logsEnabled: true,
+            invocationLogs: true,
+            headSamplingRatePpm: 1,
+          },
+        })
+      ).status
+    ).toBe(409)
   })
 })

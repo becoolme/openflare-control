@@ -131,6 +131,12 @@ after the next publish.
 | POST           | `.../hostnames`            | `{hostname}` (global uniqueness enforced) |
 | DELETE         | `.../hostnames/{hostname}` | remove a hostname                         |
 
+`PUT .../vars` updates the worker-level var table immediately. Activating a
+version replaces the whole worker var set with that version's `vars` (CF
+version semantics), so direct PUT writes are for bootstrap/pre-version edits;
+put versioned configuration in the version body. Env names must be unique
+across vars, secrets, bindings, `jsonVars`, and `versionMetadata`.
+
 The reference plane encrypts secret values in Postgres with AES-256-GCM
 (`enc:v1:<iv>:<tag>:<ciphertext>`) under the dedicated `PLANE_SECRETS_KEY`.
 Values written before encryption are re-sealed on their first read. The port
