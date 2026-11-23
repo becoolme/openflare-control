@@ -24,24 +24,16 @@ const signing = resolvePlaneSigningKey()
 const store = createPlaneStore(pool)
 const retention = retentionFromEnv()
 // The admin API can publish arbitrary code to every cell, so its credential
-// must exist, carry real entropy, and never collapse onto the cell-channel
-// token: a cell token leak would otherwise become a full-plane compromise.
-const token = env('PLANE_TOKEN')
+// must exist and carry real entropy. Cell-channel auth is per-cell
+// (plane_cell_tokens) — there is no shared cell token to compromise.
 const adminToken = env('PLANE_ADMIN_TOKEN')
-for (const [name, value] of [
-  ['PLANE_TOKEN', token],
-  ['PLANE_ADMIN_TOKEN', adminToken],
-] as const) {
-  if (value.length < 32) throw new Error(`${name} must be at least 32 characters`)
-}
-if (token === adminToken) {
-  throw new Error('PLANE_ADMIN_TOKEN must differ from PLANE_TOKEN')
+if (adminToken.length < 32) {
+  throw new Error('PLANE_ADMIN_TOKEN must be at least 32 characters')
 }
 const app = createApp({
   store,
   pool,
   bundleStore: new DirBundleStore(env('PLANE_BUNDLE_DIR', './data/bundles')),
-  token,
   adminToken,
   signing,
   maxBundleBytes,

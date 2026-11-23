@@ -3,9 +3,9 @@
  * Real deployment e2e: talks to the built `openflare-plane` container over
  * HTTP (not `app.request`) with a real Postgres behind it.
  *
- *   PLANE_TOKEN=... docker compose up -d --build
+ *   PLANE_ADMIN_TOKEN=... docker compose up -d --build
  *   docker compose exec -T plane node dist/migrate.js
- *   PLANE_TOKEN=... node scripts/e2e-docker.mjs
+ *   PLANE_ADMIN_TOKEN=... node scripts/e2e-docker.mjs
  *
  * CI runs the same sequence; the script is also the local smoke command.
  */
@@ -14,22 +14,26 @@ import { createHash, randomBytes } from 'node:crypto'
 
 const base = (process.env.PLANE_BASE_URL ?? 'http://127.0.0.1:8787').replace(/\/$/, '')
 const consoleBase = (process.env.CONSOLE_BASE_URL ?? 'http://127.0.0.1:8788').replace(/\/$/, '')
-const token = process.env.PLANE_TOKEN
-if (!token) throw new Error('PLANE_TOKEN is required')
 const adminToken = process.env.PLANE_ADMIN_TOKEN
 if (!adminToken) throw new Error('PLANE_ADMIN_TOKEN is required')
 
-const auth = { authorization: `Bearer ${token}` }
-const json = { ...auth, 'content-type': 'application/json' }
+// Filled in by provisioning the cell's own pull token below — the per-cell
+// credential is exactly what a deployed cell would carry.
+let auth
+let json
 const adminAuth = { authorization: `Bearer ${adminToken}` }
 const adminJson = { ...adminAuth, 'content-type': 'application/json' }
+const cellJson = () => {
+  if (!json) throw new Error('cell token not provisioned yet')
+  return json
+}
 const sha256 = (b) => createHash('sha256').update(b).digest('hex')
 const suffix = `${Date.now()}-${randomBytes(3).toString('hex')}`
 const cell = `docker-${suffix}`
 const team = `team-${suffix}`
 
 async function request(method, path, body, headers, raw = false) {
-  headers ??= path.startsWith('/api/v1') ? adminJson : json
+  headers ??= path.startsWith('/api/v1') ? adminJson : cellJson()
   const res = await fetch(`${base}${path}`, {
     method,
     headers,
@@ -59,6 +63,13 @@ async function waitReady() {
 async function main() {
   await waitReady()
   let r = await request('POST', '/api/v1/cells', { cellId: cell })
+  assert.equal(r.status, 201)
+  r = await request('POST', `/api/v1/cells/${cell}/token`)
+  assert.equal(r.status, 201)
+  const cellToken = r.body.data.token
+  assert.ok(cellToken)
+  auth = { authorization: `Bearer ${cellToken}` }
+  json = { ...auth, 'content-type': 'application/json' }
   assert.equal(r.status, 201, JSON.stringify(r.body))
   r = await request('POST', `/api/v1/cells/${cell}/workers`, { teamId: team, name: 'hello' })
   assert.equal(r.status, 201, JSON.stringify(r.body))

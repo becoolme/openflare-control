@@ -17,8 +17,8 @@ const generated = resolve(here, '../.output/public')
 const publicDir = process.env.CONSOLE_PUBLIC_DIR ?? (existsSync(built) ? built : generated)
 const port = Number(process.env.PORT ?? 8788)
 const planeUrl = (process.env.PLANE_URL ?? 'http://127.0.0.1:8787').replace(/\/$/, '')
-const adminToken = process.env.PLANE_ADMIN_TOKEN ?? process.env.PLANE_TOKEN ?? ''
-if (!adminToken) throw new Error('PLANE_ADMIN_TOKEN (or PLANE_TOKEN) is required')
+const adminToken = process.env.PLANE_ADMIN_TOKEN ?? ''
+if (!adminToken) throw new Error('PLANE_ADMIN_TOKEN is required')
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',

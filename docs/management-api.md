@@ -13,9 +13,9 @@ state can be produced and inspected over HTTP.
 
 ## Auth and shape
 
-- `Authorization: Bearer <PLANE_ADMIN_TOKEN>` — required at boot, at least 32
-  characters, and must differ from `PLANE_TOKEN`. There is no cell-token
-  fallback: a leaked cell token must never become a management credential.
+- `Authorization: Bearer <PLANE_ADMIN_TOKEN>` — required at boot and at least
+  32 characters. There is no shared cell token: each cell holds its own
+  pull credential issued by `POST /api/v1/cells/:cellId/token`.
 - Every response is `Cache-Control: no-store`.
 - Success: `{"data": ...}`.
 - Typed failure: `{"data":null,"error":{"code":"...","message":"..."}}`
@@ -32,6 +32,7 @@ state can be produced and inspected over HTTP.
 | ------ | -------------------------------------- | -------------------------------------------------------------- |
 | GET    | `/api/v1/cells`                        | list cells + revision, capabilities, worker/publication counts |
 | POST   | `/api/v1/cells`                        | `{cellId}` create (idempotent)                                 |
+| POST   | `/api/v1/cells/{cellId}/token`         | issue/rotate the cell pull token; plaintext returned once      |
 | GET    | `/api/v1/cells/{cellId}`               | cell state, counts, latest publication                         |
 | GET    | `/api/v1/cells/{cellId}/render-inputs` | vars/secret values for the cell (management view)              |
 | DELETE | `/api/v1/cells/{cellId}`               | delete the cell and all cell-scoped rows                       |
@@ -206,9 +207,9 @@ These two files call Hono's `app.request()` in-process against a real Postgres
 HTTP** with a real Postgres behind it:
 
 ```sh
-PLANE_TOKEN=... docker compose up -d --build
+PLANE_ADMIN_TOKEN=... PLANE_SIGNING_SECRET=... docker compose up -d --build
 docker compose exec -T plane node dist/migrate.js
-PLANE_TOKEN=... pnpm test:e2e:docker
+PLANE_ADMIN_TOKEN=... pnpm test:e2e:docker
 ```
 
 CI's `e2e-docker` job runs exactly that sequence (compose up, migrate, script,
@@ -223,7 +224,7 @@ waits for rollout, runs migrations, port-forwards the Service and executes the
 same HTTP lifecycle as the Docker e2e.
 
 ```sh
-PLANE_TOKEN=... PLANE_SIGNING_SECRET=... pnpm test:e2e:kind
+PLANE_ADMIN_TOKEN=... PLANE_SIGNING_SECRET=... pnpm test:e2e:kind
 ```
 
 CI's `e2e-kind` job runs this on `ubuntu-24.04` with `helm/kind-action`. Scope:

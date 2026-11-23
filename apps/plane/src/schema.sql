@@ -6,6 +6,16 @@ create table if not exists plane_cells (
   capabilities jsonb
 );
 
+-- Per-cell pull credentials. The plaintext token is returned exactly once by
+-- POST /api/v1/cells/:cellId/token; only the sha256 lives here, so a database
+-- read cannot mint a credential and one leaked token cannot reach another
+-- cell's data (render-inputs carries every worker secret of its cell).
+create table if not exists plane_cell_tokens (
+  cell_id text primary key references plane_cells(cell_id) on delete cascade,
+  token_hash text not null,
+  created_at timestamptz not null default now()
+);
+
 create table if not exists plane_teams (
   team_id text primary key,
   name text not null,
