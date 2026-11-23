@@ -198,6 +198,16 @@ maybe('reference plane routes', () => {
       headers: auth,
     })
     expect(await inputs.text()).toContain('s3cr3t-value')
+    // Reading a legacy plaintext row seals it in place.
+    const [sealed] = (
+      await pool.query('select value from plane_secrets where worker_id=$1 and key=$2', [
+        workerId,
+        'API_KEY',
+      ])
+    ).rows as { value: string }[]
+    expect(sealed!.value).not.toBe('s3cr3t-value')
+    expect(TEST_SECRETS_CIPHER.isEncrypted(sealed!.value)).toBe(true)
+    expect(TEST_SECRETS_CIPHER.decrypt(sealed!.value)).toBe('s3cr3t-value')
   })
 
   it('does not serve a bundle to a cell that did not publish it', async () => {

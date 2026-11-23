@@ -35,6 +35,7 @@ Docker Compose starts Postgres, the plane and the console:
 ```sh
 export PLANE_ADMIN_TOKEN="$(openssl rand -hex 32)"
 export PLANE_SIGNING_SECRET="$(openssl rand -hex 32)"
+export PLANE_SECRETS_KEY="$(openssl rand -hex 32)"
 export CONSOLE_AUTH_PASSWORD="$(openssl rand -hex 16)"
 docker compose up -d --build
 docker compose exec plane node dist/migrate.js

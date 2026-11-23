@@ -2,7 +2,8 @@
 # Real Kubernetes e2e: kind cluster + Postgres + the plane image, then the same
 # HTTP lifecycle as the Docker e2e through a port-forward.
 #
-#   PLANE_ADMIN_TOKEN=... PLANE_SIGNING_SECRET=... ./scripts/e2e-kind.sh
+#   PLANE_ADMIN_TOKEN=... PLANE_SIGNING_SECRET=... PLANE_SECRETS_KEY=... \
+#     ./scripts/e2e-kind.sh
 #
 # Requires docker, kind, kubectl. CI installs kind/kubectl and runs this.
 set -euo pipefail
@@ -16,6 +17,7 @@ NS=openflare-plane-e2e
 PORT="${PLANE_E2E_PORT:-18787}"
 PLANE_ADMIN_TOKEN="${PLANE_ADMIN_TOKEN:?set PLANE_ADMIN_TOKEN}"
 SIGNING="${PLANE_SIGNING_SECRET:?set PLANE_SIGNING_SECRET}"
+SECRETS_KEY="${PLANE_SECRETS_KEY:?set PLANE_SECRETS_KEY}"
 
 cleanup() {
   kill "${PF_PID:-}" "${CONSOLE_PF_PID:-}" 2>/dev/null || true
@@ -45,6 +47,7 @@ kubectl --context "kind-${CLUSTER}" -n "$NS" create secret generic plane-env \
   --from-literal=PLANE_ADMIN_TOKEN="${PLANE_ADMIN_TOKEN:?set PLANE_ADMIN_TOKEN}" \
   --from-literal=CONSOLE_AUTH_PASSWORD="${CONSOLE_AUTH_PASSWORD:?set CONSOLE_AUTH_PASSWORD}" \
   --from-literal=PLANE_SIGNING_SECRET="$SIGNING" \
+  --from-literal=PLANE_SECRETS_KEY="$SECRETS_KEY" \
   --dry-run=client -o yaml | kubectl --context "kind-${CLUSTER}" apply -f -
 
 kubectl --context "kind-${CLUSTER}" -n "$NS" rollout status deploy/postgres --timeout=120s

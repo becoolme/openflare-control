@@ -5,7 +5,7 @@
  *
  *   DATABASE_URL=... RUNTIME_DIR=../openflare \
  *   WORKERD_BIN=../openflare/.ci/workerd/workerd \
- *   PLANE_SIGNING_SECRET=... PLANE_ADMIN_TOKEN=... \
+ *   PLANE_SIGNING_SECRET=... PLANE_SECRETS_KEY=... PLANE_ADMIN_TOKEN=... \
  *   node scripts/e2e-fullstack.mjs
  *
  * It uploads a runtime stored-document bundle via the management API,
@@ -37,6 +37,7 @@ const STUB = process.env.FULLSTACK_STUB === '1'
 const KEEP = process.env.FULLSTACK_KEEP === '1'
 const ADMIN_TOKEN = process.env.PLANE_ADMIN_TOKEN ?? 'fullstack-admin-token-0123456789abcdef'
 const SIGNING_SECRET = process.env.PLANE_SIGNING_SECRET ?? 'fullstack-signing-secret-1234'
+const SECRETS_KEY = process.env.PLANE_SECRETS_KEY ?? 'fullstack-secrets-key-0123456789abcdef'
 const DATABASE_URL = process.env.DATABASE_URL
 if (!DATABASE_URL) throw new Error('DATABASE_URL is required')
 const VRT_HOST_BIN = process.env.VRT_HOST_BIN ?? join(RUNTIME_DIR, 'target/debug/vrt-host')
@@ -304,6 +305,7 @@ async function main() {
     PORT: String(PLANE_PORT),
     PLANE_ADMIN_TOKEN: ADMIN_TOKEN,
     PLANE_SIGNING_SECRET: SIGNING_SECRET,
+    PLANE_SECRETS_KEY: SECRETS_KEY,
     PLANE_BUNDLE_DIR: bundleDir,
   }
   const migrate = spawnSync('node', ['apps/plane/dist/migrate.js'], {
