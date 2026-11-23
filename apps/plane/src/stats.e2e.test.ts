@@ -1,16 +1,19 @@
 /* eslint-disable @typescript-eslint/no-explicit-any -- JSON assertions in this e2e test */
 /** Edge coverage for teams, Hyperdrive and the stats/unsupported surfaces. */
 import { readFile } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { Pool } from 'pg'
 import { createApp } from './routes.js'
 import { createPlaneStore } from './store.js'
 import { resolvePlaneSigningKey } from './signing.js'
+import { createSecretsCipher } from './secretsCipher.js'
 import type { BundleStore } from 'openflare-control'
 
 const url = process.env.DATABASE_URL
 const maybe = url ? describe : describe.skip
 const TOKEN = 'stats-edge-token'
+const TEST_SECRETS_CIPHER = createSecretsCipher('test-secrets-cipher-key-0001')
 
 class NoBundles implements BundleStore {
   async put() {
@@ -26,6 +29,17 @@ maybe('management API stats edges', () => {
   let app: ReturnType<typeof createApp>
   const suffix = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`
   const cell = `stats-${suffix}`
+  const provisionCellToken = async (cellId: string) => {
+    await pool.query(
+      'insert into plane_cells (cell_id, cluster_id) values ($1,$1) on conflict (cell_id) do nothing',
+      [cellId]
+    )
+    await pool.query(
+      `insert into plane_cell_tokens (cell_id, token_hash) values ($1,$2)
+         on conflict (cell_id) do update set token_hash=excluded.token_hash`,
+      [cellId, createHash('sha256').update(TOKEN).digest('hex')]
+    )
+  }
   const team = `team-${suffix}`
   const worker = 'w'
   const auth = { authorization: `Bearer ${TOKEN}` }
@@ -39,10 +53,11 @@ maybe('management API stats edges', () => {
       store: createPlaneStore(pool),
       pool,
       bundleStore: new NoBundles(),
-      token: TOKEN,
       adminToken: TOKEN,
+      secrets: TEST_SECRETS_CIPHER,
       signing: resolvePlaneSigningKey('stats-signing-secret-1234'),
     })
+    await provisionCellToken(cell)
   })
   afterAll(async () => {
     await pool.end()

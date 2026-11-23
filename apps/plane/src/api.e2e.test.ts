@@ -14,10 +14,12 @@ import { bundleKeyFor, type BundleStore } from 'openflare-control'
 import { createApp } from './routes.js'
 import { createPlaneStore } from './store.js'
 import { resolvePlaneSigningKey } from './signing.js'
+import { createSecretsCipher } from './secretsCipher.js'
 
 const url = process.env.DATABASE_URL
 const maybe = url ? describe : describe.skip
 const TOKEN = 'e2e-admin-token'
+const TEST_SECRETS_CIPHER = createSecretsCipher('test-secrets-cipher-key-0001')
 const sha256 = (b: Uint8Array | string) => createHash('sha256').update(b).digest('hex')
 
 class MemoryBundles implements BundleStore {
@@ -47,6 +49,17 @@ maybe('management API e2e', () => {
   let app: ReturnType<typeof createApp>
   const suffix = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`
   const cell = `e2e-${suffix}`
+  const provisionCellToken = async (cellId: string) => {
+    await pool.query(
+      'insert into plane_cells (cell_id, cluster_id) values ($1,$1) on conflict (cell_id) do nothing',
+      [cellId]
+    )
+    await pool.query(
+      `insert into plane_cell_tokens (cell_id, token_hash) values ($1,$2)
+         on conflict (cell_id) do update set token_hash=excluded.token_hash`,
+      [cellId, createHash('sha256').update(TOKEN).digest('hex')]
+    )
+  }
   const team = `team-${suffix}`
   const worker = 'hello'
   const versionId = `v-${suffix}`
@@ -63,10 +76,11 @@ maybe('management API e2e', () => {
       store: createPlaneStore(pool),
       pool,
       bundleStore: new MemoryBundles(),
-      token: TOKEN,
       adminToken: TOKEN,
+      secrets: TEST_SECRETS_CIPHER,
       signing: resolvePlaneSigningKey('e2e-signing-secret-1234'),
     })
+    await provisionCellToken(cell)
   })
   afterAll(async () => {
     await pool.end()
@@ -140,6 +154,14 @@ maybe('management API e2e', () => {
     expect(
       (await call('POST', `${base}/teams/${team}/workers/${worker}/hostnames`, { hostname })).status
     ).toBe(201)
+    const storedSecret = await pool.query(
+      'select value from plane_secrets where worker_id=$1 and key=$2',
+      [`${team}:${worker}`, 'API_KEY']
+    )
+    const storedValue = (storedSecret.rows[0] as { value: string }).value
+    expect(storedValue).not.toBe('super-secret')
+    expect(TEST_SECRETS_CIPHER.isEncrypted(storedValue)).toBe(true)
+    expect(TEST_SECRETS_CIPHER.decrypt(storedValue)).toBe('super-secret')
 
     // version + activate
     const created = await call('POST', `${base}/teams/${team}/workers/${worker}/versions`, {

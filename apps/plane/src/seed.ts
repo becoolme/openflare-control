@@ -8,6 +8,7 @@
 import { Pool } from 'pg'
 import { createPlaneStore } from './store.js'
 import { resolvePlaneSigningKey } from './signing.js'
+import { createSecretsCipher } from './secretsCipher.js'
 import { publishCell } from './publish.js'
 
 const args = process.argv.slice(2)
@@ -75,13 +76,21 @@ try {
       [worker!.id, key, rest.join('=')]
     )
   }
-  for (const kv of all('secret')) {
-    const [key, ...rest] = kv.split('=')
-    await pool.query(
-      `insert into plane_secrets (worker_id, key, value) values ($1,$2,$3)
-       on conflict (worker_id, key) do update set value=excluded.value`,
-      [worker!.id, key, rest.join('=')]
-    )
+  const secretKvs = all('secret')
+  if (secretKvs.length > 0) {
+    const secretsKey = process.env.PLANE_SECRETS_KEY
+    if (!secretsKey || secretsKey.length < 32) {
+      throw new Error('PLANE_SECRETS_KEY must be at least 32 characters when --secret is used')
+    }
+    const secretsCipher = createSecretsCipher(secretsKey)
+    for (const kv of secretKvs) {
+      const [key, ...rest] = kv.split('=')
+      await pool.query(
+        `insert into plane_secrets (worker_id, key, value) values ($1,$2,$3)
+         on conflict (worker_id, key) do update set value=excluded.value`,
+        [worker!.id, key, secretsCipher.encrypt(rest.join('='))]
+      )
+    }
   }
   for (const hostname of all('hostname')) {
     await pool.query(

@@ -4,6 +4,7 @@ import { createPlaneStore } from './store.js'
 import { createApp } from './routes.js'
 import { DirBundleStore } from './bundleStore.js'
 import { resolvePlaneSigningKey } from './signing.js'
+import { createSecretsCipher } from './secretsCipher.js'
 import { pruneRetention, retentionFromEnv } from './retention.js'
 import { applySchema } from './applySchema.js'
 
@@ -32,13 +33,26 @@ if ((process.env.PLANE_MIGRATE_ON_BOOT ?? '1') !== '0') {
 const signing = resolvePlaneSigningKey()
 const store = createPlaneStore(pool)
 const retention = retentionFromEnv()
+// The admin API can publish arbitrary code to every cell, so its credential
+// must exist and carry real entropy. Cell-channel auth is per-cell
+// (plane_cell_tokens) — there is no shared cell token to compromise.
+const adminToken = env('PLANE_ADMIN_TOKEN')
+if (adminToken.length < 32) {
+  throw new Error('PLANE_ADMIN_TOKEN must be at least 32 characters')
+}
+const secretsKey = env('PLANE_SECRETS_KEY')
+if (secretsKey.length < 32) {
+  throw new Error('PLANE_SECRETS_KEY must be at least 32 characters')
+}
 const app = createApp({
   store,
   pool,
   bundleStore: new DirBundleStore(env('PLANE_BUNDLE_DIR', './data/bundles')),
-  token: env('PLANE_TOKEN'),
-  adminToken: process.env.PLANE_ADMIN_TOKEN?.trim() || env('PLANE_TOKEN'),
+  adminToken,
   signing,
+  // Worker secrets get an independent at-rest key: rotating
+  // PLANE_SIGNING_SECRET must never make stored secrets unreadable.
+  secrets: createSecretsCipher(secretsKey),
   maxBundleBytes,
   retention,
 })
@@ -60,9 +74,25 @@ if (retention.sweepMs > 0) {
   timer.unref()
 }
 
+let shuttingDown = false
 const shutdown = async (signal: string): Promise<void> => {
+  if (shuttingDown) return
+  shuttingDown = true
   console.log(`openflare-plane received ${signal}, draining`)
-  server.close()
+  // server.close() only *starts* the drain. Wait for it to finish before
+  // ending the pool: ending the pool first turns in-flight queries into
+  // opaque 500s. A bounded force-exit covers a wedged connection instead of
+  // hanging the rollout.
+  const force = setTimeout(() => process.exit(1), 10_000)
+  force.unref()
+  await new Promise<void>((resolve) => {
+    server.close(() => resolve())
+    // Release keep-alive idles immediately or they pin the drain open.
+    // Present on the plain HTTP server; absent on the HTTP/2 variant.
+    if ('closeIdleConnections' in server && typeof server.closeIdleConnections === 'function') {
+      server.closeIdleConnections()
+    }
+  })
   await pool.end()
   process.exit(0)
 }

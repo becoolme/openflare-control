@@ -54,9 +54,19 @@ vars) for compatibility with existing cells and must not be renamed casually.
 pnpm install
 pnpm --filter openflare-control build
 
-export PLANE_TOKEN="$(openssl rand -hex 32)"
+export PLANE_ADMIN_TOKEN="$(openssl rand -hex 32)"
 export PLANE_SIGNING_SECRET="$(openssl rand -hex 32)"
+export PLANE_SECRETS_KEY="$(openssl rand -hex 32)"
+export CONSOLE_AUTH_PASSWORD="$(openssl rand -hex 16)"
 docker compose up -d --build
+
+# create the cell, then issue its per-cell pull credential exactly once
+curl -fsS -X POST -H "Authorization: Bearer $PLANE_ADMIN_TOKEN" \
+  -H 'content-type: application/json' -d '{"cellId":"dev-cell"}' \
+  http://127.0.0.1:8787/api/v1/cells >/dev/null
+CELL_TOKEN=$(curl -fsS -X POST -H "Authorization: Bearer $PLANE_ADMIN_TOKEN" \
+  http://127.0.0.1:8787/api/v1/cells/dev-cell/token |
+  sed -E 's/.*"token":"([0-9a-f]+)".*/\1/')
 
 # store a bundle and publish a signed snapshot
 DIGEST=$(printf 'hello' | shasum -a 256 | cut -d' ' -f1)
@@ -64,7 +74,7 @@ docker compose exec plane node dist/seed.js \
   --cluster dev-cell --team demo --name hello \
   --version ver-1 --digest "$DIGEST" --var GREETING=hi
 
-curl -H "Authorization: Bearer $PLANE_TOKEN" \
+curl -H "Authorization: Bearer $CELL_TOKEN" \
   http://127.0.0.1:8787/api/internal/clusters/dev-cell/vrt/desired
 ```
 
@@ -80,8 +90,9 @@ an S3-compatible store, Kvrocks, Postgres, and an OpenFlare checkout
 ```sh
 # 1. plane database + service (outside or inside the cluster)
 export DATABASE_URL=postgresql://user:pass@host/openflare_plane
-export PLANE_TOKEN="$(openssl rand -hex 32)"
+export PLANE_ADMIN_TOKEN="$(openssl rand -hex 32)"
 export PLANE_SIGNING_SECRET="$(openssl rand -hex 32)"
+export PLANE_SECRETS_KEY="$(openssl rand -hex 32)"
 export PLANE_BUNDLE_DIR=/var/lib/openflare/bundles
 pnpm --filter openflare-plane start        # prints keyId + publicKey
 
@@ -124,13 +135,23 @@ cell API is in [docs/api.md](docs/api.md).
 - **Single trusted owner**, like OpenFlare's standalone mode. This is not a
   hostile multi-tenant boundary; run one plane per trust domain and keep it on
   a private network.
-- Bearer token (`PLANE_TOKEN`) on every cell endpoint, compared in constant
-  time.
+- Every cell endpoint requires that cell's own pull token, compared in
+  constant time. Credentials are issued per cell by the management API; only
+  their sha256 is stored, so a leaked token cannot read another cell or the
+  management API.
+- The management API requires a separate, at-least-32-character
+  `PLANE_ADMIN_TOKEN`; it never falls back to a cell token, so a leaked cell
+  credential cannot become a management credential.
+- The console proxies the management API with that token, so it requires HTTP
+  Basic auth (`admin:<CONSOLE_AUTH_PASSWORD>`, at least 16 characters) on every
+  request except its health check.
 - Desired snapshots are Ed25519-signed over canonical JSON v2; the key is
   derived from `PLANE_SIGNING_SECRET` and its public key must be listed in each
   component's `trustedKeys`. Cells reject replayed, tampered, mis-scoped or
   expired envelopes and fail closed.
-- Secrets never appear in the desired document — only references do.
+- Secrets never appear in the desired document — only references do. They are
+  encrypted at rest with AES-256-GCM under a dedicated, independent
+  `PLANE_SECRETS_KEY`; rotating the signing key does not touch them.
 - Bundle bytes are served only for digests referenced by a retained
   publication (no existence oracle), and size-capped.
 - Deployment manifests contain no private addresses or credentials
@@ -164,9 +185,11 @@ OPENFLARE_DIR=../openflare pnpm run check:openflare-contract  # checks the pinne
 pnpm run check:package-consumption          # pack + install + import in an empty project
 pnpm run check:sanitized                    # no private refs in deploy/
 # real container + real Postgres (requires docker compose):
-PLANE_TOKEN=... pnpm test:e2e:docker
+PLANE_ADMIN_TOKEN=... PLANE_SIGNING_SECRET=... PLANE_SECRETS_KEY=... \
+  CONSOLE_AUTH_PASSWORD=... pnpm test:e2e:docker
 # real kind cluster + Postgres (requires kind/kubectl):
-PLANE_TOKEN=... PLANE_SIGNING_SECRET=... pnpm test:e2e:kind
+PLANE_ADMIN_TOKEN=... PLANE_SIGNING_SECRET=... PLANE_SECRETS_KEY=... \
+  CONSOLE_AUTH_PASSWORD=... pnpm test:e2e:kind
 OPENFLARE_DIR=../openflare node scripts/vrt-k8s-check.mjs --template deploy/k8s/overlays/example
 ```
 
