@@ -51,8 +51,11 @@ maybe('reference plane routes', () => {
   const cluster = `route-${Date.now()}`
   const provisionCellToken = async (cellId: string) => {
     await pool.query(
-      `insert into plane_cells (cell_id, cluster_id) values ($1,$1) on conflict (cell_id) do nothing;
-       insert into plane_cell_tokens (cell_id, token_hash) values ($1,$2)
+      'insert into plane_cells (cell_id, cluster_id) values ($1,$1) on conflict (cell_id) do nothing',
+      [cellId]
+    )
+    await pool.query(
+      `insert into plane_cell_tokens (cell_id, token_hash) values ($1,$2)
          on conflict (cell_id) do update set token_hash=excluded.token_hash`,
       [cellId, createHash('sha256').update(TOKEN).digest('hex')]
     )

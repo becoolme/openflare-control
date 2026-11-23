@@ -32,7 +32,7 @@ state can be produced and inspected over HTTP.
 | ------ | -------------------------------------- | -------------------------------------------------------------- |
 | GET    | `/api/v1/cells`                        | list cells + revision, capabilities, worker/publication counts |
 | POST   | `/api/v1/cells`                        | `{cellId}` create (idempotent)                                 |
-| POST   | `/api/v1/cells/{cellId}/token`         | issue/rotate the cell pull token; plaintext returned once       |
+| POST   | `/api/v1/cells/{cellId}/token`         | issue/rotate the cell pull token; plaintext returned once      |
 | GET    | `/api/v1/cells/{cellId}`               | cell state, counts, latest publication                         |
 | GET    | `/api/v1/cells/{cellId}/render-inputs` | vars/secret values for the cell (management view)              |
 | DELETE | `/api/v1/cells/{cellId}`               | delete the cell and all cell-scoped rows                       |
