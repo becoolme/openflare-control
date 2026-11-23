@@ -97,26 +97,26 @@ describe('serializeBinding', () => {
     )
   })
 
-  it('SERVICE props is an object bounded to 8 KiB and omitted when absent', () => {
+  it('SERVICE props is canonical JSON text bounded to 8 KiB and omitted when absent', () => {
     expect(
-      binding({ type: 'SERVICE', resourceId: 'w2', entrypoint: 'E', props: { a: 1, b: 'x' } })
-    ).toMatchObject({ entrypoint: 'E', props: { a: 1, b: 'x' } })
+      binding({ type: 'SERVICE', resourceId: 'w2', entrypoint: 'E', props: '{"a":1,"b":"x"}' })
+    ).toMatchObject({ entrypoint: 'E', props: '{"a":1,"b":"x"}' })
     expect(binding({ type: 'SERVICE', resourceId: 'w2', props: null })).toEqual({
       type: 'service',
       name: 'B',
       workerId: 'w2',
     })
-    for (const bad of [[], 'x', 1, true]) {
+    for (const bad of ['[]', '"x"', '1', 'true', 'not json']) {
       expect(() =>
         binding({
           type: 'SERVICE',
           resourceId: 'w2',
-          props: bad as unknown as Record<string, unknown>,
+          props: bad,
         })
       ).toThrow(/props/)
     }
     expect(() =>
-      binding({ type: 'SERVICE', resourceId: 'w2', props: { big: 'x'.repeat(8193) } })
+      binding({ type: 'SERVICE', resourceId: 'w2', props: JSON.stringify({ big: 'x'.repeat(8193) }) })
     ).toThrow(/props/)
   })
 

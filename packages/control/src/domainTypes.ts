@@ -35,10 +35,11 @@ export interface VrtBindingRecord {
   readonly permissionWrite: boolean
   /** SERVICE only: named `WorkerEntrypoint` export; null/absent = default. */
   readonly entrypoint?: string | null
-  /** SERVICE only: JSON object exposed to the callee as `ctx.props`.
-   * Absent/null keeps the signed bytes unchanged; arrays/scalars are rejected
-   * (Cloudflare documents an object). Max 8 KiB compact JSON. */
-  readonly props?: Record<string, unknown> | null
+  /** SERVICE only: canonical JSON **text** for `ctx.props` (the DB column
+   * stores text; the cell embeds it verbatim). Absent/null keeps the signed
+   * bytes unchanged; the text must parse to a JSON object and is bounded by
+   * `VRT_MAX_SERVICE_PROPS_BYTES`. */
+  readonly props?: string | null
   /** QUEUE only: queue-level default delivery delay in seconds
    * (0..86400). Absent = no default; explicit `0` is a real value. */
   readonly deliveryDelaySeconds?: number | null

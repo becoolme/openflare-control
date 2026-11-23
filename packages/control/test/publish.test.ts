@@ -42,6 +42,7 @@ function fakeTx(workers: VrtCellWorkerView[] = [view()]): VrtCellTx {
     cellId: 'c1',
     cellView: async () => workers,
     pendingDoTombstones: async () => [],
+    flagshipApps: async () => [],
     createPublication: async (input: {
       revision: number
       payloadDigest: string
@@ -82,6 +83,7 @@ describe('signAndRecordCellPublication', () => {
       cellId: 'c1',
       cellView: async () => [view()],
       pendingDoTombstones: async () => [],
+    flagshipApps: async () => [],
       createPublication: async (input: {
         revision: number
         payloadDigest: string
