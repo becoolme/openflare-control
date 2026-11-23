@@ -18,7 +18,8 @@ browser ──▶ console:8788
   `apps/console/server/main.mjs`.
 - No CORS configuration is needed because the UI and API are same-origin.
 - `PLANE_URL` defaults to `http://127.0.0.1:8787`.
-- `PLANE_ADMIN_TOKEN` is required (falls back to `PLANE_TOKEN`).
+- `PLANE_ADMIN_TOKEN` is required, at least 32 characters, and must differ
+  from `PLANE_TOKEN` — the plane refuses to boot otherwise.
 - Static output is `apps/console/.output/public`; the Docker image copies it to
   `/app/public`.
 

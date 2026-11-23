@@ -13,8 +13,9 @@ state can be produced and inspected over HTTP.
 
 ## Auth and shape
 
-- `Authorization: Bearer <PLANE_ADMIN_TOKEN>`; when unset the plane falls back
-  to `PLANE_TOKEN` (single-token deployments).
+- `Authorization: Bearer <PLANE_ADMIN_TOKEN>` — required at boot, at least 32
+  characters, and must differ from `PLANE_TOKEN`. There is no cell-token
+  fallback: a leaked cell token must never become a management credential.
 - Every response is `Cache-Control: no-store`.
 - Success: `{"data": ...}`.
 - Typed failure: `{"data":null,"error":{"code":"...","message":"..."}}`
