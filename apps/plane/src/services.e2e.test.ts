@@ -29,6 +29,7 @@ class NoBundles implements BundleStore {
 
 maybe('service resource API e2e', () => {
   let pool: Pool
+  let store: ReturnType<typeof createPlaneStore>
   let app: ReturnType<typeof createApp>
   const suffix = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`
   const cell = `svc-${suffix}`
@@ -51,8 +52,9 @@ maybe('service resource API e2e', () => {
   beforeAll(async () => {
     pool = new Pool({ connectionString: url })
     await pool.query(await readFile(new URL('./schema.sql', import.meta.url), 'utf8'))
+    store = createPlaneStore(pool)
     app = createApp({
-      store: createPlaneStore(pool),
+      store,
       pool,
       bundleStore: new NoBundles(),
       adminToken: TOKEN,
@@ -210,6 +212,12 @@ maybe('service resource API e2e', () => {
     expect(dos.body.data.classes).toEqual(['MyDO'])
 
     // Workflow declaration + instance op
+    await store.recordCellCapabilities(cell, {
+      cron: true,
+      assets: true,
+      workflows: true,
+      workflowsCrossWorker: true,
+    })
     const wf = await call(
       'POST',
       `/api/v1/cells/${cell}/teams/${team}/workers/${worker}/workflows`,
@@ -229,6 +237,54 @@ maybe('service resource API e2e', () => {
         )
       ).status
     ).toBe(202)
+    expect(
+      (
+        await call('POST', `/api/v1/cells/${cell}/teams/${team}/workers/${worker}/workflows`, {
+          name: 'BadScript',
+          className: 'BadScript',
+          scriptName: 'missing',
+        })
+      ).status
+    ).toBe(404)
+
+    expect(
+      (await call('POST', `/api/v1/cells/${cell}/publish`, { cause: 'WORKFLOW' })).status
+    ).toBe(201)
+    const desired = await app.request(`/api/internal/clusters/${cell}/vrt/desired`, {
+      headers: auth,
+    })
+    expect(desired.status).toBe(200)
+    const envelope = (await desired.json()) as any
+    const served = envelope.payload.tenants
+      .flatMap((tenant: any) => tenant.workers)
+      .find((candidate: any) => candidate.workerId === workerId)
+    expect(served.workflows).toEqual([
+      expect.objectContaining({
+        name: 'OrderWorkflow',
+        binding: 'OrderWorkflow',
+        className: 'OrderWorkflow',
+        uniqueKey: expect.stringMatching(/^[0-9a-f]{64}$/),
+      }),
+    ])
+    expect(
+      (
+        await call('POST', `/api/v1/cells/${cell}/teams/${team}/workers/${worker}/versions`, {
+          versionId: `wf-collision-${suffix}`,
+          bundleSha256: digest,
+          bundleBytes: bundle.byteLength,
+          vars: { OrderWorkflow: 1 },
+        })
+      ).status
+    ).toBe(400)
+    expect(
+      (
+        await call(
+          'PUT',
+          `/api/v1/cells/${cell}/teams/${team}/workers/${worker}/vars/OrderWorkflow`,
+          { value: 'x' }
+        )
+      ).status
+    ).toBe(409)
 
     // Catalog sees every resource; bindings are ready to paste into a version.
     const services = await call('GET', `/api/v1/cells/${cell}/services`)

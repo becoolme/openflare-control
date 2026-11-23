@@ -40,6 +40,8 @@ async function assertEnvNameAvailable(
             then v.row->'jsonVars' else '{}'::jsonb end) ? $2
           or v.row->>'versionMetadata'=$2
         )
+      union all
+      select 1 from plane_workflows where worker_id=$1 and binding=$2
       limit 1`,
     [worker, name]
   )

@@ -520,7 +520,12 @@ class PlaneCellTx {
    * cannot race activation. Kept off VrtCellTx (reference-only hardening). */
   async assertVersionReferences(
     teamId: string,
+    workerIdToActivate: string,
     version: {
+      readonly bindings?: readonly { readonly name?: string }[]
+      readonly varValues?: Readonly<Record<string, string>>
+      readonly jsonVars?: Readonly<Record<string, unknown>> | null
+      readonly versionMetadata?: string | null
       readonly queueConsumers?:
         | readonly {
             readonly queueId: string
@@ -551,6 +556,26 @@ class PlaneCellTx {
         if (!dlq) throw new VrtControlError(409, 'Dead-letter queue not found')
       }
     }
+    const versionNames = new Set<string>()
+    for (const binding of version.bindings ?? []) {
+      if (typeof binding.name === 'string') versionNames.add(binding.name)
+    }
+    for (const name of Object.keys(version.jsonVars ?? {})) versionNames.add(name)
+    for (const name of Object.keys(version.varValues ?? {})) versionNames.add(name)
+    if (version.versionMetadata) versionNames.add(version.versionMetadata)
+    const workflows = await this.rows(
+      `select binding from plane_workflows where worker_id=$1 and binding is not null`,
+      [workerIdToActivate]
+    )
+    for (const workflow of workflows) {
+      if (versionNames.has(String(workflow.binding))) {
+        throw new VrtControlError(
+          409,
+          `Workflow binding "${String(workflow.binding)}" collides with the activated version`
+        )
+      }
+    }
+
     const tailIds = [...(version.tailConsumers ?? []), ...(version.streamingTailConsumers ?? [])]
     if (tailIds.length === 0) return
     const found = await this.rows(
@@ -711,6 +736,13 @@ class PlaneCellTx {
         `select hostname from plane_hostnames where worker_id=$1 and status='VERIFIED'`,
         [r.id as string]
       )
+      const workflows = await this.rows(
+        `select name, binding, class_name, unique_key, limits_steps, service_worker_id
+           from plane_workflows
+          where worker_id=$1 and binding is not null and unique_key is not null
+          order by name`,
+        [r.id as string]
+      )
       out.push({
         workerId: r.id as string,
         teamId: r.team_id as string,
@@ -723,6 +755,14 @@ class PlaneCellTx {
         hostnames: hostnames.map((h) => h.hostname as string),
         crons: version.crons,
         queueConsumers: version.queueConsumers ?? [],
+        workflows: workflows.map((w) => ({
+          name: String(w.name),
+          binding: String(w.binding),
+          className: String(w.class_name),
+          uniqueKey: String(w.unique_key),
+          limitsSteps: w.limits_steps == null ? null : Number(w.limits_steps),
+          serviceWorkerId: (w.service_worker_id as string | null) ?? null,
+        })),
         tailConsumers: version.tailConsumers ?? [],
         streamingTailConsumers: version.streamingTailConsumers ?? [],
         versionMetadata: version.versionMetadata ?? null,

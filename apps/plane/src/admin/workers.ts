@@ -289,6 +289,13 @@ async function createVersion(
   ])) {
     claimEnvName(String(secret.key), 'secret')
   }
+  for (const workflow of await rows(
+    deps,
+    'select binding from plane_workflows where worker_id=$1 and binding is not null',
+    [workerId]
+  )) {
+    claimEnvName(String(workflow.binding), 'workflow')
+  }
 
   const fp = sha256(
     JSON.stringify({
@@ -349,6 +356,19 @@ async function createVersion(
   return deps.store.createVersionWithBindings(input)
 }
 
+async function isWorkflowTarget(
+  deps: AdminDeps,
+  cell: string,
+  targetWorkerId: string
+): Promise<boolean> {
+  const [row] = await rows(
+    deps,
+    'select 1 from plane_workflows where cluster_id=$1 and service_worker_id=$2 limit 1',
+    [cell, targetWorkerId]
+  )
+  return Boolean(row)
+}
+
 async function isActiveTailTarget(
   deps: AdminDeps,
   cell: string,
@@ -374,6 +394,9 @@ async function isActiveTailTarget(
 interface ActivatableVersion {
   readonly versionId: string
   readonly varValues: Readonly<Record<string, string>>
+  readonly bindings?: readonly { readonly name?: string }[]
+  readonly jsonVars?: Readonly<Record<string, unknown>> | null
+  readonly versionMetadata?: string | null
   readonly queueConsumers?: readonly VrtQueueConsumerDraft[] | null
   readonly tailConsumers?: readonly string[] | null
   readonly streamingTailConsumers?: readonly string[] | null
@@ -388,11 +411,15 @@ async function activateVersionWithVars(
 ): Promise<void> {
   await deps.store.runCellTransaction(cell, async (tx) => {
     const referenceTx = tx as unknown as {
-      assertVersionReferences?: (teamId: string, version: ActivatableVersion) => Promise<void>
+      assertVersionReferences?: (
+        teamId: string,
+        workerIdToActivate: string,
+        version: ActivatableVersion
+      ) => Promise<void>
       applyVersionVars?: (workerId: string, vars: Readonly<Record<string, string>>) => Promise<void>
     }
     if (referenceTx.assertVersionReferences) {
-      await referenceTx.assertVersionReferences(teamIdValue, version)
+      await referenceTx.assertVersionReferences(teamIdValue, workerIdToActivate, version)
     }
     await tx.activateVersion(workerIdToActivate, version.versionId)
     if (typeof referenceTx.applyVersionVars !== 'function') {
@@ -539,6 +566,9 @@ export function registerWorkers(app: Hono, deps: AdminDeps): void {
       if (await isActiveTailTarget(deps, cell, id)) {
         throw new VrtControlError(409, 'Worker is an active tail consumer')
       }
+      if (await isWorkflowTarget(deps, cell, id)) {
+        throw new VrtControlError(409, 'Worker is the target of a workflow binding')
+      }
     }
     const [worker] = await rows(
       deps,
@@ -558,6 +588,9 @@ export function registerWorkers(app: Hono, deps: AdminDeps): void {
     const id = workerId(team, name)
     if (await isActiveTailTarget(deps, cell, id)) {
       throw new VrtControlError(409, 'Worker is an active tail consumer')
+    }
+    if (await isWorkflowTarget(deps, cell, id)) {
+      throw new VrtControlError(409, 'Worker is the target of a workflow binding')
     }
     const deleted = await deps.pool.query(
       'delete from plane_workers where id=$1 and cluster_id=$2',
