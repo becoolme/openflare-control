@@ -159,13 +159,17 @@ const ingress = () =>
     req.end()
   })
 
+let lastIngress = 'none'
 await waitFor(
   async () => {
     const res = await ingress()
+    lastIngress = `${res.status} ${res.body?.slice(0, 120)}`
     return res.status === 200 && res.body === 'aio:all-in-one-var'
   },
   `ingress ${hostname}`,
   120_000
-)
+).catch((e) => {
+  throw new Error(`${e.message} (last: ${lastIngress})`)
+})
 
 console.log('all-in-one e2e: plane + console auth + cell pull + ingress OK')
