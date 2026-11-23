@@ -97,7 +97,7 @@ describe('serializeBinding', () => {
     )
   })
 
-  it('SERVICE props is canonical JSON text bounded to 8 KiB and omitted when absent', () => {
+  it('SERVICE props is canonical JSON text bounded to 16 KiB and omitted when absent', () => {
     expect(
       binding({ type: 'SERVICE', resourceId: 'w2', entrypoint: 'E', props: '{"a":1,"b":"x"}' })
     ).toMatchObject({ entrypoint: 'E', props: '{"a":1,"b":"x"}' })
@@ -116,7 +116,7 @@ describe('serializeBinding', () => {
       ).toThrow(/props/)
     }
     expect(() =>
-      binding({ type: 'SERVICE', resourceId: 'w2', props: JSON.stringify({ big: 'x'.repeat(8193) }) })
+      binding({ type: 'SERVICE', resourceId: 'w2', props: JSON.stringify({ big: 'x'.repeat(17 * 1024) }) })
     ).toThrow(/props/)
   })
 
