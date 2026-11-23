@@ -60,22 +60,13 @@ export const COMPUTE_DESIRED_SCHEMA_VERSION = 1
 export const computeDesiredKind = 'compute.desired' as const
 export const computeDesiredScope = (cellId: string) => `cell:${cellId}`
 
-/** Cloudflare `services[].props` bound (Rust `MAX_SERVICE_PROPS_BYTES`). */
-export const VRT_MAX_SERVICE_PROPS_BYTES = 8 * 1024
+/** Cloudflare `services[].props` bound (Rust `MAX_SERVICE_PROPS_BYTES`) —
+ * same 16 KiB cap as a `{"type":"json"}` literal binding. */
+export const VRT_MAX_SERVICE_PROPS_BYTES = 16 * 1024
 /** Cloudflare queue-level `delivery_delay` bound (Rust
  * `MAX_QUEUE_DELIVERY_DELAY_SECS`). */
 export const VRT_MAX_QUEUE_DELIVERY_DELAY_SECONDS = 86_400
 
-/** Plain JSON object (no arrays/classes/null prototypes) — `ctx.props` shape. */
-function isPlainProps(value: unknown): value is Record<string, unknown> {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false
-  const proto = Object.getPrototypeOf(value)
-  return proto === Object.prototype || proto === null
-}
-
-function servicePropsBytes(props: Record<string, unknown>): number {
-  return Buffer.byteLength(JSON.stringify(props), 'utf8')
-}
 
 import {
   MAX_WORKFLOWS_PER_WORKER,
@@ -598,7 +589,17 @@ function assertBindingWireShape(b: Record<string, unknown>): void {
     }
   }
   if (b.type === 'service' && b.props !== undefined) {
-    if (!isPlainProps(b.props) || servicePropsBytes(b.props) > VRT_MAX_SERVICE_PROPS_BYTES) {
+    const text = b.props
+    if (typeof text !== 'string' || Buffer.byteLength(text) > VRT_MAX_SERVICE_PROPS_BYTES) {
+      throw invalid('bindings.props')
+    }
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(text)
+    } catch {
+      throw invalid('bindings.props')
+    }
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
       throw invalid('bindings.props')
     }
   }

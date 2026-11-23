@@ -1,6 +1,6 @@
 {
   "name": "openflare-control",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Portable cell control plane for the VRT Workers runtime: wire contract, ports, desired-state construction and signing",
   "license": "MIT",
   "type": "module",
