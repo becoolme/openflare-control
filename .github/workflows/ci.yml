@@ -150,7 +150,6 @@ jobs:
           --health-retries 10
     env:
       DATABASE_URL: postgresql://vrt:vrt@127.0.0.1:5432/openflare_plane_test
-      PLANE_TOKEN: fullstack-cell-token-0123456789abcdef
       PLANE_ADMIN_TOKEN: fullstack-admin-token-0123456789abcdef
       PLANE_SIGNING_SECRET: fullstack-signing-secret-1234
       RUNTIME_DIR: ${{ github.workspace }}/openflare

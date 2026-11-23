@@ -5,7 +5,6 @@
  */
 import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
-import { createHash } from 'node:crypto'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { Pool } from 'pg'
 import { createApp } from './routes.js'

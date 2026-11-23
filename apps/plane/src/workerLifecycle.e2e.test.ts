@@ -55,6 +55,17 @@ maybe('worker lifecycle e2e', () => {
   const base = `/api/v1/cells/${cell}`
   const auth = { authorization: `Bearer ${TOKEN}` }
   const json = { ...auth, 'content-type': 'application/json' }
+  const provisionCellToken = async (cellId: string) => {
+    await pool.query(
+      'insert into plane_cells (cell_id, cluster_id) values ($1,$1) on conflict (cell_id) do nothing',
+      [cellId]
+    )
+    await pool.query(
+      `insert into plane_cell_tokens (cell_id, token_hash) values ($1,$2)
+         on conflict (cell_id) do update set token_hash=excluded.token_hash`,
+      [cellId, createHash('sha256').update(TOKEN).digest('hex')]
+    )
+  }
 
   beforeAll(async () => {
     pool = new Pool({ connectionString: url })
@@ -63,10 +74,10 @@ maybe('worker lifecycle e2e', () => {
       store: createPlaneStore(pool),
       pool,
       bundleStore: new MemoryBundles(),
-      token: TOKEN,
       adminToken: TOKEN,
       signing: resolvePlaneSigningKey('worker-lifecycle-signing-secret'),
     })
+    await provisionCellToken(cell)
   })
   afterAll(async () => {
     await pool.end()
