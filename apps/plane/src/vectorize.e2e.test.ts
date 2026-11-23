@@ -124,7 +124,53 @@ maybe('vectorize', () => {
       cron: true,
       assets: true,
       vectorize: true,
+      storagePurge: true,
+      vectorizePurge: true,
     })
+
+    const purgeIndex = await call('POST', `${base}/vectorize/indexes`, {
+      teamId: team,
+      name: 'purge-me',
+      dimensions: 8,
+      metric: 'cosine',
+    })
+    expect(purgeIndex.status).toBe(201)
+    const purgeId = purgeIndex.body.data.index.index_id as string
+    const started = await call('DELETE', `${base}/vectorize/indexes/${purgeId}`)
+    expect(started.status).toBe(202)
+    expect(started.body.data.status).toBe('PURGE_PENDING')
+    const opId = started.body.data.opId as string
+    const repeated = await call('DELETE', `${base}/vectorize/indexes/${purgeId}`)
+    expect(repeated.status).toBe(202)
+    expect(repeated.body.data.opId).toBe(opId)
+    const findOp = async () => {
+      const listed = await call('GET', `${base}/cell-ops?status=PENDING`)
+      return (listed.body.data.ops as { id: string; seq: number }[]).find((o) => o.id === opId)
+    }
+    const op = await findOp()
+    expect(op).toBeTruthy()
+    const firstAck = await call('POST', `/api/internal/clusters/${cell}/vrt/cell-ops/ack`, {
+      acks: [{ seq: op!.seq, status: 'DONE', result: { complete: false, deletedKeys: 1 } }],
+    })
+    expect(firstAck.body.data.acked).toBe(1)
+    const pending = (await call('GET', `${base}/cell-ops?status=PENDING`)).body.data.ops as {
+      id: string
+      seq: number
+      kind: string
+      resourceKey: string
+    }[]
+    const next = pending.find(
+      (candidate) =>
+        candidate.kind === 'STORAGE_PURGE' &&
+        candidate.resourceKey === purgeId &&
+        candidate.seq !== op!.seq
+    )
+    expect(next).toBeTruthy()
+    const finalAck = await call('POST', `/api/internal/clusters/${cell}/vrt/cell-ops/ack`, {
+      acks: [{ seq: next!.seq, status: 'DONE', result: { complete: true, deletedKeys: 1 } }],
+    })
+    expect(finalAck.body.data.acked).toBe(1)
+    expect((await call('GET', `${base}/vectorize/indexes/${purgeId}/binding`)).status).toBe(404)
 
     const bundle = new TextEncoder().encode('export default { fetch: () => new Response("vx") }')
     const digest = sha256(bundle)

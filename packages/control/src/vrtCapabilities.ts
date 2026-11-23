@@ -22,6 +22,8 @@ export const VRT_CELL_CAPABILITY_KEYS = [
   'workflowsCrossWorker',
   'd1CellOps',
   'storagePurge',
+  /** `[storage_purge.vectorize]` wired: a cell may purge Vectorize index files. */
+  'vectorizePurge',
   /** KV namespaces served (cell reports it only when a KV backend is wired). */
   'kv',
   /** R2 object data ops served (cell reports it only when an R2 backend is wired). */

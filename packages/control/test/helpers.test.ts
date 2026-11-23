@@ -45,6 +45,7 @@ describe('capability bits', () => {
         workflowsCrossWorker: false,
         d1CellOps: false,
         storagePurge: false,
+        vectorizePurge: false,
         kv: false,
         r2: false,
         serviceEntrypoint: false,

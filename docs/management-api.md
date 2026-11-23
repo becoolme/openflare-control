@@ -208,13 +208,18 @@ polls `GET /api/v1/cells/{cell}/ops/{opId}?waitMs=`.
 | KV        | `GET/POST /kv/namespaces`, `DELETE /kv/namespaces/{id}`         | `POST .../ops {kind,payload}` for `KV_GET/PUT/DELETE/LIST/BULK_PUT/BULK_DELETE`; `GET .../ops` |
 | Queues    | `GET/POST /queues`, `PATCH/DELETE /queues/{id}`                 | metadata only; producers/consumers are worker bindings (queue send stays on the data plane)    |
 | Workflows | `GET/POST/DELETE .../workers/{name}/workflows[/{wf}]`           | `POST .../workflows/{wf}/ops` for `WF_CREATE/GET/ACTION/EVENT/DELETE`; `GET .../ops`           |
-| Vectorize | `GET/POST /vectorize/indexes`, `DELETE /vectorize/indexes/{id}` | `GET .../{id}/binding` returns a ready version binding                                         |
+| Vectorize | `GET/POST /vectorize/indexes`, `DELETE /vectorize/indexes/{id}` | `GET .../{id}/binding`; DELETE queues `STORAGE_PURGE` and returns `202 {opId}`                 |
 
 Vectorize indexes are cell/team-scoped; `GET .../{id}/binding` returns a
 ready binding. `index_id` includes a per-incarnation component, so deleting
-and re-creating an index never reopens the previous physical index. Delete is
-metadata-only (the provider has no purge op yet). Deploying a `VECTORIZE`
-binding requires a cell new enough to parse the vectorize wire variant.
+and re-creating an index never reopens the previous physical index. DELETE
+requires the cell to claim both `storagePurge` and `vectorizePurge`, queues a
+`STORAGE_PURGE {storage:"vectorize", storageId, tenantId}` cell op, and returns
+`202 {opId, channel:"cell", status:"PURGE_PENDING"}`. The index row is removed
+only when the cell ACKs a complete purge; an incomplete bounded pass is
+redispatched, and FAILED/EXPIRED leaves the row for the caller to retry.
+Deploying a `VECTORIZE` binding requires a cell new enough to parse the
+vectorize wire variant.
 
 Workflow declarations and Durable Object classes are **worker-scoped** in the
 reference plane, not snapshot-version-scoped: activating or rolling back a
