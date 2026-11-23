@@ -65,9 +65,14 @@ are never overwritten — re-running `up` never rotates credentials.
 | vrt-host ingress        | `127.0.0.1:8080` (`VRT_BIND`)     |
 | postgres                | unpublished (internal only)       |
 
-Remote cells (outside this host) need the plane exposed with TLS:
-point `control_plane_url` at `https://api.example.com` and add a
-`Host()` router for it — the tenant catch-all does not cover it.
+Remote cells (outside this host) reach the control plane over TLS via a
+dedicated opt-in router: `export PLANE_API_HOST=api.example.com` (DNS →
+this host, tls profile up) gives plane its own `Host()` route + LE
+cert — the tenant catch-all does not cover it. On the remote cell point
+`control_plane_url`, `bundles.baseUrl` and `assets.baseUrl` at
+`https://api.example.com`; every request still carries a bearer token
+(`/api/internal` = per-cell token, `/api/v1` = admin token). Unset
+`PLANE_API_HOST` publishes no route at all.
 
 ## vs standalone (`openflare/deploy/standalone`)
 
