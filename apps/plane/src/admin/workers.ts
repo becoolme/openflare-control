@@ -14,6 +14,7 @@ import {
   type VrtQueueConsumerDraft,
 } from 'openflare-control'
 import { publishCell } from '../publish.js'
+import { bindingsSchema } from './bindingSchema.js'
 import {
   type AdminDeps,
   digest,
@@ -59,7 +60,7 @@ const versionBody = z
         ])
       )
       .default({}),
-    bindings: z.array(z.record(z.unknown())).default([]),
+    bindings: bindingsSchema,
     observability: z
       .object({
         enabled: z.boolean(),
