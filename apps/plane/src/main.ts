@@ -64,7 +64,19 @@ if (retention.sweepMs > 0) {
 
 const shutdown = async (signal: string): Promise<void> => {
   console.log(`openflare-plane received ${signal}, draining`)
-  server.close()
+  // server.close() only *starts* the drain — end the pool before in-flight
+  // queries settle and they surface as opaque 500s. A bounded force-exit
+  // covers a wedged connection instead of hanging the rollout.
+  const force = setTimeout(() => process.exit(1), 10_000)
+  force.unref()
+  await new Promise<void>((resolve) => {
+    server.close(() => resolve())
+    // Release keep-alive idles immediately or they pin the drain open.
+    // Present on the plain HTTP server; absent on the HTTP/2 variant.
+    if ('closeIdleConnections' in server && typeof server.closeIdleConnections === 'function') {
+      server.closeIdleConnections()
+    }
+  })
   await pool.end()
   process.exit(0)
 }
