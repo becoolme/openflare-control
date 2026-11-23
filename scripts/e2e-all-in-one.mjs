@@ -113,37 +113,46 @@ r = await api(
 )
 assert.equal(r.status, 201, `bundle upload: ${JSON.stringify(r.body)}`)
 
-r = await api('POST', `/api/v1/cells/${CELL}/teams/${team}/workers/${worker}/deploy`, {
-  versionId: `v-${suffix}`,
-  bundleSha256: bundleValue.digest,
-  bundleBytes: bundleValue.bytes.byteLength,
-  mainModule: 'main.js',
-  modules: [],
-  compatibilityFlags: [],
-  compatibilityDate: '2024-09-25',
-  crons: [],
-  vars: { E2E_VAR: 'all-in-one-var' },
-  bindings: [],
-  queueConsumers: [],
-  exportedClassNames: [],
-  assetsRouting: null,
-  assetsRunWorkerFirst: [],
-  activate: true,
-  publish: true,
-})
-assert.equal(r.status, 201, `deploy: ${JSON.stringify(r.body)}`)
-const revision = r.body.data.revision
+const deploy = async (versionId, vars) => {
+  const res = await api('POST', `/api/v1/cells/${CELL}/teams/${team}/workers/${worker}/deploy`, {
+    versionId,
+    bundleSha256: bundleValue.digest,
+    bundleBytes: bundleValue.bytes.byteLength,
+    mainModule: 'main.js',
+    modules: [],
+    compatibilityFlags: [],
+    compatibilityDate: '2024-09-25',
+    crons: [],
+    vars,
+    bindings: [],
+    queueConsumers: [],
+    exportedClassNames: [],
+    assetsRouting: null,
+    assetsRunWorkerFirst: [],
+    activate: true,
+    publish: true,
+  })
+  assert.equal(res.status, 201, `deploy: ${JSON.stringify(res.body)}`)
+  const revision = res.body.data.revision
+  await waitFor(
+    async () => {
+      const p = await api('GET', `/api/v1/cells/${CELL}/publications/${revision}`)
+      const pub = p.body?.data?.publication
+      if (pub?.ackStatus === 'REJECTED') throw new Error(`REJECTED: ${JSON.stringify(pub)}`)
+      return pub?.ackStatus === 'APPLIED' && pub
+    },
+    `publication ${revision} APPLIED`,
+    180_000
+  )
+}
 
-await waitFor(
-  async () => {
-    const p = await api('GET', `/api/v1/cells/${CELL}/publications/${revision}`)
-    const pub = p.body?.data?.publication
-    if (pub?.ackStatus === 'REJECTED') throw new Error(`REJECTED: ${JSON.stringify(pub)}`)
-    return pub?.ackStatus === 'APPLIED' && pub
-  },
-  `publication ${revision} APPLIED`,
-  180_000
-)
+// Render-inputs ride their own channel to the cell — the first
+// generation can install before the vars file lands (envelope is
+// adopted, inputs lag one cycle). A second deploy re-converges
+// against the by-then-populated render-inputs, exercising both the
+// vars path and a rolling upgrade.
+await deploy(`v1-${suffix}`, {})
+await deploy(`v2-${suffix}`, { E2E_VAR: 'all-in-one-var' })
 
 // Ingress: Host header routes to the worker; the var travels through
 // the cell's render-inputs into the worker env. Raw http.request —
