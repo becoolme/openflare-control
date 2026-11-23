@@ -217,9 +217,7 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
       - name: Fetch the pinned workerd binary
-        run: |
-          node scripts/vrt-fetch-workerd.mjs --arch linux-x64
-          echo "WORKERD_SHA256=$(node -e "const l=require('./openflare/deploy/docker/workerd.lock');console.log(l.artifacts['linux-x64'].binarySha256)")" >> "$GITHUB_ENV"
+        run: node scripts/vrt-fetch-workerd.mjs --arch linux-x64 | tee /dev/stderr | grep '^WORKERD_SHA256=' >> "$GITHUB_ENV"
       - run: docker compose -f docker-compose.all-in-one.yml up -d --build
       - run: node scripts/e2e-all-in-one.mjs
       - if: always()
