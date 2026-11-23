@@ -141,6 +141,64 @@ maybe('assets', () => {
       ).status
     ).toBe(400)
 
+    const wrongSize = new TextEncoder().encode(
+      JSON.stringify({
+        schemaVersion: 1,
+        files: [
+          {
+            path: '/index.html',
+            sha256: objectDigest,
+            size: object.byteLength + 1,
+            mime: 'text/html',
+          },
+        ],
+      })
+    )
+    expect(
+      (
+        await app.request(`${base}/teams/${team}/assets/manifests/${sha256(wrongSize)}`, {
+          method: 'PUT',
+          headers: auth,
+          body: wrongSize,
+        })
+      ).status
+    ).toBe(400)
+    const badPath = new TextEncoder().encode(
+      JSON.stringify({
+        schemaVersion: 1,
+        files: [
+          { path: '/a/../b', sha256: objectDigest, size: object.byteLength, mime: 'text/html' },
+        ],
+      })
+    )
+    expect(
+      (
+        await app.request(`${base}/teams/${team}/assets/manifests/${sha256(badPath)}`, {
+          method: 'PUT',
+          headers: auth,
+          body: badPath,
+        })
+      ).status
+    ).toBe(400)
+    expect(
+      (
+        await app.request(`${base}/teams/${team}/assets/objects/${'a'.repeat(64)}`, {
+          method: 'PUT',
+          headers: auth,
+          body: object,
+        })
+      ).status
+    ).toBe(400)
+    expect(
+      (
+        await app.request(`${base}/teams/${team}/assets/manifests/${'a'.repeat(64)}`, {
+          method: 'PUT',
+          headers: auth,
+          body: manifestBytes,
+        })
+      ).status
+    ).toBe(400)
+
     const bundle = new TextEncoder().encode('export default { fetch: () => new Response("a") }')
     const bundleDigest = sha256(bundle)
     expect(
