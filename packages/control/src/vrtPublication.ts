@@ -72,11 +72,13 @@ export async function publicationCoversDesired(
   try {
     const view = (await tx.cellView()) as readonly VrtCellWorkerView[]
     const deletions = await tx.pendingDoTombstones(now)
+    const flagshipApps = await tx.flagshipApps()
     const built = buildComputeDesiredPayload({
       cellId: tx.cellId,
       revision: previous.revision,
       workers: view,
       deletions,
+      flagshipApps,
     })
     if (built.excluded.length > 0) return false
     return (
@@ -121,10 +123,17 @@ function tenantRecency(workers: readonly VrtCellWorkerView[], tenantId: string):
 export function tenantsOverShareCap(
   cellId: string,
   view: readonly VrtCellWorkerView[],
-  tenantShareDivisor: number
+  tenantShareDivisor: number,
+  flagshipApps: readonly { tenantId: string; appId: string; config: string }[] = []
 ): string[] {
   const shareCap = Math.floor(SNAPSHOT_MAX_BYTES / Math.max(2, tenantShareDivisor))
-  const built = buildComputeDesiredPayload({ cellId, revision: 1, workers: view, deletions: [] })
+  const built = buildComputeDesiredPayload({
+    cellId,
+    revision: 1,
+    workers: view,
+    deletions: [],
+    flagshipApps,
+  })
   return [...tenantShareBytes(built.payload.tenants).entries()]
     .filter(([, bytes]) => bytes > shareCap)
     .map(([tenantId]) => tenantId)
@@ -163,6 +172,9 @@ export async function signAndRecordCellPublication(
   // eviction rebuild loop, which only shrinks `view`). Expiry inside
   // the call only ever causes retention, never wrongful deletion.
   const deletions = await tx.pendingDoTombstones(args.now)
+  // CF Flagship rows are constant across the eviction rebuild loop (it only
+  // shrinks `view`) — fetched once so every rebuild signs the same model.
+  const flagshipApps = await tx.flagshipApps()
   // Eviction rows live outside the rebuild loop so each iteration's
   // rebuild doesn't lose them (build only sees remaining workers).
   const evictedExcluded: { workerId: string; reason: string }[] = []
@@ -176,6 +188,7 @@ export async function signAndRecordCellPublication(
       revision: args.revision,
       workers: view,
       deletions,
+      flagshipApps,
     })
     excluded.length = 0
     excluded.push(...evictedExcluded, ...built.excluded)

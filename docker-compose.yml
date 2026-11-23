@@ -5,7 +5,11 @@ services:
       POSTGRES_USER: vrt
       POSTGRES_PASSWORD: vrt
       POSTGRES_DB: vrt_plane
-    ports: ['5432:5432']
+    # Loopback-only by default: the DB holds every worker secret in
+    # `plane_secrets`, so it must never be reachable off-host. Services reach
+    # it over the internal compose network; this mapping is only for local
+    # psql inspection. Set POSTGRES_BIND=0.0.0.0 only on a trusted network.
+    ports: ['${POSTGRES_BIND:-127.0.0.1}:5432:5432']
     volumes: ['plane-db:/var/lib/postgresql/data']
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U vrt -d vrt_plane']
