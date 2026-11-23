@@ -11,6 +11,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { Pool } from 'pg'
 import { bundleKeyFor, type BundleStore } from 'openflare-control'
 import { createApp } from './routes.js'
+import { createSecretsCipher } from './secretsCipher.js'
 import { createPlaneStore } from './store.js'
 import { resolvePlaneSigningKey } from './signing.js'
 
@@ -76,6 +77,7 @@ maybe('worker lifecycle e2e', () => {
       bundleStore: new MemoryBundles(),
       adminToken: TOKEN,
       signing: resolvePlaneSigningKey('worker-lifecycle-signing-secret'),
+      secrets: createSecretsCipher('worker-lifecycle-secrets-key'),
     })
     await provisionCellToken(cell)
   })
