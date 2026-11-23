@@ -41,6 +41,7 @@ const adminToken = env('PLANE_ADMIN_TOKEN')
 if (adminToken.length < 32) {
   throw new Error('PLANE_ADMIN_TOKEN must be at least 32 characters')
 }
+const assetStore = new DirAssetStore(env('PLANE_ASSET_DIR', './data/assets'))
 const secretsKey = env('PLANE_SECRETS_KEY')
 if (secretsKey.length < 32) {
   throw new Error('PLANE_SECRETS_KEY must be at least 32 characters')
@@ -54,7 +55,7 @@ const app = createApp({
   // Worker secrets get an independent at-rest key: rotating
   // PLANE_SIGNING_SECRET must never make stored secrets unreadable.
   secrets: createSecretsCipher(secretsKey),
-  assetStore: new DirAssetStore(env('PLANE_ASSET_DIR', './data/assets')),
+  assetStore,
   maxBundleBytes,
   retention,
 })
@@ -69,7 +70,7 @@ const server = serve({ fetch: app.fetch, port })
 
 if (retention.sweepMs > 0) {
   const timer = setInterval(() => {
-    void pruneRetention(pool, store, retention).catch((error) => {
+    void pruneRetention(pool, store, retention, assetStore).catch((error) => {
       console.error('[openflare-plane] retention sweep failed:', error)
     })
   }, retention.sweepMs)

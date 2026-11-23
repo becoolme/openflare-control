@@ -14,6 +14,7 @@ export interface AssetStore {
   getObject(teamId: string, digest: string): Promise<Uint8Array | null>
   statObject(teamId: string, digest: string): Promise<number | null>
   deleteManifest(teamId: string, digest: string): Promise<void>
+  deleteObject(teamId: string, digest: string): Promise<void>
 }
 
 const segmentEncode = (value: string): string => {
@@ -119,6 +120,15 @@ export class DirAssetStore implements AssetStore {
       // best effort
     }
   }
+
+  async deleteObject(teamId: string, digest: string): Promise<void> {
+    assertDigest(digest)
+    try {
+      await rm(join(this.dir(teamId, 'objects'), digest), { force: true })
+    } catch {
+      // best effort
+    }
+  }
 }
 
 /** Test-only in-memory store. */
@@ -162,5 +172,9 @@ export class MemoryAssetStore implements AssetStore {
   async deleteManifest(teamId: string, digest: string): Promise<void> {
     assertDigest(digest)
     this.manifests.delete(this.key(teamId, digest))
+  }
+  async deleteObject(teamId: string, digest: string): Promise<void> {
+    assertDigest(digest)
+    this.objects.delete(this.key(teamId, digest))
   }
 }

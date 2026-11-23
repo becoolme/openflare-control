@@ -19,6 +19,7 @@
  * execution (the stub answers `stub ok`).
  */
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { spawn, spawnSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
@@ -50,6 +51,7 @@ const suffix = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`
 const cell = `fullstack-${suffix}`
 const team = `t${Date.now().toString(36)}${Math.floor(Math.random() * 1e4).toString(36)}`
 const worker = 'edge'
+let assetsBinding = []
 const hostname = `app-${suffix}.fullstack.test`
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
@@ -220,7 +222,12 @@ function bundle(code) {
       {
         type: 'esModule',
         name: 'main.js',
-        text: `export default { fetch() { return new Response(${q(code)}) } }\n`,
+        text: STUB
+          ? `export default { fetch() { return new Response(${q(code)}) } }\n`
+          : `export default { async fetch(_request, env) {
+  const response = await env.ASSETS.fetch(new Request('https://assets.local/index.html'))
+  return new Response((await response.text()) + '|' + ${q(code)})
+} }\n`,
       },
     ],
     compatibilityDate: '2024-09-25',
@@ -237,7 +244,7 @@ async function uploadBundle(bundleValue) {
   assert.equal(result.status, 201, `bundle upload: ${JSON.stringify(result.body)}`)
 }
 
-async function deploy(bundleValue, versionId) {
+async function deploy(bundleValue, versionId, bindings = []) {
   const result = await api('POST', `/api/v1/cells/${cell}/teams/${team}/workers/${worker}/deploy`, {
     versionId,
     bundleSha256: bundleValue.digest,
@@ -248,7 +255,7 @@ async function deploy(bundleValue, versionId) {
     compatibilityDate: '2024-09-25',
     crons: [],
     vars: {},
-    bindings: [],
+    bindings,
     queueConsumers: [],
     exportedClassNames: [],
     assetsRouting: null,
@@ -296,6 +303,8 @@ async function main() {
   }
   const cellTokenFile = join(root, 'cell-token')
 
+  const assetDir = join(root, 'assets')
+  for (const dir of [assetDir]) await mkdir(dir, { recursive: true })
   const ingressPort = await freePort()
   const controlPort = await freePort()
   const healthPort = await freePort()
@@ -307,6 +316,7 @@ async function main() {
     PLANE_SIGNING_SECRET: SIGNING_SECRET,
     PLANE_SECRETS_KEY: SECRETS_KEY,
     PLANE_BUNDLE_DIR: bundleDir,
+    PLANE_ASSET_DIR: assetDir,
   }
   const migrate = spawnSync('node', ['apps/plane/dist/migrate.js'], {
     cwd: ROOT,
@@ -341,6 +351,59 @@ async function main() {
     ).status,
     201
   )
+
+  let manifestDigest = ''
+  if (!STUB) {
+    const assetBody = Buffer.from('asset-ok')
+    const objectDigest = createHash('sha256').update(assetBody).digest('hex')
+    assert.equal(
+      (
+        await api(
+          'PUT',
+          `/api/v1/cells/${cell}/teams/${team}/assets/objects/${objectDigest}`,
+          assetBody,
+          true
+        )
+      ).status,
+      201
+    )
+    const manifestBytes = Buffer.from(
+      JSON.stringify({
+        schemaVersion: 1,
+        htmlHandling: 'auto-trailing-slash',
+        notFoundHandling: 'none',
+        files: [
+          {
+            path: '/index.html',
+            sha256: objectDigest,
+            size: assetBody.byteLength,
+            mime: 'text/html',
+          },
+        ],
+      })
+    )
+    manifestDigest = createHash('sha256').update(manifestBytes).digest('hex')
+    assert.equal(
+      (
+        await api(
+          'PUT',
+          `/api/v1/cells/${cell}/teams/${team}/assets/manifests/${manifestDigest}`,
+          manifestBytes,
+          true
+        )
+      ).status,
+      201
+    )
+    assetsBinding = [
+      {
+        name: 'ASSETS',
+        type: 'ASSETS',
+        resourceId: manifestDigest,
+        permissionRead: true,
+        permissionWrite: false,
+      },
+    ]
+  }
 
   const vrtHostConfigPath = join(root, 'vrt-host.toml')
   const cellControllerConfigPath = join(root, 'cell-controller.toml')
@@ -384,6 +447,11 @@ requestTimeoutMs = 5000
 deadlineMs = 15000
 maxAttempts = 3
 maxBytes = 33554432
+
+[assets]
+dir = ${q(assetDir)}
+baseUrl = ${q(`${PLANE_URL}/api/internal/clusters/${cell}`)}
+tokenFile = ${q(cellTokenFile)}
 
 [supervisor]
 readyTimeoutMs = 15000
@@ -436,7 +504,7 @@ enabled = false
   // controller writes the envelope/assignment; vrt-host starts once both exist.
   const v1 = bundle('v1')
   await uploadBundle(v1)
-  const rev1 = await deploy(v1, `v1-${suffix}`)
+  const rev1 = await deploy(v1, `v1-${suffix}`, assetsBinding)
 
   start('cell-controller', CELL_CONTROLLER_BIN, [cellControllerConfigPath], {
     env: { RUST_LOG: 'info' },
@@ -472,13 +540,14 @@ enabled = false
     60_000,
     250
   )
+  assert.match(first.body, /asset-ok|stub ok/)
   console.log(`v1 served: ${first.body.trim().slice(0, 80)}`)
 
   // v2: upload + redeploy/publish; the old generation may serve v1 during
   // the switch, so poll until the new code answers.
   const v2 = bundle('v2')
   await uploadBundle(v2)
-  const rev2 = await deploy(v2, `v2-${suffix}`)
+  const rev2 = await deploy(v2, `v2-${suffix}`, assetsBinding)
   await waitPublication(rev2)
   const expectedV2 = STUB ? 'stub ok' : 'v2'
   const second = await waitFor(
@@ -490,6 +559,7 @@ enabled = false
     90_000,
     250
   )
+  assert.match(second.body, /asset-ok|stub ok/)
   console.log(`v2 served: ${second.body.trim().slice(0, 80)}`)
   console.log(
     `OK: full-stack e2e passed (cell ${cell}, revisions ${rev1}→${rev2}, ${
