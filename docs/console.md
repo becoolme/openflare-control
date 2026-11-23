@@ -16,9 +16,14 @@ browser ──▶ console:8788
 
 - The browser never receives the management token; it is injected by
   `apps/console/server/main.mjs`.
+- `CONSOLE_AUTH_PASSWORD` is required — every request except
+  `/console-healthz` needs HTTP Basic (`admin:<password>`). The console is a
+  full management gateway, so it never serves an unauthenticated request.
 - No CORS configuration is needed because the UI and API are same-origin.
 - `PLANE_URL` defaults to `http://127.0.0.1:8787`.
-- `PLANE_ADMIN_TOKEN` is required (falls back to `PLANE_TOKEN`).
+- `PLANE_ADMIN_TOKEN` is required and at least 32 characters — the plane
+  refuses to boot otherwise. Cell pull auth is per-cell
+  (`POST /api/v1/cells/:cellId/token`), not a shared token.
 - Static output is `apps/console/.output/public`; the Docker image copies it to
   `/app/public`.
 
@@ -27,12 +32,15 @@ browser ──▶ console:8788
 Docker Compose starts Postgres, the plane and the console:
 
 ```sh
-export PLANE_TOKEN="$(openssl rand -hex 32)"
+export PLANE_ADMIN_TOKEN="$(openssl rand -hex 32)"
 export PLANE_SIGNING_SECRET="$(openssl rand -hex 32)"
+export CONSOLE_AUTH_PASSWORD="$(openssl rand -hex 16)"
 docker compose up -d --build
 docker compose exec plane node dist/migrate.js
-# UI:    http://127.0.0.1:8788
+# UI:    http://127.0.0.1:8788  (Basic auth: admin / $CONSOLE_AUTH_PASSWORD)
 # Plane: http://127.0.0.1:8787
+# All three ports bind loopback by default; PLANE_BIND / CONSOLE_BIND /
+# POSTGRES_BIND expose them deliberately when needed.
 ```
 
 Local development:
@@ -43,7 +51,7 @@ pnpm --filter openflare-console dev          # Nuxt dev server
 # or serve the generated build through the proxy:
 pnpm --filter openflare-console build
 PLANE_URL=http://127.0.0.1:8787 PLANE_ADMIN_TOKEN=... \
-  node apps/console/server/main.mjs
+  CONSOLE_AUTH_PASSWORD=... node apps/console/server/main.mjs
 ```
 
 The console is also part of the real Docker and kind e2e runs: the scripts

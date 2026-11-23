@@ -3,9 +3,11 @@
  * on the same origin. The admin token stays server-side; the browser never
  * receives it.
  *
- *   PLANE_URL=http://plane:8787 PLANE_ADMIN_TOKEN=... node server/main.mjs
+ *   PLANE_URL=http://plane:8787 PLANE_ADMIN_TOKEN=... \
+ *   CONSOLE_AUTH_PASSWORD=... node server/main.mjs
  */
 import { createReadStream, existsSync, statSync } from 'node:fs'
+import { timingSafeEqual } from 'node:crypto'
 import { createServer } from 'node:http'
 import { extname, join, normalize, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -17,8 +19,20 @@ const generated = resolve(here, '../.output/public')
 const publicDir = process.env.CONSOLE_PUBLIC_DIR ?? (existsSync(built) ? built : generated)
 const port = Number(process.env.PORT ?? 8788)
 const planeUrl = (process.env.PLANE_URL ?? 'http://127.0.0.1:8787').replace(/\/$/, '')
-const adminToken = process.env.PLANE_ADMIN_TOKEN ?? process.env.PLANE_TOKEN ?? ''
-if (!adminToken) throw new Error('PLANE_ADMIN_TOKEN (or PLANE_TOKEN) is required')
+const adminToken = process.env.PLANE_ADMIN_TOKEN ?? ''
+if (!adminToken) throw new Error('PLANE_ADMIN_TOKEN is required')
+// The proxy injects the admin credential for ANY caller, so the console is a
+// full management gateway — it must never serve an unauthenticated request.
+// HTTP Basic is enough for an ops console: the browser holds the prompt and
+// every static asset + proxied call is covered. /console-healthz stays open
+// for liveness probes.
+const authPassword = process.env.CONSOLE_AUTH_PASSWORD ?? ''
+if (!authPassword) throw new Error('CONSOLE_AUTH_PASSWORD is required')
+const expectedAuth = Buffer.from(`Basic ${Buffer.from(`admin:${authPassword}`).toString('base64')}`)
+const wantsAuth = (req) => {
+  const got = Buffer.from(req.headers.authorization ?? '')
+  return got.length !== expectedAuth.length || !timingSafeEqual(got, expectedAuth)
+}
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -116,6 +130,12 @@ const server = createServer(async (req, res) => {
     const url = req.url ?? '/'
     if (url === '/console-healthz') {
       res.writeHead(200, { 'content-type': 'application/json' }).end('{"ok":true}')
+      return
+    }
+    if (wantsAuth(req)) {
+      res
+        .writeHead(401, { 'www-authenticate': 'Basic realm="openflare-console"' })
+        .end('unauthorized')
       return
     }
     const target = proxyTarget(url)

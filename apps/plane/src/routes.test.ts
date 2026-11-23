@@ -51,6 +51,14 @@ maybe('reference plane routes', () => {
   let bundles: MemoryBundles
   let app: ReturnType<typeof createApp>
   const cluster = `route-${Date.now()}`
+  const provisionCellToken = async (cellId: string) => {
+    await pool.query(
+      `insert into plane_cells (cell_id, cluster_id) values ($1,$1) on conflict (cell_id) do nothing;
+       insert into plane_cell_tokens (cell_id, token_hash) values ($1,$2)
+         on conflict (cell_id) do update set token_hash=excluded.token_hash`,
+      [cellId, createHash('sha256').update(TOKEN).digest('hex')]
+    )
+  }
   const team = `team-${Date.now()}`
 
   const auth = { authorization: `Bearer ${TOKEN}` }
@@ -61,13 +69,8 @@ maybe('reference plane routes', () => {
     store = createPlaneStore(pool)
     signing = resolvePlaneSigningKey('routes-test-secret-1234')
     bundles = new MemoryBundles()
-    app = createApp({
-      store,
-      pool,
-      bundleStore: bundles,
-      token: TOKEN,
-      secrets: TEST_SECRETS_CIPHER,
-    })
+    app = createApp({ store, pool, bundleStore: bundles, secrets: TEST_SECRETS_CIPHER })
+    await provisionCellToken(cluster)
   })
   afterAll(async () => {
     await pool.end()
@@ -291,7 +294,6 @@ maybe('reference plane routes', () => {
       store,
       pool,
       bundleStore: bundles,
-      token: TOKEN,
       maxBundleBytes: 4,
       secrets: TEST_SECRETS_CIPHER,
     })

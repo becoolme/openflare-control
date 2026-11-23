@@ -3,8 +3,10 @@
 ## Health
 
 `GET /healthz` is unauthenticated and answers `{"ok":true}`. Everything under
-`/api/internal/clusters/<cellId>/*` requires `Authorization: Bearer PLANE_TOKEN`
-and answers `Cache-Control: no-store`.
+`/api/internal/clusters/<cellId>/*` requires `Authorization: Bearer
+<cell-token>` — a per-cell credential issued (and rotated) by the admin-only
+`POST /api/v1/cells/:cellId/token` endpoint; only the sha256 is stored.
+Answers carry `Cache-Control: no-store`.
 
 The plane is not on the tenant request path. If it is down, cells keep serving
 their last accepted snapshot until its 24 h expiry, then fail closed (they

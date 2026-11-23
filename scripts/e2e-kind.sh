@@ -2,7 +2,7 @@
 # Real Kubernetes e2e: kind cluster + Postgres + the plane image, then the same
 # HTTP lifecycle as the Docker e2e through a port-forward.
 #
-#   PLANE_TOKEN=... PLANE_SIGNING_SECRET=... ./scripts/e2e-kind.sh
+#   PLANE_ADMIN_TOKEN=... PLANE_SIGNING_SECRET=... ./scripts/e2e-kind.sh
 #
 # Requires docker, kind, kubectl. CI installs kind/kubectl and runs this.
 set -euo pipefail
@@ -14,7 +14,7 @@ CONSOLE_IMAGE="${CONSOLE_IMAGE:-openflare-console:e2e}"
 CONSOLE_PORT="${CONSOLE_E2E_PORT:-18788}"
 NS=openflare-plane-e2e
 PORT="${PLANE_E2E_PORT:-18787}"
-TOKEN="${PLANE_TOKEN:?set PLANE_TOKEN}"
+PLANE_ADMIN_TOKEN="${PLANE_ADMIN_TOKEN:?set PLANE_ADMIN_TOKEN}"
 SIGNING="${PLANE_SIGNING_SECRET:?set PLANE_SIGNING_SECRET}"
 
 cleanup() {
@@ -42,8 +42,8 @@ kind load docker-image --name "$CLUSTER" "$CONSOLE_IMAGE"
 kubectl --context "kind-${CLUSTER}" apply -f deploy/k8s/e2e/plane.yaml
 kubectl --context "kind-${CLUSTER}" -n "$NS" create secret generic plane-env \
   --from-literal=DATABASE_URL="postgresql://vrt:vrt@postgres:5432/vrt_plane" \
-  --from-literal=PLANE_TOKEN="$TOKEN" \
-  --from-literal=PLANE_ADMIN_TOKEN="${PLANE_ADMIN_TOKEN:-$TOKEN}" \
+  --from-literal=PLANE_ADMIN_TOKEN="${PLANE_ADMIN_TOKEN:?set PLANE_ADMIN_TOKEN}" \
+  --from-literal=CONSOLE_AUTH_PASSWORD="${CONSOLE_AUTH_PASSWORD:?set CONSOLE_AUTH_PASSWORD}" \
   --from-literal=PLANE_SIGNING_SECRET="$SIGNING" \
   --dry-run=client -o yaml | kubectl --context "kind-${CLUSTER}" apply -f -
 
@@ -67,5 +67,6 @@ curl -fsS "http://127.0.0.1:${PORT}/healthz" >/dev/null
 
 PLANE_BASE_URL="http://127.0.0.1:${PORT}" \
   CONSOLE_BASE_URL="http://127.0.0.1:${CONSOLE_PORT}" \
-  PLANE_TOKEN="$TOKEN" node scripts/e2e-docker.mjs
+  PLANE_ADMIN_TOKEN="$PLANE_ADMIN_TOKEN" \
+  CONSOLE_AUTH_PASSWORD="$CONSOLE_AUTH_PASSWORD" node scripts/e2e-docker.mjs
 echo "OK: kind e2e passed in cluster ${CLUSTER}"

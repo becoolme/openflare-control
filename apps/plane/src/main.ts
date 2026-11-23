@@ -24,12 +24,18 @@ const pool = new Pool({ connectionString: env('DATABASE_URL') })
 const signing = resolvePlaneSigningKey()
 const store = createPlaneStore(pool)
 const retention = retentionFromEnv()
+// The admin API can publish arbitrary code to every cell, so its credential
+// must exist and carry real entropy. Cell-channel auth is per-cell
+// (plane_cell_tokens) — there is no shared cell token to compromise.
+const adminToken = env('PLANE_ADMIN_TOKEN')
+if (adminToken.length < 32) {
+  throw new Error('PLANE_ADMIN_TOKEN must be at least 32 characters')
+}
 const app = createApp({
   store,
   pool,
   bundleStore: new DirBundleStore(env('PLANE_BUNDLE_DIR', './data/bundles')),
-  token: env('PLANE_TOKEN'),
-  adminToken: process.env.PLANE_ADMIN_TOKEN?.trim() || env('PLANE_TOKEN'),
+  adminToken,
   signing,
   // The signing secret is already a required high-entropy value, so it also
   // roots the at-rest cipher (HKDF under a distinct domain salt — the two

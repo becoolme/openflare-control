@@ -49,6 +49,14 @@ maybe('management API e2e', () => {
   let app: ReturnType<typeof createApp>
   const suffix = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`
   const cell = `e2e-${suffix}`
+  const provisionCellToken = async (cellId: string) => {
+    await pool.query(
+      `insert into plane_cells (cell_id, cluster_id) values ($1,$1) on conflict (cell_id) do nothing;
+       insert into plane_cell_tokens (cell_id, token_hash) values ($1,$2)
+         on conflict (cell_id) do update set token_hash=excluded.token_hash`,
+      [cellId, createHash('sha256').update(TOKEN).digest('hex')]
+    )
+  }
   const team = `team-${suffix}`
   const worker = 'hello'
   const versionId = `v-${suffix}`
@@ -65,11 +73,11 @@ maybe('management API e2e', () => {
       store: createPlaneStore(pool),
       pool,
       bundleStore: new MemoryBundles(),
-      token: TOKEN,
       adminToken: TOKEN,
       secrets: TEST_SECRETS_CIPHER,
       signing: resolvePlaneSigningKey('e2e-signing-secret-1234'),
     })
+    await provisionCellToken(cell)
   })
   afterAll(async () => {
     await pool.end()

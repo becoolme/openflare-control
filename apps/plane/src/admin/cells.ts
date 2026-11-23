@@ -1,4 +1,5 @@
 import type { Hono } from 'hono'
+import { createHash, randomBytes } from 'node:crypto'
 import { z } from 'zod'
 import { VrtControlError } from 'openflare-control'
 import { collectRenderInputs } from '../renderInputs.js'
@@ -24,6 +25,25 @@ export function registerCells(app: Hono, deps: AdminDeps): void {
       [body.cellId]
     )
     return c.json({ data: { cellId: body.cellId } }, 201)
+  })
+
+  // Issue (or rotate) the cell's pull credential. The plaintext is returned
+  // exactly once and only the sha256 is stored — there is no GET for it, and
+  // a rotation invalidates the previous token on the next cell poll.
+  app.post('/api/v1/cells/:cellId/token', async (c) => {
+    const cell = c.req.param('cellId')
+    parse(cellId, cell)
+    const [exists] = await rows(deps, 'select 1 from plane_cells where cell_id=$1', [cell])
+    if (!exists) throw new VrtControlError(404, 'Cell not found', 'VRT_CELL_NOT_FOUND')
+    const token = randomBytes(32).toString('hex')
+    const tokenHash = createHash('sha256').update(token).digest('hex')
+    await deps.pool.query(
+      `insert into plane_cell_tokens (cell_id, token_hash) values ($1,$2)
+       on conflict (cell_id) do update set token_hash=excluded.token_hash,
+         created_at=now()`,
+      [cell, tokenHash]
+    )
+    return c.json({ data: { cellId: cell, token } }, 201)
   })
 
   app.get('/api/v1/cells/:cellId', async (c) => {
