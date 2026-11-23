@@ -342,6 +342,16 @@ async function createVersion(
     }
   }
 
+  for (const binding of body.bindings) {
+    if (binding.type !== 'ASSETS' || typeof binding.resourceId !== 'string') continue
+    if (
+      deps.assetStore &&
+      !(await deps.assetStore.hasManifest(owner.team_id, binding.resourceId))
+    ) {
+      throw new VrtControlError(400, 'Asset manifest is not uploaded')
+    }
+  }
+
   const capabilities = await deps.store.cellCapabilities(owner.cluster_id)
   if (capabilities !== null) {
     const required = requiredCapabilities({

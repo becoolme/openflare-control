@@ -138,6 +138,23 @@ model and stored canonically); `DELETE .../apps/{appId}` removes it. Apps for
 teams with workers on the cell ride `compute.desired` as
 `tenants[].flagshipApps`, and `FLAGSHIP` bindings must name a declared app.
 
+### Static assets
+
+Upload the provider-format manifest and its objects first:
+
+- `PUT /api/v1/cells/{cell}/teams/{team}/assets/objects/{sha256}` (raw bytes,
+  sha256-checked)
+- `PUT /api/v1/cells/{cell}/teams/{team}/assets/manifests/{sha256}` (canonical
+  manifest JSON, every listed object must already exist)
+
+The reference plane stores the provider-format content-addressed objects
+under `PLANE_ASSET_DIR` and serves them to the cell over the authenticated
+cell channel:
+`GET /api/internal/clusters/{cell}/vrt/assets/{manifests,objects}/{digest}`.
+The cell pulls only digests referenced by its retained publications.
+`ASSETS` bindings reference the manifest digest, and `assetsRouting` /
+`assetsRunWorkerFirst` control assets-first routing.
+
 ### Durable Object classes
 
 `GET/POST/DELETE .../workers/{name}/durable-object-classes[/{className}]`
