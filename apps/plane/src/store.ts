@@ -221,6 +221,11 @@ export class PlaneStore {
       varValues: input.varValues,
       bindings: input.bindings,
       queueConsumers: input.queueConsumers ?? [],
+      tailConsumers: input.tailConsumers ?? null,
+      streamingTailConsumers: input.streamingTailConsumers ?? null,
+      versionMetadata: input.versionMetadata ?? null,
+      observability: input.observability ?? null,
+      jsonVars: input.jsonVars ?? null,
       bindingsFingerprint: input.bindingsFingerprint,
       runtimeConfigDigest: input.runtimeConfigDigest,
       assetsRouting: input.assetsRouting ?? null,
@@ -653,8 +658,17 @@ class PlaneCellTx {
         bindings: version.bindings,
         hostnames: hostnames.map((h) => h.hostname as string),
         crons: version.crons,
+        queueConsumers: version.queueConsumers ?? [],
+        tailConsumers: version.tailConsumers ?? [],
+        streamingTailConsumers: version.streamingTailConsumers ?? [],
+        versionMetadata: version.versionMetadata ?? null,
+        observability: version.observability ?? null,
+        jsonVars: version.jsonVars ?? null,
         quotas: version.quotas,
-        changedAt: version.createdAt,
+        assetsRouting: version.assetsRouting ?? null,
+        assetsRunWorkerFirst: version.assetsRunWorkerFirst ?? [],
+        changedAt:
+          version.createdAt instanceof Date ? version.createdAt : new Date(version.createdAt),
       } as VrtCellWorkerView)
     }
     return out

@@ -76,9 +76,18 @@ Version body:
   "compatibilityFlags": [],
   "crons": [{ "scheduleId": "c1", "expression": "*/5 * * * *" }],
   "quotas": { "cpuMs": 10000, "memoryMb": 128, "subrequests": 50, "outboundConnections": 16 },
-  "vars": { "GREETING": "hi" },
+  "vars": { "GREETING": "hi", "COUNT": 3, "CONFIG": { "mode": "x" } },
   "bindings": [],
   "queueConsumers": [{ "queueId": "<26>", "queueName": "jobs", "maxBatchSize": 10 }],
+  "tailConsumers": ["demo:log-sink"],
+  "streamingTailConsumers": [],
+  "versionMetadata": "CF_VERSION_METADATA",
+  "observability": {
+    "enabled": true,
+    "logsEnabled": true,
+    "invocationLogs": false,
+    "headSamplingRatePpm": 250000
+  },
   "exportedClassNames": ["MyDO"],
   "assetsRouting": null,
   "assetsRunWorkerFirst": []
@@ -96,8 +105,16 @@ has no uploaded object, and `409 VRT_BUNDLE_SIZE_MISMATCH` when the claimed
 `true`) and `publish` (default `false`). It creates the version, activates it,
 and optionally publishes the cell, returning
 `{version,created,activated,revision}`. The returned `version.versionId` is
-authoritative: identical content (bundle + bindings fingerprint) reuses the
-existing version row instead of creating a duplicate.
+authoritative: identical content (bundle + the full runtime-config
+fingerprint — bindings, vars, crons, queue consumers, tails, observability,
+version metadata, assets routing, quotas) reuses the existing version row
+instead of creating a duplicate.
+
+`vars` accepts strings and JSON values. Strings stay worker-scoped and are
+served through `render-inputs`; non-strings become version-scoped
+`jsonVars` and render as `{"type":"json"}` bindings. Tail consumers must be
+existing workers of the same team and cell; the two tail channels cannot
+contain the same worker.
 
 `PATCH /workers/{name}` metadata (including `status`) changes the stored row;
 call `POST /publish` for it to reach the cell. Only `status='ACTIVE'` workers
