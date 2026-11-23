@@ -125,9 +125,16 @@ const deploy = async (versionId, vars) => {
     crons: [],
     vars,
     // vars is the value store keyed by varRef; env names are bound
-    // separately — env.E2E_VAR needs BOTH sides (a {"type":"var"}
-    // binding reads inputs.vars[varRef]).
-    bindings: Object.keys(vars).map((k) => ({ type: 'var', name: k, varRef: k })),
+    // separately — env.E2E_VAR needs BOTH sides. bindings[] takes the
+    // VrtBindingRecord form (uppercase type + resourceId); the plane
+    // serializes it to {"type":"var","varRef":…} for the cell.
+    bindings: Object.keys(vars).map((k) => ({
+      name: k,
+      type: 'VAR',
+      resourceId: k,
+      permissionRead: true,
+      permissionWrite: true,
+    })),
     queueConsumers: [],
     exportedClassNames: [],
     assetsRouting: null,
