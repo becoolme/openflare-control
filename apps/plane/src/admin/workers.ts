@@ -270,6 +270,18 @@ async function createVersion(
     }
   }
 
+  for (const binding of body.bindings) {
+    if (binding.type !== 'FLAGSHIP' || typeof binding.resourceId !== 'string') continue
+    const [flagshipApp] = await rows(
+      deps,
+      'select 1 from plane_flagship_apps where team_id=$1 and app_id=$2',
+      [owner.team_id, binding.resourceId]
+    )
+    if (!flagshipApp) {
+      throw new VrtControlError(400, `Flagship app is not declared: ${binding.resourceId}`)
+    }
+  }
+
   const capabilities = await deps.store.cellCapabilities(owner.cluster_id)
   if (capabilities !== null) {
     const required = requiredCapabilities({

@@ -121,6 +121,14 @@ call `POST /publish` for it to reach the cell. Only `status='ACTIVE'` workers
 are included in `compute.desired`; `SUSPENDED`/`DELETED` workers stop serving
 after the next publish.
 
+### Flagship apps
+
+`GET /api/v1/cells/{cell}/teams/{team}/flagship/apps` lists apps;
+`PUT .../apps/{appId}` accepts `{config}` (validated by the portable Flagship
+model and stored canonically); `DELETE .../apps/{appId}` removes it. Apps for
+teams with workers on the cell ride `compute.desired` as
+`tenants[].flagshipApps`, and `FLAGSHIP` bindings must name a declared app.
+
 ### Durable Object classes
 
 `GET/POST/DELETE .../workers/{name}/durable-object-classes[/{className}]`
