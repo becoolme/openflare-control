@@ -33,7 +33,8 @@ docker compose -f docker-compose.all-in-one.yml up --build
 
 # 4. Public (TLS): Traefik owns :80/:443 and issues one Let's Encrypt
 #    cert per hostname at first handshake.
-export VRT_TLS_EMAIL=you@example.com CONSOLE_HOST=console.example.com
+export CONSOLE_HOST=console.example.com
+export VRT_TLS_EMAIL=you@example.com  # optional — LE expiry notices
 #    DNS: console.example.com + every worker hostname + *.preview-domain → this host
 docker compose -f docker-compose.all-in-one.yml --profile tls up --build
 ```

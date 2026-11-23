@@ -192,6 +192,41 @@ jobs:
       - name: Full-stack upload → deploy → invoke → update
         run: node scripts/e2e-fullstack.mjs
 
+  # All-in-one compose e2e: the whole stack (control plane + cell) really
+  # comes up via docker compose — cell-init bootstrap, cell pull, deploy,
+  # and an ingress invoke through the real workerd image.
+  e2e-all-in-one:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      PLANE_ADMIN_TOKEN: aio-e2e-admin-token-0123456789abcdef
+      PLANE_SIGNING_SECRET: aio-e2e-signing-secret-01234
+      PLANE_SECRETS_KEY: aio-e2e-secrets-key-0123456789abcdef
+      CONSOLE_AUTH_PASSWORD: aio-e2e-console-password
+      OPENFLARE_DIR: ${{ github.workspace }}/openflare
+      VRT_CELL_ID: aio-e2e
+    steps:
+      - uses: actions/checkout@v4
+      - id: contract
+        run: echo "sha=$(cat OPENFLARE_CONTRACT_REV)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        with:
+          repository: becoolme/openflare
+          path: openflare
+          ref: ${{ steps.contract.outputs.sha }}
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - name: Fetch the pinned workerd binary
+        run: |
+          node scripts/vrt-fetch-workerd.mjs --arch linux-x64
+          echo "WORKERD_SHA256=$(node -e "const l=require('./openflare/deploy/docker/workerd.lock');console.log(l.artifacts['linux-x64'].binarySha256)")" >> "$GITHUB_ENV"
+      - run: docker compose -f docker-compose.all-in-one.yml up -d --build
+      - run: node scripts/e2e-all-in-one.mjs
+      - if: always()
+        run: docker compose -f docker-compose.all-in-one.yml logs --no-color
+      - if: always()
+        run: docker compose -f docker-compose.all-in-one.yml down -v
+
   k8s:
     runs-on: ubuntu-24.04
     steps:

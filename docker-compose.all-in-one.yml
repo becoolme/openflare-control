@@ -15,7 +15,8 @@
 # service configs and seeds the shared secrets — all idempotent.
 #
 # TLS: `--profile tls` adds Traefik on :80/:443 — per-hostname LE certs
-# at first handshake (Dokploy-style). Console on ${CONSOLE_HOST}, every
+# at first handshake (Dokploy-style; VRT_TLS_EMAIL optional, enables
+# expiry notices). Console on ${CONSOLE_HOST}, every
 # worker hostname + preview subdomain terminates on vrt-host via the
 # catch-all router. Without the profile: console/plane/ingress stay on
 # their loopback ${*_BIND} ports (trusted-network dev mode).
@@ -213,7 +214,7 @@ services:
       - --providers.file.directory=/dynamic
       - --providers.file.watch=true
       - --certificatesresolvers.le.acme.tlschallenge=true
-      - --certificatesresolvers.le.acme.email=${VRT_TLS_EMAIL:?set VRT_TLS_EMAIL}
+      - --certificatesresolvers.le.acme.email=${VRT_TLS_EMAIL:-}
       - --certificatesresolvers.le.acme.storage=/acme/acme.json
       - --certificatesresolvers.le.acme.caserver=${VRT_TLS_CA:-https://acme-v02.api.letsencrypt.org/directory}
       - --api=false
