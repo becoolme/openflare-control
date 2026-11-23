@@ -198,6 +198,8 @@ alter table plane_workflows add column if not exists limits_steps integer;
 alter table plane_workflows add column if not exists service_worker_id text;
 create unique index if not exists plane_workflows_worker_binding
   on plane_workflows (worker_id, binding) where binding is not null;
+create unique index if not exists plane_workflows_target_name
+  on plane_workflows (coalesce(service_worker_id, worker_id), name);
 
 create table if not exists plane_logs (
   id bigserial primary key,

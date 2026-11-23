@@ -523,6 +523,7 @@ class PlaneCellTx {
     workerIdToActivate: string,
     version: {
       readonly bindings?: readonly { readonly name?: string }[]
+      readonly varValues?: Readonly<Record<string, string>>
       readonly jsonVars?: Readonly<Record<string, unknown>> | null
       readonly versionMetadata?: string | null
       readonly queueConsumers?:
@@ -560,6 +561,7 @@ class PlaneCellTx {
       if (typeof binding.name === 'string') versionNames.add(binding.name)
     }
     for (const name of Object.keys(version.jsonVars ?? {})) versionNames.add(name)
+    for (const name of Object.keys(version.varValues ?? {})) versionNames.add(name)
     if (version.versionMetadata) versionNames.add(version.versionMetadata)
     const workflows = await this.rows(
       `select binding from plane_workflows where worker_id=$1 and binding is not null`,

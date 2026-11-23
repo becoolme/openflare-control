@@ -81,23 +81,21 @@ export function registerWorkflowService(app: Hono, deps: AdminDeps): void {
       serviceWorkerId = target
     }
     const capabilities = await deps.store.cellCapabilities(cell)
-    if (capabilities !== null) {
-      const required = requiredCapabilities({
-        cronCount: 0,
-        bindingTypes: [],
-        queueConsumerCount: 0,
-        workflowCount: 1,
-        crossWorkerWorkflowCount: serviceWorkerId ? 1 : 0,
-        serviceEntrypointCount: 0,
-      })
-      const missing = missingCapabilities(required, capabilities)
-      if (missing.length > 0) {
-        throw new VrtControlError(
-          409,
-          `Cell lacks capabilities: ${missing.join(', ')}`,
-          'VRT_CELL_CAPABILITY_MISSING'
-        )
-      }
+    const required = requiredCapabilities({
+      cronCount: 0,
+      bindingTypes: [],
+      queueConsumerCount: 0,
+      workflowCount: 1,
+      crossWorkerWorkflowCount: serviceWorkerId ? 1 : 0,
+      serviceEntrypointCount: 0,
+    })
+    const missing = missingCapabilities(required, capabilities)
+    if (missing.length > 0) {
+      throw new VrtControlError(
+        409,
+        `Cell lacks capabilities: ${missing.join(', ')}`,
+        'VRT_CELL_CAPABILITY_MISSING'
+      )
     }
 
     const target = serviceWorkerId ?? id

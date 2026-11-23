@@ -29,6 +29,7 @@ class NoBundles implements BundleStore {
 
 maybe('service resource API e2e', () => {
   let pool: Pool
+  let store: ReturnType<typeof createPlaneStore>
   let app: ReturnType<typeof createApp>
   const suffix = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`
   const cell = `svc-${suffix}`
@@ -51,8 +52,9 @@ maybe('service resource API e2e', () => {
   beforeAll(async () => {
     pool = new Pool({ connectionString: url })
     await pool.query(await readFile(new URL('./schema.sql', import.meta.url), 'utf8'))
+    store = createPlaneStore(pool)
     app = createApp({
-      store: createPlaneStore(pool),
+      store,
       pool,
       bundleStore: new NoBundles(),
       adminToken: TOKEN,
@@ -210,6 +212,12 @@ maybe('service resource API e2e', () => {
     expect(dos.body.data.classes).toEqual(['MyDO'])
 
     // Workflow declaration + instance op
+    await store.recordCellCapabilities(cell, {
+      cron: true,
+      assets: true,
+      workflows: true,
+      workflowsCrossWorker: true,
+    })
     const wf = await call(
       'POST',
       `/api/v1/cells/${cell}/teams/${team}/workers/${worker}/workflows`,
