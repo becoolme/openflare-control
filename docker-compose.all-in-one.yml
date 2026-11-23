@@ -138,14 +138,15 @@ services:
       vrt-sql:
         condition: service_started
     healthcheck:
-      # cell-controller joins this netns — "started" only means the
-      # container exists; a live listener means the main process (and
-      # therefore /proc/<pid>/ns/net) is actually up. 9091 = 0x2383,
-      # the loopback control port.
-      test: ['CMD-SHELL', 'awk ''$4=="0A" && $2 ~ /:2383$/ {f=1} END{exit !f}'' /proc/net/tcp']
+      # NOT a port check: vrt-host binds its control listener only
+      # after the first desired snapshot arrives, which only
+      # cell-controller can deliver — gating on a port deadlocks.
+      # The netns exists once PID 1 exists, which is all the
+      # network_mode:service:vrt-host joiners need.
+      test: ['CMD-SHELL', 'test -d /proc/1']
       interval: 1s
       timeout: 3s
-      retries: 60
+      retries: 30
 
   cell-controller:
     <<: *vrt-cell
