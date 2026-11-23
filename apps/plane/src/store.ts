@@ -500,8 +500,22 @@ class PlaneCellTx {
   }
 
   async flagshipApps(): Promise<readonly { tenantId: string; appId: string; config: string }[]> {
-    // The reference plane does not store CF Flagship apps yet.
-    return []
+    return (
+      await this.rows(
+        `select a.team_id, a.app_id, a.config
+         from plane_flagship_apps a
+        where a.team_id in (
+          select distinct team_id from plane_workers
+           where cluster_id=$1 and runtime='VRT'
+        )
+        order by a.team_id, a.app_id`,
+        [this.clusterId]
+      )
+    ).map((row) => ({
+      tenantId: String(row.team_id),
+      appId: String(row.app_id),
+      config: String(row.config),
+    }))
   }
 
   async activateVersion(workerId: string, versionId: string): Promise<void> {
@@ -581,6 +595,15 @@ class PlaneCellTx {
     }
 
     for (const binding of version.bindings ?? []) {
+      if (binding.type === 'FLAGSHIP' && typeof binding.resourceId === 'string') {
+        const [app] = await this.rows(
+          `select 1 from plane_flagship_apps
+            where team_id=$1 and app_id=$2 for share`,
+          [teamId, binding.resourceId]
+        )
+        if (!app) throw new VrtControlError(409, 'Flagship app is no longer declared')
+        continue
+      }
       if (binding.type !== 'DO' || typeof binding.resourceId !== 'string') continue
       const sep = binding.resourceId.lastIndexOf(':')
       const declaringId = sep === -1 ? '' : binding.resourceId.slice(0, sep)

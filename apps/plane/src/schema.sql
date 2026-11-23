@@ -123,6 +123,14 @@ create table if not exists plane_bundle_objects (
   last_referenced_at timestamptz not null default now()
 );
 
+create table if not exists plane_flagship_apps (
+  team_id text not null,
+  app_id text not null,
+  config text not null,
+  updated_at timestamptz not null default now(),
+  primary key (team_id, app_id)
+);
+
 create table if not exists plane_cell_ops (
   id text primary key,
   seq bigserial unique,

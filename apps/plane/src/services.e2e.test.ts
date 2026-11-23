@@ -332,9 +332,121 @@ maybe('service resource API e2e', () => {
     await store.recordCellCapabilities(cell, {
       cron: true,
       assets: true,
+      d1: true,
+      queue: true,
       workflows: true,
       workflowsCrossWorker: true,
+      flagship: true,
     })
+    // Flagship app + binding ride the next publication.
+    const flagship = await call(
+      'PUT',
+      `/api/v1/cells/${cell}/teams/${team}/flagship/apps/checkout`,
+      {
+        config: {
+          flags: {
+            newCheckout: {
+              type: 'boolean',
+              enabled: true,
+              variants: { on: true, off: false },
+              defaultVariant: 'off',
+            },
+          },
+        },
+      }
+    )
+    expect(flagship.status).toBe(201)
+    const flagshipVersion = await call(
+      'POST',
+      `/api/v1/cells/${cell}/teams/${team}/workers/${worker}/versions`,
+      {
+        versionId: `flagship-${suffix}`,
+        bundleSha256: digest,
+        bundleBytes: bundle.byteLength,
+        queueConsumers: [{ queueId, queueName: 'jobs', maxBatchSize: 10 }],
+        bindings: [
+          {
+            name: 'FLAGS',
+            type: 'FLAGSHIP',
+            resourceId: 'checkout',
+            permissionRead: true,
+            permissionWrite: false,
+          },
+          {
+            name: 'MY_DO',
+            type: 'DO',
+            resourceId: `${workerId}:MyDO`,
+            permissionRead: true,
+            permissionWrite: false,
+          },
+        ],
+      }
+    )
+    expect(flagshipVersion.status).toBe(201)
+    expect(
+      (
+        await call(
+          'POST',
+          `/api/v1/cells/${cell}/teams/${team}/workers/${worker}/versions/flagship-${suffix}/activate`,
+          {}
+        )
+      ).status
+    ).toBe(200)
+    expect(
+      (await call('POST', `/api/v1/cells/${cell}/publish`, { cause: 'FLAGSHIP' })).status
+    ).toBe(201)
+    const flagshipDesired = await app.request(`/api/internal/clusters/${cell}/vrt/desired`, {
+      headers: auth,
+    })
+    const flagshipEnvelope = (await flagshipDesired.json()) as any
+    const flagshipTenant = flagshipEnvelope.payload.tenants.find(
+      (tenant: any) => tenant.tenantId === team
+    )
+    expect(flagshipTenant.flagshipApps).toEqual([
+      expect.objectContaining({
+        appId: 'checkout',
+        config: expect.stringContaining('newCheckout'),
+      }),
+    ])
+    expect(flagshipTenant.flagshipApps).toEqual([
+      expect.objectContaining({
+        appId: 'checkout',
+        config: expect.stringContaining('newCheckout'),
+      }),
+    ])
+    expect(
+      (
+        await call('PUT', `/api/v1/cells/${cell}/teams/${team}/flagship/apps/bad`, {
+          config: {
+            flags: {
+              bad: { type: 'nope', enabled: true, variants: {}, defaultVariant: 'x' },
+            },
+          },
+        })
+      ).status
+    ).toBe(400)
+    expect(
+      (
+        await call('POST', `/api/v1/cells/${cell}/teams/${team}/workers/${worker}/versions`, {
+          versionId: `flagship-missing-${suffix}`,
+          bundleSha256: digest,
+          bundleBytes: bundle.byteLength,
+          bindings: [
+            {
+              name: 'FLAGS',
+              type: 'FLAGSHIP',
+              resourceId: 'missing',
+              permissionRead: true,
+              permissionWrite: false,
+            },
+          ],
+        })
+      ).status
+    ).toBe(400)
+    expect(
+      (await call('DELETE', `/api/v1/cells/${cell}/teams/${team}/flagship/apps/checkout`)).status
+    ).toBe(409)
+
     const wf = await call(
       'POST',
       `/api/v1/cells/${cell}/teams/${team}/workers/${worker}/workflows`,
