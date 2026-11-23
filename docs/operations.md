@@ -15,20 +15,29 @@ refuse new work rather than serving an unverified document).
 ## Transport security (TLS)
 
 The plane and console speak plain HTTP. Everything on the wire is sensitive:
-bearer tokens authenticate both APIs, and the cell channel's render-inputs
-carries worker **secrets in cleartext** by design (cells must inject them as
-bindings). Therefore:
+bearer tokens authenticate the plane's cell and management APIs, the console's
+HTTP Basic credential gates its proxied management surface, and the cell
+channel's render-inputs carries worker **secrets in cleartext** by design (cells
+must inject them as bindings). Therefore:
 
 - **Loopback and cluster-internal hops are fine without TLS.** The compose
-  defaults already bind every published port to `127.0.0.1`; pod-to-pod
-  traffic inside one trust domain stays on the cluster network.
+  defaults bind the published plane/console/Postgres ports to `127.0.0.1`;
+  pod-to-pod traffic inside one trust domain stays on the cluster network.
 - **Any hop leaving the host/cluster boundary must be TLS-terminated** — a
   reverse proxy or ingress in front of the plane/console, or a service mesh
-  doing mTLS. Never expose a bearer-authenticated endpoint over plaintext
-  HTTP to a shared network: the token grants full access to anyone who
-  sniffs it.
+  doing mTLS. Never expose a bearer- or Basic-authenticated endpoint over
+  plaintext HTTP to a shared network: the credential grants full access to
+  anyone who sniffs it.
 - `*_BIND=0.0.0.0` on the compose ports is the deliberate opt-out — use it
   only behind a TLS terminator or on a fully trusted network.
+
+## Secrets at rest
+
+`PLANE_SECRETS_KEY` (at least 32 characters) roots the AES-256-GCM cipher for
+`plane_secrets.value`. It is required at boot and must not be derived from or
+rotated with the signing key: a signing-key rotation would otherwise make every
+stored secret unreadable. Pre-encryption plaintext rows are re-sealed on their
+first `render-inputs` read.
 
 ## Signing key
 
@@ -87,9 +96,12 @@ restored plane database can never re-sign a revision a cell already applied.
 ## Backups
 
 - Postgres: a normal `pg_dump` is enough. The plane state is small
-  (publications, versions, hostnames, vars/secrets). Secrets are stored in
-  plain text columns by this reference plane — protect the backup like the
-  database itself, or store only references and keep values elsewhere.
+  (publications, versions, hostnames, vars/secrets). Worker secrets are
+  encrypted at rest, but the database still contains their ciphertext — protect
+  the backup like the database itself.
+- `PLANE_SECRETS_KEY`: back it up separately. It is independent of the signing
+  secret. Losing it means every worker secret must be re-entered; rotating it
+  requires re-encrypting the values first.
 - Bundles: back up `PLANE_BUNDLE_DIR` (content-addressed; additive).
 - Signing secret: back it up separately; losing it means re-trusting a new key
   on every cell.
@@ -99,6 +111,7 @@ restored plane database can never re-sign a revision a cell already applied.
 | Symptom                           | Cause                                            | Action                                                |
 | --------------------------------- | ------------------------------------------------ | ----------------------------------------------------- |
 | cells report 401                  | token rotated out of sync                        | update `vrt-secrets` `cell-token`, roll the cell      |
+| render-inputs 500                 | `PLANE_SECRETS_KEY` changed or lost              | restore the key; otherwise re-enter every secret      |
 | desired 404                       | no publication yet                               | run the seed/publish command                          |
 | ACK 409 `VRT_ACK_DIGEST_MISMATCH` | plane re-signed while the cell held an older doc | normal during a publish race; the cell retries        |
 | ACK 409 `VRT_ACK_TERMINAL`        | conflicting verdict for a terminal revision      | investigate; the first verdict stands                 |

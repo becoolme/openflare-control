@@ -17,7 +17,14 @@ describe('secretsCipher', () => {
   })
 
   it('passes through pre-encryption plaintext rows (lazy migration)', () => {
+    expect(cipher.isEncrypted('plaintext-legacy-secret')).toBe(false)
     expect(cipher.decrypt('plaintext-legacy-secret')).toBe('plaintext-legacy-secret')
+    expect(cipher.isEncrypted(cipher.encrypt('sealed'))).toBe(true)
+  })
+
+  it('refuses a missing or short key', () => {
+    expect(() => createSecretsCipher('')).toThrow(/PLANE_SECRETS_KEY/)
+    expect(() => createSecretsCipher('too-short')).toThrow(/PLANE_SECRETS_KEY/)
   })
 
   it('rejects tampered ciphertext', () => {

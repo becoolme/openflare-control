@@ -30,7 +30,27 @@ export async function collectRenderInputs(
       worker.id,
     ])
     for (const row of secretRows.rows as { key: string; value: string }[]) {
-      tenant.secrets[row.key] = secrets.decrypt(row.value)
+      const plaintext = secrets.decrypt(row.value)
+      tenant.secrets[row.key] = plaintext
+      // Upgrade a pre-encryption row on the first read instead of leaving it
+      // in plaintext forever. The value guard makes concurrent readers
+      // idempotent: only the first sealer rewrites the row.
+      if (!secrets.isEncrypted(row.value)) {
+        try {
+          await pool.query(
+            `update plane_secrets set value=$3
+              where worker_id=$1 and key=$2 and value=$4`,
+            [worker.id, row.key, secrets.encrypt(plaintext), row.value]
+          )
+        } catch (error) {
+          // Rendering must not fail just because the best-effort re-seal
+          // could not write; the secret is already available in memory.
+          console.error(
+            '[openflare-plane] failed to seal a legacy secret:',
+            error instanceof Error ? error.message : 'unknown error'
+          )
+        }
+      }
     }
   }
   const fingerprint = createHash('sha256').update(JSON.stringify(tenants)).digest('hex')

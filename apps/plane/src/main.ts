@@ -31,16 +31,19 @@ const adminToken = env('PLANE_ADMIN_TOKEN')
 if (adminToken.length < 32) {
   throw new Error('PLANE_ADMIN_TOKEN must be at least 32 characters')
 }
+const secretsKey = env('PLANE_SECRETS_KEY')
+if (secretsKey.length < 32) {
+  throw new Error('PLANE_SECRETS_KEY must be at least 32 characters')
+}
 const app = createApp({
   store,
   pool,
   bundleStore: new DirBundleStore(env('PLANE_BUNDLE_DIR', './data/bundles')),
   adminToken,
   signing,
-  // The signing secret is already a required high-entropy value, so it also
-  // roots the at-rest cipher (HKDF under a distinct domain salt — the two
-  // keys never collide).
-  secrets: createSecretsCipher(env('PLANE_SIGNING_SECRET')),
+  // Worker secrets get an independent at-rest key: rotating
+  // PLANE_SIGNING_SECRET must never make stored secrets unreadable.
+  secrets: createSecretsCipher(secretsKey),
   maxBundleBytes,
   retention,
 })
@@ -62,11 +65,15 @@ if (retention.sweepMs > 0) {
   timer.unref()
 }
 
+let shuttingDown = false
 const shutdown = async (signal: string): Promise<void> => {
+  if (shuttingDown) return
+  shuttingDown = true
   console.log(`openflare-plane received ${signal}, draining`)
-  // server.close() only *starts* the drain — end the pool before in-flight
-  // queries settle and they surface as opaque 500s. A bounded force-exit
-  // covers a wedged connection instead of hanging the rollout.
+  // server.close() only *starts* the drain. Wait for it to finish before
+  // ending the pool: ending the pool first turns in-flight queries into
+  // opaque 500s. A bounded force-exit covers a wedged connection instead of
+  // hanging the rollout.
   const force = setTimeout(() => process.exit(1), 10_000)
   force.unref()
   await new Promise<void>((resolve) => {
