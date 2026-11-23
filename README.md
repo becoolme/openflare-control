@@ -57,7 +57,6 @@ pnpm --filter openflare-control build
 export PLANE_TOKEN="$(openssl rand -hex 32)"
 export PLANE_SIGNING_SECRET="$(openssl rand -hex 32)"
 docker compose up -d --build
-docker compose exec plane node dist/migrate.js
 
 # store a bundle and publish a signed snapshot
 DIGEST=$(printf 'hello' | shasum -a 256 | cut -d' ' -f1)
@@ -84,7 +83,6 @@ export DATABASE_URL=postgresql://user:pass@host/openflare_plane
 export PLANE_TOKEN="$(openssl rand -hex 32)"
 export PLANE_SIGNING_SECRET="$(openssl rand -hex 32)"
 export PLANE_BUNDLE_DIR=/var/lib/openflare/bundles
-pnpm --filter openflare-plane migrate
 pnpm --filter openflare-plane start        # prints keyId + publicKey
 
 # 2. build and push the four cell images from the pinned workerd fork

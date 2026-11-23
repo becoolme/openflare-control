@@ -1,11 +1,11 @@
 import { serve } from '@hono/node-server'
-import { readFile } from 'node:fs/promises'
 import { Pool } from 'pg'
 import { createPlaneStore } from './store.js'
 import { createApp } from './routes.js'
 import { DirBundleStore } from './bundleStore.js'
 import { resolvePlaneSigningKey } from './signing.js'
 import { pruneRetention, retentionFromEnv } from './retention.js'
+import { applySchema } from './applySchema.js'
 
 const env = (name: string, fallback?: string): string => {
   const value = process.env[name] ?? fallback
@@ -26,8 +26,7 @@ const pool = new Pool({ connectionString: env('DATABASE_URL') })
 // request. Operators running a least-privilege DB role opt out with
 // PLANE_MIGRATE_ON_BOOT=0 and apply `dist/migrate.js` out-of-band.
 if ((process.env.PLANE_MIGRATE_ON_BOOT ?? '1') !== '0') {
-  const sql = await readFile(new URL('./schema.sql', import.meta.url), 'utf8')
-  await pool.query(sql)
+  await applySchema(pool)
   console.log('openflare-plane schema applied at boot')
 }
 const signing = resolvePlaneSigningKey()

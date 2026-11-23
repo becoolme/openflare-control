@@ -4,7 +4,6 @@
  * HTTP (not `app.request`) with a real Postgres behind it.
  *
  *   PLANE_TOKEN=... docker compose up -d --build
- *   docker compose exec -T plane node dist/migrate.js
  *   PLANE_TOKEN=... node scripts/e2e-docker.mjs
  *
  * CI runs the same sequence; the script is also the local smoke command.
