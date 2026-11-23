@@ -1,7 +1,10 @@
 # cell-controller — desired pull/ack, envelope+assignment delivery,
 # render-inputs materialization, cron leadership (all-in-one docker).
 cell_id = "__CELL_ID__"
-control_plane_url = "http://plane:8787"
+# The plane-loopback socat sidecar shares vrt-host's netns — which is
+# also this container's netns — so 127.0.0.1:8787 reaches the plane.
+# Needed because render_inputs.rs fail-closed on non-loopback http.
+control_plane_url = "http://127.0.0.1:8787"
 # The compose plane only speaks http on the in-cluster network; TLS
 # terminates at Traefik for anything leaving the host boundary.
 allow_insecure_http = true

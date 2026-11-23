@@ -170,6 +170,9 @@ services:
         # races the target's exec — the ns only exists once its main
         # process runs.
         condition: service_healthy
+      plane-loopback:
+        # control_plane_url is loopback http through this forwarder.
+        condition: service_started
 
   # Loopback path to the plane for vrt-host: its config fail-closed on
   # non-loopback http control-plane URLs, and the compose-network
