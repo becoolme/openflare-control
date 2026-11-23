@@ -23,7 +23,7 @@ jobs:
       - run: pnpm run typecheck
       - run: pnpm run check:package
       - run: pnpm run check:sanitized
-      - run: PLANE_TOKEN=x PLANE_SIGNING_SECRET=y docker compose config -q
+      - run: PLANE_TOKEN=x PLANE_ADMIN_TOKEN=y PLANE_SIGNING_SECRET=z docker compose config -q
 
   control:
     runs-on: ubuntu-24.04
@@ -96,8 +96,8 @@ jobs:
   e2e-docker:
     runs-on: ubuntu-24.04
     env:
-      PLANE_TOKEN: docker-e2e-token
-      PLANE_ADMIN_TOKEN: docker-e2e-token
+      PLANE_TOKEN: docker-e2e-cell-token-0123456789abcdef
+      PLANE_ADMIN_TOKEN: docker-e2e-admin-token-0123456789ab
       PLANE_SIGNING_SECRET: docker-e2e-signing-secret
     steps:
       - uses: actions/checkout@v4
@@ -115,8 +115,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
-      PLANE_TOKEN: kind-e2e-token
-      PLANE_ADMIN_TOKEN: kind-e2e-token
+      PLANE_TOKEN: kind-e2e-cell-token-0123456789abcdef00
+      PLANE_ADMIN_TOKEN: kind-e2e-admin-token-0123456789abcd
       PLANE_SIGNING_SECRET: kind-e2e-signing-secret
       KIND_CLUSTER: openflare-e2e
       PLANE_E2E_PORT: '18787'
@@ -152,8 +152,8 @@ jobs:
           --health-retries 10
     env:
       DATABASE_URL: postgresql://vrt:vrt@127.0.0.1:5432/openflare_plane_test
-      PLANE_TOKEN: fullstack-cell-token
-      PLANE_ADMIN_TOKEN: fullstack-cell-token
+      PLANE_TOKEN: fullstack-cell-token-0123456789abcdef
+      PLANE_ADMIN_TOKEN: fullstack-admin-token-0123456789abcdef
       PLANE_SIGNING_SECRET: fullstack-signing-secret-1234
       RUNTIME_DIR: ${{ github.workspace }}/openflare
       WORKERD_BIN: ${{ github.workspace }}/openflare/.ci/workerd/workerd

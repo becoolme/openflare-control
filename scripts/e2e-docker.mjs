@@ -16,15 +16,20 @@ const base = (process.env.PLANE_BASE_URL ?? 'http://127.0.0.1:8787').replace(/\/
 const consoleBase = (process.env.CONSOLE_BASE_URL ?? 'http://127.0.0.1:8788').replace(/\/$/, '')
 const token = process.env.PLANE_TOKEN
 if (!token) throw new Error('PLANE_TOKEN is required')
+const adminToken = process.env.PLANE_ADMIN_TOKEN
+if (!adminToken) throw new Error('PLANE_ADMIN_TOKEN is required')
 
 const auth = { authorization: `Bearer ${token}` }
 const json = { ...auth, 'content-type': 'application/json' }
+const adminAuth = { authorization: `Bearer ${adminToken}` }
+const adminJson = { ...adminAuth, 'content-type': 'application/json' }
 const sha256 = (b) => createHash('sha256').update(b).digest('hex')
 const suffix = `${Date.now()}-${randomBytes(3).toString('hex')}`
 const cell = `docker-${suffix}`
 const team = `team-${suffix}`
 
-async function request(method, path, body, headers = json, raw = false) {
+async function request(method, path, body, headers, raw = false) {
+  headers ??= path.startsWith('/api/v1') ? adminJson : json
   const res = await fetch(`${base}${path}`, {
     method,
     headers,
@@ -62,7 +67,7 @@ async function main() {
   const digest = sha256(bundle)
   const put = await fetch(`${base}/api/v1/cells/${cell}/bundles/${digest}`, {
     method: 'PUT',
-    headers: auth,
+    headers: adminAuth,
     body: bundle,
   })
   assert.equal(put.status, 201)

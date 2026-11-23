@@ -19,7 +19,10 @@ export type { AdminDeps } from './context.js'
  */
 export function createAdminApp(deps: AdminDeps): Hono {
   const app = new Hono()
-  const expected = deps.adminToken ?? deps.token
+  // No cell-token fallback: main.ts refuses to boot without a distinct
+  // PLANE_ADMIN_TOKEN, so an absent adminToken means a test wired the app
+  // directly — fail closed rather than widen the management surface.
+  const expected = deps.adminToken ?? ''
   app.use('/api/v1/*', async (c, next) => {
     c.header('Cache-Control', 'no-store')
     requireAdmin(c, expected)

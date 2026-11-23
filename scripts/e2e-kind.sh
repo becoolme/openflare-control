@@ -43,7 +43,7 @@ kubectl --context "kind-${CLUSTER}" apply -f deploy/k8s/e2e/plane.yaml
 kubectl --context "kind-${CLUSTER}" -n "$NS" create secret generic plane-env \
   --from-literal=DATABASE_URL="postgresql://vrt:vrt@postgres:5432/vrt_plane" \
   --from-literal=PLANE_TOKEN="$TOKEN" \
-  --from-literal=PLANE_ADMIN_TOKEN="${PLANE_ADMIN_TOKEN:-$TOKEN}" \
+  --from-literal=PLANE_ADMIN_TOKEN="${PLANE_ADMIN_TOKEN:?set PLANE_ADMIN_TOKEN}" \
   --from-literal=PLANE_SIGNING_SECRET="$SIGNING" \
   --dry-run=client -o yaml | kubectl --context "kind-${CLUSTER}" apply -f -
 
@@ -67,5 +67,5 @@ curl -fsS "http://127.0.0.1:${PORT}/healthz" >/dev/null
 
 PLANE_BASE_URL="http://127.0.0.1:${PORT}" \
   CONSOLE_BASE_URL="http://127.0.0.1:${CONSOLE_PORT}" \
-  PLANE_TOKEN="$TOKEN" node scripts/e2e-docker.mjs
+  PLANE_TOKEN="$TOKEN" PLANE_ADMIN_TOKEN="$PLANE_ADMIN_TOKEN" node scripts/e2e-docker.mjs
 echo "OK: kind e2e passed in cluster ${CLUSTER}"
