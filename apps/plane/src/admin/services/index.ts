@@ -6,6 +6,7 @@ import { registerKvService } from './kv.js'
 import { registerQueueService } from './queues.js'
 import { registerR2Service } from './r2.js'
 import { registerWorkflowService } from './workflows.js'
+import { registerVectorizeService } from './vectorize.js'
 
 export function registerServices(app: Hono, deps: AdminDeps): void {
   registerD1Service(app, deps)
@@ -14,18 +15,20 @@ export function registerServices(app: Hono, deps: AdminDeps): void {
   registerHyperdriveService(app, deps)
   registerQueueService(app, deps)
   registerWorkflowService(app, deps)
+  registerVectorizeService(app, deps)
 
   // One catalog for "what does this cell own?" — used by the console/CLI to
   // assemble worker bindings without knowing every resource table.
   app.get('/api/v1/cells/:cellId/services', async (c) => {
     const cell = c.req.param('cellId')
-    const [d1, r2, kv, queues, workflows, hyperdrive] = await Promise.all([
+    const [d1, r2, kv, queues, workflows, hyperdrive, vectorize] = await Promise.all([
       rows(deps, 'select * from plane_d1_databases where cluster_id=$1 order by name', [cell]),
       rows(deps, 'select * from plane_r2_buckets where cluster_id=$1 order by bucket_name', [cell]),
       rows(deps, 'select * from plane_kv_namespaces where cluster_id=$1 order by title', [cell]),
       rows(deps, 'select * from plane_queues where cluster_id=$1 order by name', [cell]),
       rows(deps, 'select * from plane_workflows where cluster_id=$1 order by name', [cell]),
       rows(deps, 'select * from plane_hyperdrives where cluster_id=$1 order by name', [cell]),
+      rows(deps, 'select * from plane_vectorize_indexes where cluster_id=$1 order by name', [cell]),
     ])
     return c.json({
       data: {
@@ -67,6 +70,20 @@ export function registerServices(app: Hono, deps: AdminDeps): void {
           name: r.name,
           className: r.class_name,
           teamId: r.team_id,
+        })),
+        vectorize: vectorize.map((r) => ({
+          indexId: r.index_id,
+          teamId: r.team_id,
+          name: r.name,
+          dimensions: Number(r.dimensions),
+          metric: r.metric,
+          binding: {
+            type: 'VECTORIZE',
+            resourceId: r.index_id,
+            indexName: r.name,
+            dimensions: Number(r.dimensions),
+            metric: r.metric,
+          },
         })),
         hyperdrive: hyperdrive.map((r) => ({
           hyperdriveId: r.hyperdrive_id,

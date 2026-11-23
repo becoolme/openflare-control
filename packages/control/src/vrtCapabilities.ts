@@ -47,6 +47,7 @@ export const VRT_CELL_CAPABILITY_KEYS = [
   'email',
   'images',
   'k2',
+  'vectorize',
   'observability',
   /** `{"type":"secretsStore"}` bindings render to the bundled
    * `/workerd/secrets-store.js` worker; the control plane does not emit the

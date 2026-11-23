@@ -162,6 +162,35 @@ describe('serializeBinding', () => {
     expect(() => binding({ type: 'DO', resourceId: 'no-colon' })).toThrow(/durableObject/)
   })
 
+  it('VECTORIZE carries the signed index spec', () => {
+    expect(
+      binding({
+        type: 'VECTORIZE',
+        resourceId: 'a'.repeat(26),
+        indexName: 'docs-index',
+        dimensions: 768,
+        metric: 'cosine',
+      })
+    ).toEqual({
+      type: 'vectorize',
+      name: 'B',
+      indexId: 'a'.repeat(26),
+      indexName: 'docs-index',
+      dimensions: 768,
+      metric: 'cosine',
+      permissions: { read: true, write: false },
+    })
+    expect(() =>
+      binding({
+        type: 'VECTORIZE',
+        resourceId: 'a'.repeat(26),
+        indexName: 'docs-index',
+        dimensions: 1537,
+        metric: 'cosine',
+      })
+    ).toThrow(/vectorize/)
+  })
+
   it('ASSETS carries the manifest digest and the version routing mode', () => {
     const digest = 'a'.repeat(64)
     expect(

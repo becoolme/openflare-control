@@ -282,6 +282,24 @@ async function createVersion(
     }
   }
 
+  for (const binding of body.bindings) {
+    if (binding.type !== 'VECTORIZE' || typeof binding.resourceId !== 'string') continue
+    const [index] = await rows(
+      deps,
+      `select name, dimensions, metric from plane_vectorize_indexes
+        where index_id=$1 and team_id=$2 and cluster_id=$3`,
+      [binding.resourceId, owner.team_id, owner.cluster_id]
+    )
+    if (!index) throw new VrtControlError(400, 'Vectorize index is not declared')
+    if (
+      index.name !== binding.indexName ||
+      Number(index.dimensions) !== binding.dimensions ||
+      index.metric !== binding.metric
+    ) {
+      throw new VrtControlError(400, 'Vectorize binding does not match the declared index')
+    }
+  }
+
   const capabilities = await deps.store.cellCapabilities(owner.cluster_id)
   if (capabilities !== null) {
     const required = requiredCapabilities({

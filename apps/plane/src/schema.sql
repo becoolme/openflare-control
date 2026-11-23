@@ -123,6 +123,17 @@ create table if not exists plane_bundle_objects (
   last_referenced_at timestamptz not null default now()
 );
 
+create table if not exists plane_vectorize_indexes (
+  index_id text primary key,
+  team_id text not null,
+  cluster_id text not null,
+  name text not null,
+  dimensions integer not null check (dimensions between 1 and 1536),
+  metric text not null check (metric in ('cosine','euclidean','dot-product')),
+  created_at timestamptz not null default now(),
+  unique (team_id, cluster_id, name)
+);
+
 create table if not exists plane_flagship_apps (
   team_id text not null,
   app_id text not null,
