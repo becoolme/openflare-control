@@ -59,6 +59,7 @@ describe('capability bits', () => {
         k2: false,
         observability: false,
         secretsStore: false,
+        tailConsumers: false,
         streamingTailConsumers: false,
         unsafeEval: false,
         versionMetadata: false,
