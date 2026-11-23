@@ -14,10 +14,12 @@ import { bundleKeyFor, type BundleStore } from 'openflare-control'
 import { createApp } from './routes.js'
 import { createPlaneStore } from './store.js'
 import { resolvePlaneSigningKey } from './signing.js'
+import { createSecretsCipher } from './secretsCipher.js'
 
 const url = process.env.DATABASE_URL
 const maybe = url ? describe : describe.skip
 const TOKEN = 'e2e-admin-token'
+const TEST_SECRETS_CIPHER = createSecretsCipher('test-secrets-cipher-key-0001')
 const sha256 = (b: Uint8Array | string) => createHash('sha256').update(b).digest('hex')
 
 class MemoryBundles implements BundleStore {
@@ -75,6 +77,7 @@ maybe('management API e2e', () => {
       pool,
       bundleStore: new MemoryBundles(),
       adminToken: TOKEN,
+      secrets: TEST_SECRETS_CIPHER,
       signing: resolvePlaneSigningKey('e2e-signing-secret-1234'),
     })
     await provisionCellToken(cell)
@@ -151,6 +154,14 @@ maybe('management API e2e', () => {
     expect(
       (await call('POST', `${base}/teams/${team}/workers/${worker}/hostnames`, { hostname })).status
     ).toBe(201)
+    const storedSecret = await pool.query(
+      'select value from plane_secrets where worker_id=$1 and key=$2',
+      [`${team}:${worker}`, 'API_KEY']
+    )
+    const storedValue = (storedSecret.rows[0] as { value: string }).value
+    expect(storedValue).not.toBe('super-secret')
+    expect(TEST_SECRETS_CIPHER.isEncrypted(storedValue)).toBe(true)
+    expect(TEST_SECRETS_CIPHER.decrypt(storedValue)).toBe('super-secret')
 
     // version + activate
     const created = await call('POST', `${base}/teams/${team}/workers/${worker}/versions`, {

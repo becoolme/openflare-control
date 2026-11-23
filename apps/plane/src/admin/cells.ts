@@ -71,7 +71,7 @@ export function registerCells(app: Hono, deps: AdminDeps): void {
   })
 
   app.get('/api/v1/cells/:cellId/render-inputs', async (c) => {
-    const inputs = await collectRenderInputs(deps.pool, c.req.param('cellId'))
+    const inputs = await collectRenderInputs(deps.pool, c.req.param('cellId'), deps.secrets)
     return c.json({ data: inputs })
   })
 

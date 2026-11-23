@@ -7,11 +7,13 @@ import { Pool } from 'pg'
 import { createApp } from './routes.js'
 import { createPlaneStore } from './store.js'
 import { resolvePlaneSigningKey } from './signing.js'
+import { createSecretsCipher } from './secretsCipher.js'
 import type { BundleStore } from 'openflare-control'
 
 const url = process.env.DATABASE_URL
 const maybe = url ? describe : describe.skip
 const TOKEN = 'stats-edge-token'
+const TEST_SECRETS_CIPHER = createSecretsCipher('test-secrets-cipher-key-0001')
 
 class NoBundles implements BundleStore {
   async put() {
@@ -52,6 +54,7 @@ maybe('management API stats edges', () => {
       pool,
       bundleStore: new NoBundles(),
       adminToken: TOKEN,
+      secrets: TEST_SECRETS_CIPHER,
       signing: resolvePlaneSigningKey('stats-signing-secret-1234'),
     })
     await provisionCellToken(cell)

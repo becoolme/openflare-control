@@ -114,9 +114,11 @@ after the next publish.
 | POST           | `.../hostnames`            | `{hostname}` (global uniqueness enforced) |
 | DELETE         | `.../hostnames/{hostname}` | remove a hostname                         |
 
-The reference plane stores secret values in Postgres as delivered. A
-production deployment should use an encrypted/KMS-backed store; the port keeps
-values out of `desired` and out of reads.
+The reference plane encrypts secret values in Postgres with AES-256-GCM
+(`enc:v1:<iv>:<tag>:<ciphertext>`) under the dedicated `PLANE_SECRETS_KEY`.
+Values written before encryption are re-sealed on their first read. The port
+still keeps values out of `desired` and out of secret-name reads; only
+`render-inputs` reveals them.
 
 ### Bundles
 
@@ -207,10 +209,11 @@ These two files call Hono's `app.request()` in-process against a real Postgres
 HTTP** with a real Postgres behind it:
 
 ```sh
-PLANE_ADMIN_TOKEN=... PLANE_SIGNING_SECRET=... \
+PLANE_ADMIN_TOKEN=... PLANE_SIGNING_SECRET=... PLANE_SECRETS_KEY=... \
   CONSOLE_AUTH_PASSWORD=... docker compose up -d --build
 docker compose exec -T plane node dist/migrate.js
-PLANE_ADMIN_TOKEN=... CONSOLE_AUTH_PASSWORD=... pnpm test:e2e:docker
+PLANE_ADMIN_TOKEN=... PLANE_SECRETS_KEY=... CONSOLE_AUTH_PASSWORD=... \
+  pnpm test:e2e:docker
 ```
 
 CI's `e2e-docker` job runs exactly that sequence (compose up, migrate, script,
@@ -225,8 +228,8 @@ waits for rollout, runs migrations, port-forwards the Service and executes the
 same HTTP lifecycle as the Docker e2e.
 
 ```sh
-PLANE_ADMIN_TOKEN=... PLANE_SIGNING_SECRET=... CONSOLE_AUTH_PASSWORD=... \
-  pnpm test:e2e:kind
+PLANE_ADMIN_TOKEN=... PLANE_SIGNING_SECRET=... PLANE_SECRETS_KEY=... \
+  CONSOLE_AUTH_PASSWORD=... pnpm test:e2e:kind
 ```
 
 CI's `e2e-kind` job runs this on `ubuntu-24.04` with `helm/kind-action`. Scope:

@@ -53,7 +53,7 @@ export function registerConfig(app: Hono, deps: AdminDeps): void {
     await deps.pool.query(
       `insert into plane_secrets (worker_id, key, value) values ($1,$2,$3)
        on conflict (worker_id, key) do update set value=excluded.value`,
-      [worker(c), k, body.value]
+      [worker(c), k, deps.secrets.encrypt(body.value)]
     )
     return c.json({ data: { key: k } })
   })

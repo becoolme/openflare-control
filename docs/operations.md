@@ -12,6 +12,14 @@ The plane is not on the tenant request path. If it is down, cells keep serving
 their last accepted snapshot until its 24 h expiry, then fail closed (they
 refuse new work rather than serving an unverified document).
 
+## Secrets at rest
+
+`PLANE_SECRETS_KEY` (at least 32 characters) roots the AES-256-GCM cipher for
+`plane_secrets.value`. It is required at boot and must not be derived from or
+rotated with the signing key: a signing-key rotation would otherwise make every
+stored secret unreadable. Pre-encryption plaintext rows are re-sealed on their
+first `render-inputs` read.
+
 ## Signing key
 
 The key is derived from `PLANE_SIGNING_SECRET` (HKDF → Ed25519). Its
@@ -69,9 +77,12 @@ restored plane database can never re-sign a revision a cell already applied.
 ## Backups
 
 - Postgres: a normal `pg_dump` is enough. The plane state is small
-  (publications, versions, hostnames, vars/secrets). Secrets are stored in
-  plain text columns by this reference plane — protect the backup like the
-  database itself, or store only references and keep values elsewhere.
+  (publications, versions, hostnames, vars/secrets). Worker secrets are
+  encrypted at rest, but the database still contains their ciphertext — protect
+  the backup like the database itself.
+- `PLANE_SECRETS_KEY`: back it up separately. It is independent of the signing
+  secret. Losing it means every worker secret must be re-entered; rotating it
+  requires re-encrypting the values first.
 - Bundles: back up `PLANE_BUNDLE_DIR` (content-addressed; additive).
 - Signing secret: back it up separately; losing it means re-trusting a new key
   on every cell.
@@ -81,6 +92,7 @@ restored plane database can never re-sign a revision a cell already applied.
 | Symptom                           | Cause                                            | Action                                                |
 | --------------------------------- | ------------------------------------------------ | ----------------------------------------------------- |
 | cells report 401                  | token rotated out of sync                        | update `vrt-secrets` `cell-token`, roll the cell      |
+| render-inputs 500                 | `PLANE_SECRETS_KEY` changed or lost              | restore the key; otherwise re-enter every secret      |
 | desired 404                       | no publication yet                               | run the seed/publish command                          |
 | ACK 409 `VRT_ACK_DIGEST_MISMATCH` | plane re-signed while the cell held an older doc | normal during a publish race; the cell retries        |
 | ACK 409 `VRT_ACK_TERMINAL`        | conflicting verdict for a terminal revision      | investigate; the first verdict stands                 |

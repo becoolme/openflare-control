@@ -28,6 +28,8 @@ export interface AppDeps {
   maxBundleBytes?: number
   /** Deployment retention policy (logs/ops/publications). */
   retention?: import('./retention.js').RetentionConfig
+  /** At-rest cipher for `plane_secrets.value` — required, no plaintext fallback. */
+  secrets: import('./secretsCipher.js').SecretsCipher
 }
 
 const MAX_BODY = 16 * 1024
@@ -148,7 +150,7 @@ export function createApp(deps: AppDeps): Hono {
   app.get('/api/internal/clusters/:clusterId/vrt/render-inputs', async (c) => {
     try {
       const cellId = await auth(c, deps)
-      const inputs = await collectRenderInputs(deps.pool, cellId)
+      const inputs = await collectRenderInputs(deps.pool, cellId, deps.secrets)
       return c.body(JSON.stringify(inputs), 200, { 'Content-Type': 'application/json' })
     } catch (error) {
       return errorResponse(c, error)

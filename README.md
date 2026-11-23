@@ -56,6 +56,7 @@ pnpm --filter openflare-control build
 
 export PLANE_ADMIN_TOKEN="$(openssl rand -hex 32)"
 export PLANE_SIGNING_SECRET="$(openssl rand -hex 32)"
+export PLANE_SECRETS_KEY="$(openssl rand -hex 32)"
 export CONSOLE_AUTH_PASSWORD="$(openssl rand -hex 16)"
 docker compose up -d --build
 docker compose exec plane node dist/migrate.js
@@ -92,6 +93,7 @@ an S3-compatible store, Kvrocks, Postgres, and an OpenFlare checkout
 export DATABASE_URL=postgresql://user:pass@host/openflare_plane
 export PLANE_ADMIN_TOKEN="$(openssl rand -hex 32)"
 export PLANE_SIGNING_SECRET="$(openssl rand -hex 32)"
+export PLANE_SECRETS_KEY="$(openssl rand -hex 32)"
 export PLANE_BUNDLE_DIR=/var/lib/openflare/bundles
 pnpm --filter openflare-plane migrate
 pnpm --filter openflare-plane start        # prints keyId + publicKey
@@ -149,7 +151,9 @@ cell API is in [docs/api.md](docs/api.md).
   derived from `PLANE_SIGNING_SECRET` and its public key must be listed in each
   component's `trustedKeys`. Cells reject replayed, tampered, mis-scoped or
   expired envelopes and fail closed.
-- Secrets never appear in the desired document — only references do.
+- Secrets never appear in the desired document — only references do. They are
+  encrypted at rest with AES-256-GCM under a dedicated, independent
+  `PLANE_SECRETS_KEY`; rotating the signing key does not touch them.
 - Bundle bytes are served only for digests referenced by a retained
   publication (no existence oracle), and size-capped.
 - Deployment manifests contain no private addresses or credentials
@@ -183,11 +187,11 @@ OPENFLARE_DIR=../openflare pnpm run check:openflare-contract  # checks the pinne
 pnpm run check:package-consumption          # pack + install + import in an empty project
 pnpm run check:sanitized                    # no private refs in deploy/
 # real container + real Postgres (requires docker compose):
-PLANE_ADMIN_TOKEN=... PLANE_SIGNING_SECRET=... CONSOLE_AUTH_PASSWORD=... \
-  pnpm test:e2e:docker
+PLANE_ADMIN_TOKEN=... PLANE_SIGNING_SECRET=... PLANE_SECRETS_KEY=... \
+  CONSOLE_AUTH_PASSWORD=... pnpm test:e2e:docker
 # real kind cluster + Postgres (requires kind/kubectl):
-PLANE_ADMIN_TOKEN=... PLANE_SIGNING_SECRET=... CONSOLE_AUTH_PASSWORD=... \
-  pnpm test:e2e:kind
+PLANE_ADMIN_TOKEN=... PLANE_SIGNING_SECRET=... PLANE_SECRETS_KEY=... \
+  CONSOLE_AUTH_PASSWORD=... pnpm test:e2e:kind
 OPENFLARE_DIR=../openflare node scripts/vrt-k8s-check.mjs --template deploy/k8s/overlays/example
 ```
 

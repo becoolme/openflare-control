@@ -4,6 +4,7 @@ import { createPlaneStore } from './store.js'
 import { createApp } from './routes.js'
 import { DirBundleStore } from './bundleStore.js'
 import { resolvePlaneSigningKey } from './signing.js'
+import { createSecretsCipher } from './secretsCipher.js'
 import { pruneRetention, retentionFromEnv } from './retention.js'
 
 const env = (name: string, fallback?: string): string => {
@@ -30,12 +31,19 @@ const adminToken = env('PLANE_ADMIN_TOKEN')
 if (adminToken.length < 32) {
   throw new Error('PLANE_ADMIN_TOKEN must be at least 32 characters')
 }
+const secretsKey = env('PLANE_SECRETS_KEY')
+if (secretsKey.length < 32) {
+  throw new Error('PLANE_SECRETS_KEY must be at least 32 characters')
+}
 const app = createApp({
   store,
   pool,
   bundleStore: new DirBundleStore(env('PLANE_BUNDLE_DIR', './data/bundles')),
   adminToken,
   signing,
+  // Worker secrets get an independent at-rest key: rotating
+  // PLANE_SIGNING_SECRET must never make stored secrets unreadable.
+  secrets: createSecretsCipher(secretsKey),
   maxBundleBytes,
   retention,
 })

@@ -12,11 +12,13 @@ import { Pool } from 'pg'
 import { createApp } from './routes.js'
 import { createPlaneStore } from './store.js'
 import { resolvePlaneSigningKey } from './signing.js'
+import { createSecretsCipher } from './secretsCipher.js'
 import type { BundleStore } from 'openflare-control'
 
 const url = process.env.DATABASE_URL
 const maybe = url ? describe : describe.skip
 const TOKEN = 'cell-report-token'
+const TEST_SECRETS_CIPHER = createSecretsCipher('test-secrets-cipher-key-0001')
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 class NoBundles implements BundleStore {
@@ -59,6 +61,7 @@ maybe('cell report e2e', () => {
       pool,
       bundleStore: new NoBundles(),
       adminToken: TOKEN,
+      secrets: TEST_SECRETS_CIPHER,
       signing: resolvePlaneSigningKey('cell-report-signing-secret-1234'),
     })
     await provisionCellToken(cell)
