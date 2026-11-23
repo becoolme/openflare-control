@@ -4,7 +4,7 @@
 // seeds the shared secrets and directories on the cell-run volume.
 // Idempotent: existing files are never overwritten (no silent rotation).
 
-import { readFile, writeFile, mkdir, chmod, chown, access } from 'node:fs/promises'
+import { readFile, writeFile, mkdir, chown, access } from 'node:fs/promises'
 import { randomBytes } from 'node:crypto'
 
 const PLANE_URL = process.env.PLANE_URL ?? 'http://plane:8787'
@@ -31,7 +31,9 @@ const api = async (method, path, body) => {
 for (let i = 0; ; i++) {
   try {
     if ((await fetch(`${PLANE_URL}/healthz`)).ok) break
-  } catch {}
+  } catch {
+    // plane still booting — retry below
+  }
   if (i > 120) throw new Error('plane healthz timed out')
   await new Promise((r) => setTimeout(r, 1000))
 }
@@ -50,7 +52,9 @@ const writeOnce = async (path, content, mode, uid = VRT_UID) => {
   try {
     await access(path)
     return // never rotate silently
-  } catch {}
+  } catch {
+    // absent — write it
+  }
   await writeFile(path, content, { mode })
   await chown(path, uid, VRT_GID)
 }
