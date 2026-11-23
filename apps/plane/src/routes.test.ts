@@ -13,10 +13,12 @@ import { createApp } from './routes.js'
 import { createPlaneStore } from './store.js'
 import { publishCell } from './publish.js'
 import { resolvePlaneSigningKey } from './signing.js'
+import { createSecretsCipher } from './secretsCipher.js'
 
 const url = process.env.DATABASE_URL
 const maybe = url ? describe : describe.skip
 const TOKEN = 'routes-test-token'
+const TEST_SECRETS_CIPHER = createSecretsCipher('test-secrets-cipher-key-0001')
 const sha256 = (b: Uint8Array | string) => createHash('sha256').update(b).digest('hex')
 
 class MemoryBundles implements BundleStore {
@@ -59,7 +61,13 @@ maybe('reference plane routes', () => {
     store = createPlaneStore(pool)
     signing = resolvePlaneSigningKey('routes-test-secret-1234')
     bundles = new MemoryBundles()
-    app = createApp({ store, pool, bundleStore: bundles, token: TOKEN })
+    app = createApp({
+      store,
+      pool,
+      bundleStore: bundles,
+      token: TOKEN,
+      secrets: TEST_SECRETS_CIPHER,
+    })
   })
   afterAll(async () => {
     await pool.end()
@@ -279,7 +287,14 @@ maybe('reference plane routes', () => {
   })
 
   it('refuses payloads and bundles over the configured limits', async () => {
-    const tiny = createApp({ store, pool, bundleStore: bundles, token: TOKEN, maxBundleBytes: 4 })
+    const tiny = createApp({
+      store,
+      pool,
+      bundleStore: bundles,
+      token: TOKEN,
+      maxBundleBytes: 4,
+      secrets: TEST_SECRETS_CIPHER,
+    })
     const bytes = Buffer.from('too-large')
     const digest = sha256(bytes)
     await bundles.put(bundleKeyFor(digest), bytes)

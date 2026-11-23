@@ -9,11 +9,13 @@ import { Pool } from 'pg'
 import { createApp } from './routes.js'
 import { createPlaneStore } from './store.js'
 import { resolvePlaneSigningKey } from './signing.js'
+import { createSecretsCipher } from './secretsCipher.js'
 import type { BundleStore } from 'openflare-control'
 
 const url = process.env.DATABASE_URL
 const maybe = url ? describe : describe.skip
 const TOKEN = 'services-e2e-token'
+const TEST_SECRETS_CIPHER = createSecretsCipher('test-secrets-cipher-key-0001')
 
 class NoBundles implements BundleStore {
   async put() {
@@ -43,6 +45,7 @@ maybe('service resource API e2e', () => {
       bundleStore: new NoBundles(),
       token: TOKEN,
       adminToken: TOKEN,
+      secrets: TEST_SECRETS_CIPHER,
       signing: resolvePlaneSigningKey('services-signing-secret-1234'),
     })
   })

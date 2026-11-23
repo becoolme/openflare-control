@@ -4,6 +4,7 @@ import { createPlaneStore } from './store.js'
 import { createApp } from './routes.js'
 import { DirBundleStore } from './bundleStore.js'
 import { resolvePlaneSigningKey } from './signing.js'
+import { createSecretsCipher } from './secretsCipher.js'
 import { pruneRetention, retentionFromEnv } from './retention.js'
 
 const env = (name: string, fallback?: string): string => {
@@ -30,6 +31,10 @@ const app = createApp({
   token: env('PLANE_TOKEN'),
   adminToken: process.env.PLANE_ADMIN_TOKEN?.trim() || env('PLANE_TOKEN'),
   signing,
+  // The signing secret is already a required high-entropy value, so it also
+  // roots the at-rest cipher (HKDF under a distinct domain salt — the two
+  // keys never collide).
+  secrets: createSecretsCipher(env('PLANE_SIGNING_SECRET')),
   maxBundleBytes,
   retention,
 })

@@ -12,10 +12,12 @@ import { bundleKeyFor, type BundleStore } from 'openflare-control'
 import { createApp } from './routes.js'
 import { createPlaneStore } from './store.js'
 import { resolvePlaneSigningKey } from './signing.js'
+import { createSecretsCipher } from './secretsCipher.js'
 
 const url = process.env.DATABASE_URL
 const maybe = url ? describe : describe.skip
 const TOKEN = 'admin-edge-token'
+const TEST_SECRETS_CIPHER = createSecretsCipher('test-secrets-cipher-key-0001')
 const sha256 = (b: Uint8Array | string) => createHash('sha256').update(b).digest('hex')
 
 class MemoryBundles implements BundleStore {
@@ -62,6 +64,7 @@ maybe('management API edges', () => {
       bundleStore: new MemoryBundles(),
       token: TOKEN,
       adminToken: TOKEN,
+      secrets: TEST_SECRETS_CIPHER,
     }
     app = createApp({ ...deps, signing: resolvePlaneSigningKey('edge-signing-secret-1234') })
     noSigningApp = createApp(deps)

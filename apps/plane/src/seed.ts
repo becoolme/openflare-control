@@ -8,6 +8,7 @@
 import { Pool } from 'pg'
 import { createPlaneStore } from './store.js'
 import { resolvePlaneSigningKey } from './signing.js'
+import { createSecretsCipher } from './secretsCipher.js'
 import { publishCell } from './publish.js'
 
 const args = process.argv.slice(2)
@@ -75,12 +76,13 @@ try {
       [worker!.id, key, rest.join('=')]
     )
   }
+  const secretsCipher = createSecretsCipher(process.env.PLANE_SIGNING_SECRET!)
   for (const kv of all('secret')) {
     const [key, ...rest] = kv.split('=')
     await pool.query(
       `insert into plane_secrets (worker_id, key, value) values ($1,$2,$3)
        on conflict (worker_id, key) do update set value=excluded.value`,
-      [worker!.id, key, rest.join('=')]
+      [worker!.id, key, secretsCipher.encrypt(rest.join('='))]
     )
   }
   for (const hostname of all('hostname')) {
