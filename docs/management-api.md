@@ -202,8 +202,8 @@ content-addressed bundle volume, real HTTP routing and the signed publish path.
 
 `scripts/e2e-kind.sh` creates (or reuses) a kind cluster, builds and loads the
 plane image, applies `deploy/k8s/e2e/plane.yaml` (Postgres + plane + Secret),
-waits for rollout, runs migrations, port-forwards the Service and executes the
-same HTTP lifecycle as the Docker e2e.
+waits for rollout (the plane applies the schema at boot), port-forwards the
+Service and executes the same HTTP lifecycle as the Docker e2e.
 
 ```sh
 PLANE_TOKEN=... PLANE_SIGNING_SECRET=... pnpm test:e2e:kind
