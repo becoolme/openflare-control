@@ -16,9 +16,10 @@ browser ──▶ console:8788
 
 - The browser never receives the management token; it is injected by
   `apps/console/server/main.mjs`.
-- `CONSOLE_AUTH_PASSWORD` is required — every request except
-  `/console-healthz` needs HTTP Basic (`admin:<password>`). The console is a
-  full management gateway, so it never serves an unauthenticated request.
+- `CONSOLE_AUTH_PASSWORD` is required and at least 16 characters — every
+  request except `/console-healthz` needs HTTP Basic (`admin:<password>`). The
+  console is a full management gateway, so it never serves an unauthenticated
+  request.
 - No CORS configuration is needed because the UI and API are same-origin.
 - `PLANE_URL` defaults to `http://127.0.0.1:8787`.
 - `PLANE_ADMIN_TOKEN` is required and at least 32 characters — the plane

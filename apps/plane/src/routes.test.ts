@@ -51,7 +51,7 @@ maybe('reference plane routes', () => {
   let bundles: MemoryBundles
   let app: ReturnType<typeof createApp>
   const cluster = `route-${Date.now()}`
-  const provisionCellToken = async (cellId: string) => {
+  const provisionCellToken = async (cellId: string, token = TOKEN) => {
     await pool.query(
       'insert into plane_cells (cell_id, cluster_id) values ($1,$1) on conflict (cell_id) do nothing',
       [cellId]
@@ -59,7 +59,7 @@ maybe('reference plane routes', () => {
     await pool.query(
       `insert into plane_cell_tokens (cell_id, token_hash) values ($1,$2)
          on conflict (cell_id) do update set token_hash=excluded.token_hash`,
-      [cellId, createHash('sha256').update(TOKEN).digest('hex')]
+      [cellId, createHash('sha256').update(token).digest('hex')]
     )
   }
   const team = `team-${Date.now()}`
@@ -208,13 +208,22 @@ maybe('reference plane routes', () => {
     await publishCell(store, { cellId: cluster, signing, workerId, versionId })
 
     const otherCell = `other-${Date.now()}`
+    const otherToken = 'other-cell-token-0123456789abcdef'
+    // Unauthenticated/unknown cells and a different cell's token both fail 401.
     const foreign = await app.request(`/api/internal/clusters/${otherCell}/vrt/bundles/${digest}`, {
       headers: auth,
     })
     expect(foreign.status).toBe(401)
-    await provisionCellToken(otherCell)
+    await provisionCellToken(otherCell, otherToken)
+    const crossCell = await app.request(
+      `/api/internal/clusters/${otherCell}/vrt/bundles/${digest}`,
+      { headers: auth }
+    )
+    expect(crossCell.status).toBe(401)
+    // The other cell's own token authenticates but its publication set does
+    // not reference this digest.
     const other = await app.request(`/api/internal/clusters/${otherCell}/vrt/bundles/${digest}`, {
-      headers: auth,
+      headers: { authorization: `Bearer ${otherToken}` },
     })
     expect(other.status).toBe(404)
   })

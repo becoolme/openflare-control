@@ -3,9 +3,9 @@
  * Real deployment e2e: talks to the built `openflare-plane` container over
  * HTTP (not `app.request`) with a real Postgres behind it.
  *
- *   PLANE_ADMIN_TOKEN=... docker compose up -d --build
+ *   PLANE_ADMIN_TOKEN=... CONSOLE_AUTH_PASSWORD=... docker compose up -d --build
  *   docker compose exec -T plane node dist/migrate.js
- *   PLANE_ADMIN_TOKEN=... node scripts/e2e-docker.mjs
+ *   PLANE_ADMIN_TOKEN=... CONSOLE_AUTH_PASSWORD=... node scripts/e2e-docker.mjs
  *
  * CI runs the same sequence; the script is also the local smoke command.
  */
@@ -16,7 +16,8 @@ const base = (process.env.PLANE_BASE_URL ?? 'http://127.0.0.1:8787').replace(/\/
 const consoleBase = (process.env.CONSOLE_BASE_URL ?? 'http://127.0.0.1:8788').replace(/\/$/, '')
 const adminToken = process.env.PLANE_ADMIN_TOKEN
 if (!adminToken) throw new Error('PLANE_ADMIN_TOKEN is required')
-const consolePassword = process.env.CONSOLE_AUTH_PASSWORD ?? ''
+const consolePassword = process.env.CONSOLE_AUTH_PASSWORD
+if (!consolePassword) throw new Error('CONSOLE_AUTH_PASSWORD is required')
 
 // Filled in by provisioning the cell's own pull token below — the per-cell
 // credential is exactly what a deployed cell would carry.
