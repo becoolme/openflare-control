@@ -117,7 +117,7 @@ export interface VrtCapabilityNeeds {
   /** `[observability]` declared on the version (worker-level wire field). */
   readonly observabilityDeclared?: boolean
   /** `[version_metadata]` declared — emits a `{"type":"json"}` binding. */
-  readonly versionMetadataDeclared?: boolean
+  readonly versionMetadata?: boolean
 }
 
 /** Pure: capability bits a config needs. Deploy and rollback both call it. */
@@ -161,7 +161,7 @@ export function requiredCapabilities(needs: VrtCapabilityNeeds): VrtCellCapabili
   if ((needs.tailConsumerCount ?? 0) > 0) out.add('tailConsumers')
   if ((needs.streamingTailConsumerCount ?? 0) > 0) out.add('streamingTailConsumers')
   if (needs.observabilityDeclared) out.add('observability')
-  if (needs.versionMetadataDeclared) out.add('versionMetadata')
+  if (needs.versionMetadata) out.add('versionMetadata')
   return VRT_CELL_CAPABILITY_KEYS.filter((k) => out.has(k))
 }
 

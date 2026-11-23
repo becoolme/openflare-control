@@ -393,8 +393,18 @@ export function serializeBinding(
         out.entrypoint = binding.entrypoint
       }
       if (binding.props != null) {
-        if (!isPlainProps(binding.props)) throw invalid('bindings.props')
-        if (servicePropsBytes(binding.props) > VRT_MAX_SERVICE_PROPS_BYTES) {
+        // Canonical JSON text — re-validated at this trust boundary so a
+        // corrupted row can never sign a non-object `ctx.props`.
+        if (Buffer.byteLength(binding.props) > VRT_MAX_SERVICE_PROPS_BYTES) {
+          throw invalid('bindings.props')
+        }
+        let parsed: unknown
+        try {
+          parsed = JSON.parse(binding.props)
+        } catch {
+          throw invalid('bindings.props')
+        }
+        if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
           throw invalid('bindings.props')
         }
         out.props = binding.props
