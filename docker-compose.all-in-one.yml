@@ -102,6 +102,7 @@ services:
       PLANE_SIGNING_SECRET: ${PLANE_SIGNING_SECRET:?set PLANE_SIGNING_SECRET}
       VRT_CELL_ID: ${VRT_CELL_ID:-local}
       VRT_TRUSTED_CIDR: ${VRT_TRUSTED_CIDR:-172.31.42.0/24}
+      VRT_R2_BUCKET: ${VRT_R2_BUCKET:-vrt-r2}
     volumes:
       - ./deploy/docker/all-in-one:/init:ro
       - cell-run:/run/vrt
@@ -160,6 +161,8 @@ services:
     network_mode: 'service:vrt-host'
     environment:
       VRT_KVROCKS_URL: ${VRT_KVROCKS_URL:-redis://redis:6379}
+      VRT_R2_BINDING_ACCESS_KEY: ${VRT_R2_ACCESS_KEY:-openflare-r2-access}
+      VRT_R2_BINDING_SECRET_KEY: ${VRT_R2_SECRET_KEY:-openflare-r2-secret-012345}
     volumes:
       - cell-run:/run/vrt
       - cell-config:/etc/vrt:ro
@@ -199,6 +202,8 @@ services:
     entrypoint: ['/usr/local/bin/vrt-provider', '--config', '/etc/vrt/vrt-provider.toml']
     environment:
       VRT_KVROCKS_URL: ${VRT_KVROCKS_URL:-redis://redis:6379}
+      VRT_R2_BINDING_ACCESS_KEY: ${VRT_R2_ACCESS_KEY:-openflare-r2-access}
+      VRT_R2_BINDING_SECRET_KEY: ${VRT_R2_SECRET_KEY:-openflare-r2-secret-012345}
     volumes:
       - cell-run:/run/vrt
       - cell-config:/etc/vrt:ro
@@ -233,6 +238,45 @@ services:
     restart: unless-stopped
     volumes: ['kv-data:/data']
     command: ['redis-server', '--appendonly', 'yes', '--save', '']
+
+  # ---- R2: bundled S3 object store (Silo — pgsty's maintained MinIO
+  #      fork; upstream stopped shipping images). The .svc alias
+  #      satisfies the cluster-internal-http rule — no TLS inside the
+  #      compose net. Swap envs + endpoint for a real S3 in production.
+  silo:
+    image: ${S3_IMAGE:-pgsty/silo:RELEASE.2026-11-12T00-00-00Z}
+    restart: unless-stopped
+    command: ['server', '/data']
+    environment:
+      MINIO_ROOT_USER: ${VRT_R2_ACCESS_KEY:-openflare-r2-access}
+      MINIO_ROOT_PASSWORD: ${VRT_R2_SECRET_KEY:-openflare-r2-secret-012345}
+    volumes: ['r2-data:/data']
+    networks:
+      default:
+        aliases: ['silo.openflare.svc']
+    healthcheck:
+      test: ['CMD-SHELL', 'curl -fs http://127.0.0.1:9000/minio/health/live || exit 1']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  # One-shot bucket create — same image carries the bundled mc client.
+  silo-init:
+    image: ${S3_IMAGE:-pgsty/silo:RELEASE.2026-11-12T00-00-00Z}
+    restart: 'no'
+    depends_on:
+      silo:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: ${VRT_R2_ACCESS_KEY:-openflare-r2-access}
+      MINIO_ROOT_PASSWORD: ${VRT_R2_SECRET_KEY:-openflare-r2-secret-012345}
+      VRT_R2_BUCKET: ${VRT_R2_BUCKET:-vrt-r2}
+    entrypoint: ['/bin/sh', '-c']
+    command:
+      - >-
+        mc alias set local http://silo.openflare.svc:9000
+        "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD" &&
+        mc mb --ignore-existing "local/$$VRT_R2_BUCKET"
 
   # ---- public TLS entry (Dokploy-style) ----
   traefik:
@@ -276,6 +320,7 @@ volumes:
   cell-cc-data:
   cell-sql-data:
   kv-data:
+  r2-data:
   traefik-acme:
 
 networks:

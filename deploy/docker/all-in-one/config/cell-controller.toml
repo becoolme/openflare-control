@@ -36,8 +36,16 @@ urlEnv = "VRT_KVROCKS_URL"
 timeoutMs = 5000
 connectTimeoutMs = 5000
 
-# [storage_purge.s3] intentionally ABSENT — mirrors vrt-provider.toml;
-# R2 fails closed until an object store is wired.
+# R2 purge ops + capability — MUST mirror vrt-provider.toml [s3]
+# (endpoint/bucket/env names in lockstep or purge and data diverge).
+[storage_purge.s3]
+endpoint = "http://silo.openflare.svc:9000"
+region = "us-east-1"
+bucket = "__R2_BUCKET__"
+accessKeyEnv = "VRT_R2_BINDING_ACCESS_KEY"
+secretKeyEnv = "VRT_R2_BINDING_SECRET_KEY"
+multipartTtlMs = 604800000
+conditionalWrites = true
 
 [[pods]]
 id = "pod-0"

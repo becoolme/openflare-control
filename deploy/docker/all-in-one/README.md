@@ -51,7 +51,7 @@ are never overwritten — re-running `up` never rotates credentials.
 | -------------------------------------------------------------------- | ---------------------------------------------------------------------- |
 | Workers, versions, hostnames, secrets, assets, D1, queue, cron, logs | ✅                                                                     |
 | KV                                                                   | ✅ via bundled `redis` service (override `VRT_KVROCKS_URL`)            |
-| R2                                                                   | ❌ `[s3]`/`[storage_purge.s3]` absent — wire an object store to enable |
+| R2                                                                   | ✅ via bundled `silo` (maintained MinIO fork; `VRT_R2_*` → real S3)  |
 | Hyperdrive/pg                                                        | credentials file is provisioned; pg endpoints need a reachable DB      |
 | TLS                                                                  | Traefik profile; cert per SNI hostname on first handshake              |
 
