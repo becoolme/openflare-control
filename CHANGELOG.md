@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-11-23 — re-pin the wire contract to OpenFlare `450bdb6`
+
+- Bumped `OPENFLARE_CONTRACT_REV` from `9c1ee3c` to `450bdb6` (workerd pin
+  `vrt-20261123-323dc39`, per-process Hyperdrive session pools, signed preview
+  access tokens).
+- No wire fixture changed: `desired-ack-partial`, `desired-ack-tenant-failures`
+  and `cell-report` are identical between the two revisions, so the vendored
+  copies and the derived capability schema stayed as they were.
+- No schema or test change was needed: the drift gate reports a clean contract
+  at `450bdb6`.
+
 ## 2026-11-22 — re-pin the wire contract to OpenFlare `5751f90`
 
 - Bumped `OPENFLARE_CONTRACT_REV` from `99a834b` to `5751f90` (versioned
