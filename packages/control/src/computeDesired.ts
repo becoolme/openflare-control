@@ -67,7 +67,6 @@ export const VRT_MAX_SERVICE_PROPS_BYTES = 16 * 1024
  * `MAX_QUEUE_DELIVERY_DELAY_SECS`). */
 export const VRT_MAX_QUEUE_DELIVERY_DELAY_SECONDS = 86_400
 
-
 import {
   MAX_WORKFLOWS_PER_WORKER,
   MAX_WORKFLOW_STEPS,
@@ -82,7 +81,6 @@ import {
   type VrtCronRecord,
   type VrtDoClassView,
   type VrtQueueConsumerView,
-  type VrtObservability,
   type VrtQuotasRecord,
   type VrtWorkflowView,
 } from './domainTypes.js'

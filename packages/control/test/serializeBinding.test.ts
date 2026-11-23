@@ -116,7 +116,11 @@ describe('serializeBinding', () => {
       ).toThrow(/props/)
     }
     expect(() =>
-      binding({ type: 'SERVICE', resourceId: 'w2', props: JSON.stringify({ big: 'x'.repeat(17 * 1024) }) })
+      binding({
+        type: 'SERVICE',
+        resourceId: 'w2',
+        props: JSON.stringify({ big: 'x'.repeat(17 * 1024) }),
+      })
     ).toThrow(/props/)
   })
 
