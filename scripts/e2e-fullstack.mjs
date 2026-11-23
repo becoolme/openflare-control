@@ -22,7 +22,7 @@ import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { spawn, spawnSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
 import http from 'node:http'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -44,6 +44,8 @@ if (!DATABASE_URL) throw new Error('DATABASE_URL is required')
 const VRT_HOST_BIN = process.env.VRT_HOST_BIN ?? join(RUNTIME_DIR, 'target/debug/vrt-host')
 const CELL_CONTROLLER_BIN =
   process.env.CELL_CONTROLLER_BIN ?? join(RUNTIME_DIR, 'target/debug/cell-controller')
+const VRT_PROVIDER_BIN =
+  process.env.VRT_PROVIDER_BIN ?? join(RUNTIME_DIR, 'target/debug/vrt-provider')
 const WORKERD_BIN = process.env.WORKERD_BIN ?? join(RUNTIME_DIR, '.ci/workerd/workerd')
 const STUB_BIN = process.env.STUB_BIN ?? join(RUNTIME_DIR, 'target/debug/vrt-stub-workerd')
 const FACADE_DIR = process.env.FACADE_DIR ?? join(RUNTIME_DIR, 'facade')
@@ -276,6 +278,7 @@ async function main() {
   )
   if (STUB) assert.ok(existsSync(STUB_BIN), `stub binary missing: ${STUB_BIN}`)
   else assert.ok(existsSync(WORKERD_BIN), `workerd binary missing: ${WORKERD_BIN}`)
+  if (!STUB) assert.ok(existsSync(VRT_PROVIDER_BIN), `vrt-provider binary missing: ${VRT_PROVIDER_BIN}`)
   assert.ok(existsSync(join(FACADE_DIR, 'manifest.json')), `facade manifest missing: ${FACADE_DIR}`)
 
   const root = await mkdtemp(join(tmpdir(), 'ofs-'))
@@ -285,6 +288,7 @@ async function main() {
   const cacheDir = join(podDir, 'cache')
   const doDir = join(podDir, 'do')
   const providerDir = join(podDir, 'provider')
+  const listenersDir = join(providerDir, 'listeners')
   const stateDir = join(root, 'state')
   const bundleDir = join(root, 'bundles')
   for (const dir of [
@@ -295,6 +299,7 @@ async function main() {
     cacheDir,
     doDir,
     providerDir,
+    listenersDir,
     stateDir,
     bundleDir,
   ]) {
@@ -406,6 +411,7 @@ async function main() {
   }
 
   const vrtHostConfigPath = join(root, 'vrt-host.toml')
+  const vrtProviderConfigPath = join(root, 'vrt-provider.toml')
   const cellControllerConfigPath = join(root, 'cell-controller.toml')
   const render = STUB
     ? `[render]
@@ -415,11 +421,30 @@ quotas = true
     : `[render]
 mode = "capnp"
 facadeManifest = ${q(join(FACADE_DIR, 'manifest.json'))}
-bindingBackendDir = ${q(providerDir)}
+bindingBackendDir = ${q(listenersDir)}
 systemCompatDate = "2024-09-25"
 systemCompatFlags = []
 quotas = true
 `
+  await writeFile(
+    vrtProviderConfigPath,
+    `cellId = ${q(cell)}
+listenerDir = ${q(listenersDir)}
+operationTimeoutMs = 30000
+tenantConcurrency = 16
+globalConcurrency = 64
+
+[desired]
+path = ${q(join(delivery, 'envelope.json'))}
+trustedKeys = [{ keyId = ${q(key.keyId)}, publicKey = ${q(key.publicKey)} }]
+reloadMs = 200
+graceVersions = 1
+
+[assets]
+dir = ${q(assetDir)}
+`,
+    { mode: 0o600 }
+  )
   await writeFile(
     vrtHostConfigPath,
     `cellId = ${q(cell)}
@@ -516,6 +541,26 @@ enabled = false
     60_000,
     200
   )
+  if (!STUB) {
+    start('vrt-provider', VRT_PROVIDER_BIN, ['--config', vrtProviderConfigPath], {
+      env: {
+        RUST_LOG: 'info',
+        VRT_CURSOR_SECRET: 'fullstack-cursor-secret-0123456789abcdef',
+      },
+    })
+    await waitFor(
+      async () => {
+        try {
+          return (await readdir(listenersDir)).some((name) => name.endsWith('.sock'))
+        } catch {
+          return false
+        }
+      },
+      'vrt-provider listeners',
+      30_000,
+      200
+    )
+  }
   start('vrt-host', VRT_HOST_BIN, ['--config', vrtHostConfigPath], { env: { RUST_LOG: 'info' } })
   await waitHealth(`http://127.0.0.1:${controlPort}/readyz`, 'vrt-host readyz', 60_000)
   try {
