@@ -116,6 +116,14 @@ create table if not exists plane_hostnames (
   unique (hostname, worker_id)
 );
 
+create table if not exists plane_asset_objects (
+  team_id text not null,
+  digest text not null,
+  bytes bigint not null check (bytes >= 0),
+  created_at timestamptz not null default now(),
+  primary key (team_id, digest)
+);
+
 create table if not exists plane_asset_manifests (
   team_id text not null,
   digest text not null,

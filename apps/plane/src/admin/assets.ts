@@ -85,7 +85,31 @@ export function registerAssets(app: Hono, deps: AdminDeps): void {
     const bytes = new Uint8Array(await c.req.arrayBuffer())
     if (bytes.byteLength > max) throw new VrtControlError(413, 'Asset object too large')
     if (sha(bytes) !== d) throw new VrtControlError(400, 'Object digest mismatch')
-    await store.putObject(team, d, bytes)
+    const client = await deps.pool.connect()
+    try {
+      await client.query('begin')
+      await client.query('select pg_advisory_xact_lock(hashtext($1))', [`plane-assets:${team}`])
+      const used = await client.query(
+        `select coalesce(sum(bytes),0)::bigint as n
+           from plane_asset_objects where team_id=$1 and digest<>$2`,
+        [team, d]
+      )
+      if (Number(used.rows[0]?.n ?? 0) + bytes.byteLength > TEAM_ASSET_QUOTA) {
+        throw new VrtControlError(409, 'Asset quota exceeded')
+      }
+      await client.query(
+        `insert into plane_asset_objects (team_id, digest, bytes) values ($1,$2,$3)
+         on conflict (team_id, digest) do update set bytes=excluded.bytes`,
+        [team, d, bytes.byteLength]
+      )
+      await store.putObject(team, d, bytes)
+      await client.query('commit')
+    } catch (error) {
+      await client.query('rollback')
+      throw error
+    } finally {
+      client.release()
+    }
     return c.json({ data: { digest: d, bytes: bytes.byteLength } }, 201)
   })
 
