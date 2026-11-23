@@ -170,6 +170,21 @@ services:
         # process runs.
         condition: service_healthy
 
+  # Loopback path to the plane for vrt-host: its config fail-closed on
+  # non-loopback http control-plane URLs, and the compose-network
+  # http://plane is neither https nor loopback. socat forwards
+  # 127.0.0.1:8787 (inside vrt-host's netns) to the plane service.
+  plane-loopback:
+    <<: *vrt-cell
+    image: alpine/socat:1.8.0.3
+    network_mode: 'service:vrt-host'
+    depends_on:
+      vrt-host:
+        condition: service_healthy
+    command:
+      - 'tcp-listen:8787,fork,reuseaddr,bind=127.0.0.1'
+      - 'tcp:plane:8787'
+
   vrt-provider:
     <<: *vrt-cell
     build:

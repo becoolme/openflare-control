@@ -2,11 +2,11 @@ import type { Hono } from 'hono'
 import { z } from 'zod'
 import {
   VRT_DEFAULT_QUOTAS,
+  VRT_MAX_JSON_BINDING_BYTES,
   VrtControlError,
   bundleKeyFor,
   type VrtBindingRecord,
   type VrtCreateVersionInput,
-  type VrtQueueConsumerDraft,
 } from 'openflare-control'
 import { publishCell } from '../publish.js'
 import {
@@ -38,18 +38,61 @@ const versionBody = z
     compatibilityFlags: z.array(z.string().max(64)).default([]),
     crons: z.array(z.object({ scheduleId: z.string(), expression: z.string() })).default([]),
     quotas: quotas.optional(),
-    vars: z.record(key, z.string()).default({}),
+    // CF `vars` may carry strings or JSON values. Strings stay in the
+    // worker-level var table; non-strings become version-scoped `jsonVars`
+    // (rendered as `{"type":"json"}` bindings by computeDesired).
+    vars: z
+      .record(
+        key,
+        z.union([
+          z.string(),
+          z.number().finite(),
+          z.boolean(),
+          z.null(),
+          z.array(z.unknown()),
+          z.record(z.unknown()),
+        ])
+      )
+      .default({}),
     bindings: z.array(z.record(z.unknown())).default([]),
+    observability: z
+      .object({
+        enabled: z.boolean(),
+        logsEnabled: z.boolean(),
+        invocationLogs: z.boolean(),
+        headSamplingRatePpm: z.number().int().min(0).max(1_000_000),
+      })
+      .strict()
+      .nullable()
+      .optional(),
+    // CF `[version_metadata]`: env binding name for `{id, tag, timestamp}`.
+    versionMetadata: key.nullable().optional(),
+    // Tail consumers are resolved worker ids (`team:name`), same team/cell.
+    tailConsumers: z
+      .array(z.string().regex(/^[a-z0-9][a-z0-9-]{0,62}:[a-z0-9][a-z0-9-]{0,62}$/))
+      .max(16)
+      .optional(),
+    streamingTailConsumers: z
+      .array(z.string().regex(/^[a-z0-9][a-z0-9-]{0,62}:[a-z0-9][a-z0-9-]{0,62}$/))
+      .max(16)
+      .optional(),
     queueConsumers: z
       .array(
         z
           .object({
             queueId: z.string().regex(/^[a-z0-9]{26}$/),
-            queueName: z.string().regex(/^[A-Za-z0-9_.:-]{1,64}$/),
+            queueName: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,62}$/),
             maxBatchSize: z.number().int().min(1).max(100).nullable().optional(),
-            maxBatchTimeoutMs: z.number().int().min(0).max(60_000).nullable().optional(),
+            maxBatchTimeoutMs: z
+              .number()
+              .int()
+              .min(0)
+              .max(60_000)
+              .refine((v) => v % 1000 === 0, 'maxBatchTimeoutMs must be whole seconds')
+              .nullable()
+              .optional(),
             maxRetries: z.number().int().min(0).max(100).nullable().optional(),
-            retryDelaySeconds: z.number().int().min(0).max(3600).nullable().optional(),
+            retryDelaySeconds: z.number().int().min(0).max(86_400).nullable().optional(),
             deadLetterQueueId: z
               .string()
               .regex(/^[a-z0-9]{26}$/)
@@ -109,14 +152,83 @@ async function createVersion(
     bytes: actualBytes,
     createdById: 'plane-api',
   })
+  // CF vars may be strings or JSON values. Strings stay worker-scoped in
+  // plane_vars (render-inputs); JSON values are version-scoped and go through
+  // computeDesired as `{"type":"json"}` bindings.
+  const stringVars: Record<string, string> = {}
+  const jsonVars: Record<string, unknown> = {}
+  for (const [name, value] of Object.entries(body.vars)) {
+    if (typeof value === 'string') {
+      stringVars[name] = value
+      continue
+    }
+    const encoded = JSON.stringify(value)
+    if (encoded === undefined || Buffer.byteLength(encoded, 'utf8') > VRT_MAX_JSON_BINDING_BYTES) {
+      throw new VrtControlError(400, `vars.${name} exceeds the JSON binding limit`)
+    }
+    jsonVars[name] = value
+  }
+
+  // `nullable().optional()` inputs must reach the store as explicit nulls:
+  // computeDesired distinguishes `null` from `undefined` while validating.
+  const queueConsumers = (body.queueConsumers ?? []).map((c) => ({
+    queueId: c.queueId,
+    queueName: c.queueName,
+    maxBatchSize: c.maxBatchSize ?? null,
+    maxBatchTimeoutMs: c.maxBatchTimeoutMs ?? null,
+    maxRetries: c.maxRetries ?? null,
+    retryDelaySeconds: c.retryDelaySeconds ?? null,
+    deadLetterQueueId: c.deadLetterQueueId ?? null,
+    maxConcurrency: c.maxConcurrency ?? null,
+  }))
+
+  const tailConsumers = body.tailConsumers ?? []
+  const streamingTailConsumers = body.streamingTailConsumers ?? []
+  const tailIds = [...tailConsumers, ...streamingTailConsumers]
+  if (new Set(tailIds).size !== tailIds.length) {
+    throw new VrtControlError(400, 'tail consumers must be unique across both channels')
+  }
+  if (tailIds.includes(workerId)) {
+    throw new VrtControlError(400, 'a worker cannot tail itself')
+  }
+  if (tailIds.length > 0) {
+    const [self] = await rows(deps, 'select team_id, cluster_id from plane_workers where id=$1', [
+      workerId,
+    ])
+    if (!self) throw new VrtControlError(404, 'Worker not found')
+    const found = await rows(
+      deps,
+      `select id from plane_workers
+        where id = any($1::text[]) and team_id=$2 and cluster_id=$3`,
+      [tailIds, self.team_id, self.cluster_id]
+    )
+    if (found.length !== tailIds.length) {
+      throw new VrtControlError(
+        400,
+        'tail consumers must be existing workers of the same team and cell'
+      )
+    }
+  }
+
   const fp = sha256(
     JSON.stringify({
       bindings: body.bindings,
-      vars: Object.keys(body.vars).sort(),
+      vars: Object.keys(body.vars)
+        .sort()
+        .map((name) => [name, body.vars[name]]),
       crons: body.crons,
       compatibilityDate: body.compatibilityDate,
       compatibilityFlags: body.compatibilityFlags,
       quotas: body.quotas ?? null,
+      queueConsumers,
+      tailConsumers,
+      streamingTailConsumers,
+      versionMetadata: body.versionMetadata ?? null,
+      observability: body.observability ?? null,
+      jsonVars,
+      assetsRouting: body.assetsRouting ?? null,
+      assetsRunWorkerFirst: body.assetsRunWorkerFirst ?? [],
+      exportedClassNames: body.exportedClassNames ?? [],
     })
   )
   const effectiveQuotas = body.quotas ?? VRT_DEFAULT_QUOTAS
@@ -139,23 +251,31 @@ async function createVersion(
     compatibilityFlags: body.compatibilityFlags,
     crons: body.crons,
     quotas: effectiveQuotas,
-    varValues: body.vars,
+    varValues: stringVars,
     bindingsFingerprint: fp,
     runtimeConfigDigest: fp,
     bindings: body.bindings as unknown as readonly VrtBindingRecord[],
-    queueConsumers: body.queueConsumers as unknown as readonly VrtQueueConsumerDraft[],
+    queueConsumers,
+    tailConsumers: tailConsumers.length > 0 ? tailConsumers : undefined,
+    streamingTailConsumers: streamingTailConsumers.length > 0 ? streamingTailConsumers : undefined,
+    versionMetadata: body.versionMetadata ?? null,
+    observability: body.observability ?? null,
+    jsonVars: Object.keys(jsonVars).length > 0 ? jsonVars : null,
     assetsRouting: body.assetsRouting ?? null,
     assetsRunWorkerFirst: body.assetsRunWorkerFirst ?? [],
     exportedClassNames: body.exportedClassNames,
     createdById: 'plane-api',
   }
   const { version, created } = await deps.store.createVersionWithBindings(input)
-  for (const [k, value] of Object.entries(body.vars)) {
+  for (const [name, value] of Object.entries(stringVars)) {
     await deps.pool.query(
       `insert into plane_vars (worker_id, key, value) values ($1,$2,$3)
        on conflict (worker_id, key) do update set value=excluded.value`,
-      [workerId, k, value]
+      [workerId, name, value]
     )
+  }
+  for (const name of Object.keys(jsonVars)) {
+    await deps.pool.query('delete from plane_vars where worker_id=$1 and key=$2', [workerId, name])
   }
   return { version, created }
 }

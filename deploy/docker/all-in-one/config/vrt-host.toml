@@ -37,12 +37,14 @@ renderInputsFile = "/run/vrt/render-inputs/render-inputs.json"
 extraArgs = []
 
 [bundles]
-baseUrl = "http://plane:8787/api/internal/clusters/__CELL_ID__"
+# Loopback to the plane-loopback socat sidecar sharing this netns —
+# vrt-host fail-closed refuses non-loopback http control-plane URLs.
+baseUrl = "http://127.0.0.1:8787/api/internal/clusters/__CELL_ID__"
 tokenFile = "/run/vrt/secrets/cell-token"
 
 [assets]
 dir = "/data/assets"
-baseUrl = "http://plane:8787/api/internal/clusters/__CELL_ID__"
+baseUrl = "http://127.0.0.1:8787/api/internal/clusters/__CELL_ID__"
 tokenFile = "/run/vrt/secrets/cell-token"
 
 [ingress]
