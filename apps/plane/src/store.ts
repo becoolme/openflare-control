@@ -520,7 +520,11 @@ class PlaneCellTx {
    * cannot race activation. Kept off VrtCellTx (reference-only hardening). */
   async assertVersionReferences(
     teamId: string,
+    workerIdToActivate: string,
     version: {
+      readonly bindings?: readonly { readonly name?: string }[]
+      readonly jsonVars?: Readonly<Record<string, unknown>> | null
+      readonly versionMetadata?: string | null
       readonly queueConsumers?:
         | readonly {
             readonly queueId: string
@@ -551,6 +555,25 @@ class PlaneCellTx {
         if (!dlq) throw new VrtControlError(409, 'Dead-letter queue not found')
       }
     }
+    const versionNames = new Set<string>()
+    for (const binding of version.bindings ?? []) {
+      if (typeof binding.name === 'string') versionNames.add(binding.name)
+    }
+    for (const name of Object.keys(version.jsonVars ?? {})) versionNames.add(name)
+    if (version.versionMetadata) versionNames.add(version.versionMetadata)
+    const workflows = await this.rows(
+      `select binding from plane_workflows where worker_id=$1 and binding is not null`,
+      [workerIdToActivate]
+    )
+    for (const workflow of workflows) {
+      if (versionNames.has(String(workflow.binding))) {
+        throw new VrtControlError(
+          409,
+          `Workflow binding "${String(workflow.binding)}" collides with the activated version`
+        )
+      }
+    }
+
     const tailIds = [...(version.tailConsumers ?? []), ...(version.streamingTailConsumers ?? [])]
     if (tailIds.length === 0) return
     const found = await this.rows(

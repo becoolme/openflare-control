@@ -7,6 +7,8 @@ import {
   VrtControlError,
   WORKFLOW_IDENT_RE,
   WORKFLOW_NAME_RE,
+  missingCapabilities,
+  requiredCapabilities,
 } from 'openflare-control'
 import {
   type AdminDeps,
@@ -70,12 +72,82 @@ export function registerWorkflowService(app: Hono, deps: AdminDeps): void {
       const target = workerId(team, body.scriptName)
       const [targetWorker] = await rows(
         deps,
-        'select id from plane_workers where id=$1 and team_id=$2 and cluster_id=$3',
+        `select id from plane_workers
+          where id=$1 and team_id=$2 and cluster_id=$3
+            and runtime='VRT' and status='ACTIVE' and active_version_id is not null`,
         [target, team, cell]
       )
       if (!targetWorker) throw new VrtControlError(404, 'scriptName worker not found')
       serviceWorkerId = target
     }
+    const capabilities = await deps.store.cellCapabilities(cell)
+    if (capabilities !== null) {
+      const required = requiredCapabilities({
+        cronCount: 0,
+        bindingTypes: [],
+        queueConsumerCount: 0,
+        workflowCount: 1,
+        crossWorkerWorkflowCount: serviceWorkerId ? 1 : 0,
+        serviceEntrypointCount: 0,
+      })
+      const missing = missingCapabilities(required, capabilities)
+      if (missing.length > 0) {
+        throw new VrtControlError(
+          409,
+          `Cell lacks capabilities: ${missing.join(', ')}`,
+          'VRT_CELL_CAPABILITY_MISSING'
+        )
+      }
+    }
+
+    const target = serviceWorkerId ?? id
+    const [collisionTarget] = await rows(
+      deps,
+      `select 1 from plane_workflows
+        where cluster_id=$1 and name=$2 and worker_id<>$3
+          and coalesce(service_worker_id, worker_id)=$4
+        limit 1`,
+      [cell, body.name, id, target]
+    )
+    if (collisionTarget) {
+      throw new VrtControlError(
+        409,
+        'Another worker already defines this workflow for the same target'
+      )
+    }
+
+    // Cycle check on the cross-worker workflow graph (worker -> defining worker).
+    const edges = await rows(
+      deps,
+      `select worker_id, coalesce(service_worker_id, worker_id) as target
+         from plane_workflows
+        where cluster_id=$1 and not (worker_id=$2 and name=$3)`,
+      [cell, id, body.name]
+    )
+    const graph = new Map<string, string[]>()
+    for (const edge of edges) {
+      const from = String(edge.worker_id)
+      const to = String(edge.target)
+      if (from === to) continue
+      const list = graph.get(from) ?? []
+      list.push(to)
+      graph.set(from, list)
+    }
+    if (target !== id) {
+      const list = graph.get(id) ?? []
+      list.push(target)
+      graph.set(id, list)
+      const seen = new Set<string>()
+      const stack = [target]
+      while (stack.length > 0) {
+        const node = stack.pop()!
+        if (node === id) throw new VrtControlError(409, 'Workflow bindings form a cycle')
+        if (seen.has(node)) continue
+        seen.add(node)
+        for (const next of graph.get(node) ?? []) stack.push(next)
+      }
+    }
+
     const [count] = await rows(
       deps,
       'select count(*)::int as n from plane_workflows where worker_id=$1',
