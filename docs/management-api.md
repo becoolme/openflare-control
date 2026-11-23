@@ -211,21 +211,22 @@ HTTP** with a real Postgres behind it:
 ```sh
 PLANE_ADMIN_TOKEN=... PLANE_SIGNING_SECRET=... PLANE_SECRETS_KEY=... \
   CONSOLE_AUTH_PASSWORD=... docker compose up -d --build
-docker compose exec -T plane node dist/migrate.js
 PLANE_ADMIN_TOKEN=... PLANE_SECRETS_KEY=... CONSOLE_AUTH_PASSWORD=... \
   pnpm test:e2e:docker
 ```
 
-CI's `e2e-docker` job runs exactly that sequence (compose up, migrate, script,
-logs on failure, compose down). It covers the same lifecycle plus a real
+The plane applies the idempotent schema at boot (`PLANE_MIGRATE_ON_BOOT=0`
+opts out for least-privilege DB roles). CI's `e2e-docker` job runs exactly
+that sequence (compose up, script, logs on failure, compose down). It covers
+the same lifecycle plus a real
 content-addressed bundle volume, real HTTP routing and the signed publish path.
 
 ## Real Kubernetes e2e (kind)
 
 `scripts/e2e-kind.sh` creates (or reuses) a kind cluster, builds and loads the
 plane image, applies `deploy/k8s/e2e/plane.yaml` (Postgres + plane + Secret),
-waits for rollout, runs migrations, port-forwards the Service and executes the
-same HTTP lifecycle as the Docker e2e.
+waits for rollout (the plane applies the schema at boot), port-forwards the
+Service and executes the same HTTP lifecycle as the Docker e2e.
 
 ```sh
 PLANE_ADMIN_TOKEN=... PLANE_SIGNING_SECRET=... PLANE_SECRETS_KEY=... \

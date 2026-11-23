@@ -6,6 +6,7 @@ import { DirBundleStore } from './bundleStore.js'
 import { resolvePlaneSigningKey } from './signing.js'
 import { createSecretsCipher } from './secretsCipher.js'
 import { pruneRetention, retentionFromEnv } from './retention.js'
+import { applySchema } from './applySchema.js'
 
 const env = (name: string, fallback?: string): string => {
   const value = process.env[name] ?? fallback
@@ -21,6 +22,14 @@ if (!Number.isSafeInteger(maxBundleBytes) || maxBundleBytes < 1) {
 }
 
 const pool = new Pool({ connectionString: env('DATABASE_URL') })
+// Schema is fully idempotent (`create table if not exists`), so the plane
+// applies it at boot instead of dying with relation errors on first
+// request. Operators running a least-privilege DB role opt out with
+// PLANE_MIGRATE_ON_BOOT=0 and apply `dist/migrate.js` out-of-band.
+if ((process.env.PLANE_MIGRATE_ON_BOOT ?? '1') !== '0') {
+  await applySchema(pool)
+  console.log('openflare-plane schema applied at boot')
+}
 const signing = resolvePlaneSigningKey()
 const store = createPlaneStore(pool)
 const retention = retentionFromEnv()

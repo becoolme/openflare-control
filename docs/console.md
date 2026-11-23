@@ -38,7 +38,6 @@ export PLANE_SIGNING_SECRET="$(openssl rand -hex 32)"
 export PLANE_SECRETS_KEY="$(openssl rand -hex 32)"
 export CONSOLE_AUTH_PASSWORD="$(openssl rand -hex 16)"
 docker compose up -d --build
-docker compose exec plane node dist/migrate.js
 # UI:    http://127.0.0.1:8788  (Basic auth: admin / $CONSOLE_AUTH_PASSWORD)
 # Plane: http://127.0.0.1:8787
 # All three ports bind loopback by default; PLANE_BIND / CONSOLE_BIND /

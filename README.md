@@ -59,7 +59,6 @@ export PLANE_SIGNING_SECRET="$(openssl rand -hex 32)"
 export PLANE_SECRETS_KEY="$(openssl rand -hex 32)"
 export CONSOLE_AUTH_PASSWORD="$(openssl rand -hex 16)"
 docker compose up -d --build
-docker compose exec plane node dist/migrate.js
 
 # create the cell, then issue its per-cell pull credential exactly once
 curl -fsS -X POST -H "Authorization: Bearer $PLANE_ADMIN_TOKEN" \
@@ -95,7 +94,6 @@ export PLANE_ADMIN_TOKEN="$(openssl rand -hex 32)"
 export PLANE_SIGNING_SECRET="$(openssl rand -hex 32)"
 export PLANE_SECRETS_KEY="$(openssl rand -hex 32)"
 export PLANE_BUNDLE_DIR=/var/lib/openflare/bundles
-pnpm --filter openflare-plane migrate
 pnpm --filter openflare-plane start        # prints keyId + publicKey
 
 # 2. build and push the four cell images from the pinned workerd fork
