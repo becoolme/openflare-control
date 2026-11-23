@@ -5,6 +5,25 @@ import { VrtControlError } from 'openflare-control'
 import { type AdminDeps, parse, teamId } from './context.js'
 
 const digest = z.string().regex(/^[0-9a-f]{64}$/)
+const OBJECT_MAX = 8 * 1024 * 1024
+const FILES_MAX = 8192
+const TEAM_ASSET_QUOTA = 512 * 1024 * 1024
+const assetPath = z
+  .string()
+  .min(1)
+  .max(2048)
+  .refine((value) => {
+    if (!value.startsWith('/')) return false
+    let decoded: string
+    try {
+      decoded = decodeURIComponent(value)
+    } catch {
+      return false
+    }
+    if (decoded.includes('\\') || decoded.includes('\0')) return false
+    const segments = decoded.split('/')
+    return segments[0] === '' && segments.slice(1).every((s) => s && s !== '.' && s !== '..')
+  })
 const htmlHandling = z.enum([
   'auto-trailing-slash',
   'force-trailing-slash',
@@ -21,18 +40,14 @@ const manifest = z
       .array(
         z
           .object({
-            path: z
-              .string()
-              .min(1)
-              .max(1024)
-              .refine((p) => p.startsWith('/') && !p.split('/').includes('..')),
+            path: assetPath,
             sha256: digest,
-            size: z.number().int().min(0),
-            mime: z.string().min(1).max(255),
+            size: z.number().int().min(0).max(OBJECT_MAX),
+            mime: z.string().regex(/^[\x20-\x7E]{1,128}$/),
           })
           .strict()
       )
-      .max(20_000),
+      .max(FILES_MAX),
   })
   .strict()
 
@@ -62,7 +77,7 @@ export function registerAssets(app: Hono, deps: AdminDeps): void {
     const store = deps.assetStore
     if (!store) throw new VrtControlError(501, 'Asset store is not configured')
     const d = parse(digest, c.req.param('digest'))
-    const max = 25 * 1024 * 1024
+    const max = OBJECT_MAX
     const declared = Number(c.req.header('content-length') ?? '0')
     if (Number.isFinite(declared) && declared > max) {
       throw new VrtControlError(413, 'Asset object too large')
@@ -104,15 +119,25 @@ export function registerAssets(app: Hono, deps: AdminDeps): void {
       if (!(await store.hasObject(team, file.sha256))) {
         throw new VrtControlError(400, `Asset object is not uploaded: ${file.sha256}`)
       }
+      const stored = await store.statObject(team, file.sha256)
+      if (stored === null || stored !== file.size) {
+        throw new VrtControlError(400, `Asset object size mismatch: ${file.sha256}`)
+      }
     }
     await store.putManifest(team, d, bytes)
-    await deps.store.claimAssetsManifest({
-      digest: d,
-      teamId: team,
-      workerId,
-      objects: body.data.files.map((file) => ({ digest: file.sha256, bytes: file.size })),
-      totalBytes: body.data.files.reduce((sum, file) => sum + file.size, 0),
-    })
+    try {
+      await deps.store.claimAssetsManifest({
+        digest: d,
+        teamId: team,
+        workerId,
+        objects: body.data.files.map((file) => ({ digest: file.sha256, bytes: file.size })),
+        totalBytes: body.data.files.reduce((sum, file) => sum + file.size, 0),
+        quotaBytes: TEAM_ASSET_QUOTA,
+      })
+    } catch (error) {
+      await store.deleteManifest(team, d)
+      throw error
+    }
     return c.json({ data: { digest: d, files: body.data.files.length } }, 201)
   })
 }

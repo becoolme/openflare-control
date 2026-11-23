@@ -2,7 +2,7 @@
  * openflare `vrt-provider` (`<root>/<segment(team)>/{manifests,objects}`), so
  * the cell can read the same directory/S3 mount. */
 import { createHash, randomUUID } from 'node:crypto'
-import { mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 export interface AssetStore {
@@ -10,6 +10,10 @@ export interface AssetStore {
   hasManifest(teamId: string, digest: string): Promise<boolean>
   putObject(teamId: string, digest: string, bytes: Uint8Array): Promise<void>
   hasObject(teamId: string, digest: string): Promise<boolean>
+  getManifest(teamId: string, digest: string): Promise<Uint8Array | null>
+  getObject(teamId: string, digest: string): Promise<Uint8Array | null>
+  statObject(teamId: string, digest: string): Promise<number | null>
+  deleteManifest(teamId: string, digest: string): Promise<void>
 }
 
 const segmentEncode = (value: string): string => {
@@ -43,9 +47,9 @@ export class DirAssetStore implements AssetStore {
   }
 
   private async write(path: string, bytes: Uint8Array): Promise<void> {
-    await mkdir(join(path, '..'), { recursive: true })
+    await mkdir(join(path, '..'), { recursive: true, mode: 0o700 })
     const tmp = `${path}.${randomUUID()}.tmp`
-    await writeFile(tmp, bytes)
+    await writeFile(tmp, bytes, { mode: 0o600 })
     await rename(tmp, path)
   }
 
@@ -78,6 +82,43 @@ export class DirAssetStore implements AssetStore {
       return false
     }
   }
+
+  async getManifest(teamId: string, digest: string): Promise<Uint8Array | null> {
+    assertDigest(digest)
+    try {
+      return new Uint8Array(await readFile(join(this.dir(teamId, 'manifests'), `${digest}.json`)))
+    } catch {
+      return null
+    }
+  }
+
+  async getObject(teamId: string, digest: string): Promise<Uint8Array | null> {
+    assertDigest(digest)
+    try {
+      return new Uint8Array(await readFile(join(this.dir(teamId, 'objects'), digest)))
+    } catch {
+      return null
+    }
+  }
+
+  async statObject(teamId: string, digest: string): Promise<number | null> {
+    assertDigest(digest)
+    try {
+      const info = await stat(join(this.dir(teamId, 'objects'), digest))
+      return info.isFile() ? info.size : null
+    } catch {
+      return null
+    }
+  }
+
+  async deleteManifest(teamId: string, digest: string): Promise<void> {
+    assertDigest(digest)
+    try {
+      await rm(join(this.dir(teamId, 'manifests'), `${digest}.json`), { force: true })
+    } catch {
+      // best effort
+    }
+  }
 }
 
 /** Test-only in-memory store. */
@@ -105,6 +146,21 @@ export class MemoryAssetStore implements AssetStore {
     assertDigest(digest)
     return this.objects.has(this.key(teamId, digest))
   }
+  async getManifest(teamId: string, digest: string): Promise<Uint8Array | null> {
+    assertDigest(digest)
+    return this.manifests.get(this.key(teamId, digest)) ?? null
+  }
+  async getObject(teamId: string, digest: string): Promise<Uint8Array | null> {
+    assertDigest(digest)
+    return this.objects.get(this.key(teamId, digest)) ?? null
+  }
+  async statObject(teamId: string, digest: string): Promise<number | null> {
+    assertDigest(digest)
+    const bytes = this.objects.get(this.key(teamId, digest))
+    return bytes ? bytes.byteLength : null
+  }
+  async deleteManifest(teamId: string, digest: string): Promise<void> {
+    assertDigest(digest)
+    this.manifests.delete(this.key(teamId, digest))
+  }
 }
-
-export { readFile }

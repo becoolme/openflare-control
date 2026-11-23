@@ -195,6 +195,25 @@ maybe('assets', () => {
         runWorkerFirst: ['/api/*'],
       })
     )
+    const pullManifest = await app.request(
+      `/api/internal/clusters/${cell}/vrt/assets/manifests/${manifestDigest}`,
+      { headers: auth }
+    )
+    expect(pullManifest.status).toBe(200)
+    expect(await pullManifest.text()).toContain('/index.html')
+    const pullObject = await app.request(
+      `/api/internal/clusters/${cell}/vrt/assets/objects/${objectDigest}`,
+      { headers: auth }
+    )
+    expect(pullObject.status).toBe(200)
+    expect(await pullObject.text()).toBe('<h1>hello</h1>')
+    expect(
+      (
+        await app.request(`/api/internal/clusters/${cell}/vrt/assets/objects/${'c'.repeat(64)}`, {
+          headers: auth,
+        })
+      ).status
+    ).toBe(404)
 
     // A version referencing an un-uploaded manifest fails at create.
     expect(

@@ -218,6 +218,94 @@ export function createApp(deps: AppDeps): Hono {
     }
   })
 
+  app.get('/api/internal/clusters/:clusterId/vrt/assets/manifests/:digest', async (c) => {
+    try {
+      const cellId = await auth(c, deps)
+      const digest = c.req.param('digest')!
+      if (!/^[0-9a-f]{64}$/.test(digest)) throw new VrtControlError(404, 'Not found')
+      const store = deps.assetStore
+      if (!store) throw new VrtControlError(501, 'Asset store is not configured')
+      const { rows } = await deps.pool.query(
+        `select tenant->>'tenantId' as team_id
+           from plane_publications p,
+                jsonb_array_elements(
+                  case when jsonb_typeof(p.envelope->'payload'->'tenants')='array'
+                    then p.envelope->'payload'->'tenants' else '[]'::jsonb end
+                ) tenant,
+                jsonb_array_elements(
+                  case when jsonb_typeof(tenant->'workers')='array'
+                    then tenant->'workers' else '[]'::jsonb end
+                ) worker,
+                jsonb_array_elements(
+                  case when jsonb_typeof(worker->'bindings')='array'
+                    then worker->'bindings' else '[]'::jsonb end
+                ) binding
+          where p.cell_id=$1 and binding->>'type'='assets'
+            and binding->>'manifestDigest'=$2
+          limit 1`,
+        [cellId, digest]
+      )
+      const team = (rows[0] as { team_id?: string } | undefined)?.team_id
+      if (!team) throw new VrtControlError(404, 'Not found')
+      const bytes = await store.getManifest(team, digest)
+      if (!bytes) throw new VrtControlError(404, 'Not found')
+      return c.body(new Uint8Array(bytes).buffer, 200, { 'Content-Type': 'application/json' })
+    } catch (error) {
+      return errorResponse(c, error)
+    }
+  })
+
+  app.get('/api/internal/clusters/:clusterId/vrt/assets/objects/:digest', async (c) => {
+    try {
+      const cellId = await auth(c, deps)
+      const digest = c.req.param('digest')!
+      if (!/^[0-9a-f]{64}$/.test(digest)) throw new VrtControlError(404, 'Not found')
+      const store = deps.assetStore
+      if (!store) throw new VrtControlError(501, 'Asset store is not configured')
+      const { rows } = await deps.pool.query(
+        `select distinct tenant->>'tenantId' as team_id, binding->>'manifestDigest' as manifest
+           from plane_publications p,
+                jsonb_array_elements(
+                  case when jsonb_typeof(p.envelope->'payload'->'tenants')='array'
+                    then p.envelope->'payload'->'tenants' else '[]'::jsonb end
+                ) tenant,
+                jsonb_array_elements(
+                  case when jsonb_typeof(tenant->'workers')='array'
+                    then tenant->'workers' else '[]'::jsonb end
+                ) worker,
+                jsonb_array_elements(
+                  case when jsonb_typeof(worker->'bindings')='array'
+                    then worker->'bindings' else '[]'::jsonb end
+                ) binding
+          where p.cell_id=$1 and binding->>'type'='assets'
+          limit 200`,
+        [cellId]
+      )
+      for (const row of rows as { team_id?: string; manifest?: string }[]) {
+        if (!row.team_id || !row.manifest) continue
+        const manifest = await store.getManifest(row.team_id, row.manifest)
+        if (!manifest) continue
+        let parsed: { files?: { sha256?: unknown }[] }
+        try {
+          parsed = JSON.parse(Buffer.from(manifest).toString('utf8'))
+        } catch {
+          continue
+        }
+        if (parsed.files?.some((file) => file.sha256 === digest)) {
+          const bytes = await store.getObject(row.team_id, digest)
+          if (bytes) {
+            return c.body(new Uint8Array(bytes).buffer, 200, {
+              'Content-Type': 'application/octet-stream',
+            })
+          }
+        }
+      }
+      throw new VrtControlError(404, 'Not found')
+    } catch (error) {
+      return errorResponse(c, error)
+    }
+  })
+
   // D1 ops: PENDING, unexpired rows in SERIAL order. The cell dedupes by id;
   // the ACK moves the row terminal.
   app.get('/api/internal/clusters/:clusterId/vrt/d1-ops', async (c) => {
