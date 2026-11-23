@@ -509,6 +509,27 @@ maybe('service resource API e2e', () => {
     })
     const secretBody = (await secretInputs.json()) as any
     expect(secretBody.tenants[team].secrets['secrets-store:default:API_KEY']).toBe('store-secret')
+    const secretsDesired = await app.request(`/api/internal/clusters/${cell}/vrt/desired`, {
+      headers: auth,
+    })
+    const secretsEnvelope = (await secretsDesired.json()) as any
+    const secretsServed = secretsEnvelope.payload.tenants
+      .flatMap((tenant: any) => tenant.workers)
+      .find((candidate: any) => candidate.workerId === workerId)
+    expect(secretsServed.bindings).toContainEqual(
+      expect.objectContaining({
+        type: 'secretsStore',
+        name: 'SECRETS',
+        storeId: 'default',
+        secretName: 'API_KEY',
+        secretRef: 'secrets-store:default:API_KEY',
+      })
+    )
+    const stored = await pool.query(
+      'select value from plane_secrets_store where team_id=$1 and store_id=$2 and secret_name=$3',
+      [team, 'default', 'API_KEY']
+    )
+    expect((stored.rows[0] as { value: string }).value).toMatch(/^enc:v1:/)
     expect(
       (
         await call('POST', `/api/v1/cells/${cell}/teams/${team}/workers/${worker}/versions`, {

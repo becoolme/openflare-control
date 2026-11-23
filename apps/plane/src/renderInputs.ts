@@ -20,6 +20,32 @@ export async function collectRenderInputs(
   )
   const tenants: CellRenderInputs['tenants'] = {}
   const storeSecretsByTeam = new Map<string, Record<string, string>>()
+  const storeRefsByTeam = new Map<string, Set<string>>()
+  const activeBindings = await pool.query(
+    `select w.team_id, v.row->'bindings' as bindings
+       from plane_workers w
+       join plane_versions v on v.worker_id=w.id and v.version_id=w.active_version_id
+      where w.cluster_id=$1 and w.runtime='VRT'`,
+    [cellId]
+  )
+  for (const row of activeBindings.rows as { team_id: string; bindings: unknown }[]) {
+    if (!Array.isArray(row.bindings)) continue
+    const refs = storeRefsByTeam.get(row.team_id) ?? new Set<string>()
+    for (const binding of row.bindings as {
+      type?: string
+      storeId?: unknown
+      secretName?: unknown
+    }[]) {
+      if (
+        binding.type === 'SECRETS_STORE' &&
+        typeof binding.storeId === 'string' &&
+        typeof binding.secretName === 'string'
+      ) {
+        refs.add(`${binding.storeId}:${binding.secretName}`)
+      }
+    }
+    storeRefsByTeam.set(row.team_id, refs)
+  }
   for (const worker of workers.rows as { id: string; team_id: string }[]) {
     const tenant = (tenants[worker.team_id] ??= { vars: {}, secrets: {} })
     const vars = await pool.query('select key, value from plane_vars where worker_id=$1', [

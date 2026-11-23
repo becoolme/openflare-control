@@ -304,8 +304,14 @@ async function createVersion(
     if (binding.type !== 'SECRETS_STORE') continue
     const storeId = binding.storeId
     const secretName = binding.secretName
-    if (typeof storeId !== 'string' || typeof secretName !== 'string') {
-      throw new VrtControlError(400, 'Secrets Store binding requires storeId and secretName')
+    if (
+      typeof storeId !== 'string' ||
+      typeof secretName !== 'string' ||
+      !/^[A-Za-z0-9_.-]{1,100}$/.test(storeId) ||
+      !/^[A-Za-z0-9_.-]{1,100}$/.test(secretName) ||
+      `secrets-store:${storeId}:${secretName}`.length > 256
+    ) {
+      throw new VrtControlError(400, 'Invalid Secrets Store binding')
     }
     const [secret] = await rows(
       deps,

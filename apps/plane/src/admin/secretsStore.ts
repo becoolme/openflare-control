@@ -1,12 +1,31 @@
-import type { Hono } from 'hono'
+import type { Context, Hono } from 'hono'
 import { z } from 'zod'
 import { VrtControlError } from 'openflare-control'
 import { type AdminDeps, parse, readJson, rows, teamId } from './context.js'
 
-const identifier = z.string().regex(/^[A-Za-z0-9_.:-]{1,128}$/)
+const identifier = z.string().regex(/^[A-Za-z0-9_.-]{1,100}$/)
 
 export function registerSecretsStore(app: Hono, deps: AdminDeps): void {
   const base = '/api/v1/cells/:cellId/teams/:teamId/secrets-store'
+
+  const assertCell = async (c: Context): Promise<void> => {
+    const cell = c.req.param('cellId')!
+    const team = c.req.param('teamId')!
+    const [worker] = await rows(
+      deps,
+      'select 1 from plane_workers where cluster_id=$1 and team_id=$2 limit 1',
+      [cell, team]
+    )
+    if (!worker) throw new VrtControlError(404, 'Team has no worker on this cell')
+    const caps = await deps.store.cellCapabilities(cell)
+    if (caps?.secretsStore !== true) {
+      throw new VrtControlError(
+        409,
+        'Cell does not support Secrets Store',
+        'VRT_CELL_CAPABILITY_MISSING'
+      )
+    }
+  }
 
   app.get(base, async (c) => {
     parse(teamId, c.req.param('teamId'))
@@ -20,11 +39,12 @@ export function registerSecretsStore(app: Hono, deps: AdminDeps): void {
   })
 
   app.put(`${base}/:storeId/:secretName`, async (c) => {
+    await assertCell(c)
     const team = c.req.param('teamId')
     parse(teamId, team)
     const store = parse(identifier, c.req.param('storeId'))
     const secret = parse(identifier, c.req.param('secretName'))
-    const body = parse(z.object({ value: z.string() }).strict(), await readJson(c))
+    const body = parse(z.object({ value: z.string().max(64 * 1024) }).strict(), await readJson(c))
     await deps.pool.query(
       `insert into plane_secrets_store (team_id, store_id, secret_name, value, updated_at)
        values ($1,$2,$3,$4,now())
@@ -36,6 +56,7 @@ export function registerSecretsStore(app: Hono, deps: AdminDeps): void {
   })
 
   app.delete(`${base}/:storeId/:secretName`, async (c) => {
+    await assertCell(c)
     const team = c.req.param('teamId')
     parse(teamId, team)
     const store = parse(identifier, c.req.param('storeId'))
