@@ -207,7 +207,13 @@ maybe('reference plane routes', () => {
     const { workerId, versionId } = await seedWorker(`iso-${Date.now()}`, digest)
     await publishCell(store, { cellId: cluster, signing, workerId, versionId })
 
-    const other = await app.request(`/api/internal/clusters/other-cell/vrt/bundles/${digest}`, {
+    const otherCell = `other-${Date.now()}`
+    const foreign = await app.request(`/api/internal/clusters/${otherCell}/vrt/bundles/${digest}`, {
+      headers: auth,
+    })
+    expect(foreign.status).toBe(401)
+    await provisionCellToken(otherCell)
+    const other = await app.request(`/api/internal/clusters/${otherCell}/vrt/bundles/${digest}`, {
       headers: auth,
     })
     expect(other.status).toBe(404)
