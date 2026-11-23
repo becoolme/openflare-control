@@ -2,7 +2,10 @@ import type { Hono } from 'hono'
 import { z } from 'zod'
 import {
   VRT_DEFAULT_QUOTAS,
+  VRT_MAX_JSON_BINDING_BYTES,
   VrtControlError,
+  missingCapabilities,
+  requiredCapabilities,
   bundleKeyFor,
   type VrtBindingRecord,
   type VrtCreateVersionInput,
@@ -38,18 +41,61 @@ const versionBody = z
     compatibilityFlags: z.array(z.string().max(64)).default([]),
     crons: z.array(z.object({ scheduleId: z.string(), expression: z.string() })).default([]),
     quotas: quotas.optional(),
-    vars: z.record(key, z.string()).default({}),
+    // CF `vars` may carry strings or JSON values. Strings stay in the
+    // worker-level var table; non-strings become version-scoped `jsonVars`
+    // (rendered as `{"type":"json"}` bindings by computeDesired).
+    vars: z
+      .record(
+        key,
+        z.union([
+          z.string(),
+          z.number().finite(),
+          z.boolean(),
+          z.null(),
+          z.array(z.unknown()),
+          z.record(z.unknown()),
+        ])
+      )
+      .default({}),
     bindings: z.array(z.record(z.unknown())).default([]),
+    observability: z
+      .object({
+        enabled: z.boolean(),
+        logsEnabled: z.boolean(),
+        invocationLogs: z.boolean(),
+        headSamplingRatePpm: z.number().int().min(0).max(1_000_000),
+      })
+      .strict()
+      .nullable()
+      .optional(),
+    // CF `[version_metadata]`: env binding name for `{id, tag, timestamp}`.
+    versionMetadata: key.nullable().optional(),
+    // Tail consumers are resolved worker ids (`team:name`), same team/cell.
+    tailConsumers: z
+      .array(z.string().regex(/^[a-z0-9][a-z0-9-]{0,62}:[a-z0-9][a-z0-9-]{0,62}$/))
+      .max(16)
+      .optional(),
+    streamingTailConsumers: z
+      .array(z.string().regex(/^[a-z0-9][a-z0-9-]{0,62}:[a-z0-9][a-z0-9-]{0,62}$/))
+      .max(16)
+      .optional(),
     queueConsumers: z
       .array(
         z
           .object({
             queueId: z.string().regex(/^[a-z0-9]{26}$/),
-            queueName: z.string().regex(/^[A-Za-z0-9_.:-]{1,64}$/),
+            queueName: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,62}$/),
             maxBatchSize: z.number().int().min(1).max(100).nullable().optional(),
-            maxBatchTimeoutMs: z.number().int().min(0).max(60_000).nullable().optional(),
+            maxBatchTimeoutMs: z
+              .number()
+              .int()
+              .min(0)
+              .max(60_000)
+              .refine((v) => v % 1000 === 0, 'maxBatchTimeoutMs must be whole seconds')
+              .nullable()
+              .optional(),
             maxRetries: z.number().int().min(0).max(100).nullable().optional(),
-            retryDelaySeconds: z.number().int().min(0).max(3600).nullable().optional(),
+            retryDelaySeconds: z.number().int().min(0).max(86_400).nullable().optional(),
             deadLetterQueueId: z
               .string()
               .regex(/^[a-z0-9]{26}$/)
@@ -109,14 +155,160 @@ async function createVersion(
     bytes: actualBytes,
     createdById: 'plane-api',
   })
+  // CF vars may be strings or JSON values. Strings stay worker-scoped in
+  // plane_vars (render-inputs); JSON values are version-scoped and go through
+  // computeDesired as `{"type":"json"}` bindings.
+  const stringVars: Record<string, string> = Object.create(null)
+  const jsonVars: Record<string, unknown> = Object.create(null)
+  for (const [name, value] of Object.entries(body.vars)) {
+    if (typeof value === 'string') {
+      stringVars[name] = value
+      continue
+    }
+    const encoded = JSON.stringify(value)
+    if (encoded === undefined || Buffer.byteLength(encoded, 'utf8') > VRT_MAX_JSON_BINDING_BYTES) {
+      throw new VrtControlError(400, `vars.${name} exceeds the JSON binding limit`)
+    }
+    jsonVars[name] = value
+  }
+
+  const [owner] = (await rows(deps, 'select team_id, cluster_id from plane_workers where id=$1', [
+    workerId,
+  ])) as { team_id: string; cluster_id: string }[]
+  if (!owner) throw new VrtControlError(404, 'Worker not found')
+
+  // `nullable().optional()` inputs must reach the store as explicit nulls:
+  // computeDesired distinguishes `null` from `undefined` while validating.
+  const queueConsumers = (body.queueConsumers ?? []).map((c) => ({
+    queueId: c.queueId,
+    queueName: c.queueName,
+    maxBatchSize: c.maxBatchSize ?? null,
+    maxBatchTimeoutMs: c.maxBatchTimeoutMs ?? null,
+    maxRetries: c.maxRetries ?? null,
+    retryDelaySeconds: c.retryDelaySeconds ?? null,
+    deadLetterQueueId: c.deadLetterQueueId ?? null,
+    maxConcurrency: c.maxConcurrency ?? null,
+  }))
+
+  for (const consumer of queueConsumers) {
+    const [queue] = await rows(
+      deps,
+      'select name from plane_queues where queue_id=$1 and team_id=$2 and cluster_id=$3',
+      [consumer.queueId, owner.team_id, owner.cluster_id]
+    )
+    if (!queue) throw new VrtControlError(400, 'Queue consumer target not found')
+    if (String(queue.name) !== consumer.queueName) {
+      throw new VrtControlError(400, 'Queue consumer name does not match the target queue')
+    }
+    if (consumer.deadLetterQueueId !== null) {
+      const [dlq] = await rows(
+        deps,
+        'select 1 from plane_queues where queue_id=$1 and team_id=$2 and cluster_id=$3',
+        [consumer.deadLetterQueueId, owner.team_id, owner.cluster_id]
+      )
+      if (!dlq) throw new VrtControlError(400, 'Dead-letter queue not found')
+    }
+  }
+
+  const tailConsumers = body.tailConsumers ?? []
+  const streamingTailConsumers = body.streamingTailConsumers ?? []
+  const tailIds = [...tailConsumers, ...streamingTailConsumers]
+  if (new Set(tailIds).size !== tailIds.length) {
+    throw new VrtControlError(400, 'tail consumers must be unique across both channels')
+  }
+  if (tailIds.includes(workerId)) {
+    throw new VrtControlError(400, 'a worker cannot tail itself')
+  }
+  if (tailIds.length > 0) {
+    const found = await rows(
+      deps,
+      `select id from plane_workers
+        where id = any($1::text[]) and team_id=$2 and cluster_id=$3
+          and runtime='VRT' and status='ACTIVE' and active_version_id is not null`,
+      [tailIds, owner.team_id, owner.cluster_id]
+    )
+    if (found.length !== tailIds.length) {
+      throw new VrtControlError(
+        400,
+        'tail consumers must be existing workers of the same team and cell'
+      )
+    }
+  }
+
+  const capabilities = await deps.store.cellCapabilities(owner.cluster_id)
+  if (capabilities !== null) {
+    const required = requiredCapabilities({
+      cronCount: body.crons.length,
+      bindingTypes: body.bindings
+        .map((binding) => (typeof binding.type === 'string' ? binding.type : ''))
+        .filter((type) => type.length > 0),
+      queueConsumerCount: queueConsumers.length,
+      workflowCount: 0,
+      crossWorkerWorkflowCount: 0,
+      serviceEntrypointCount: body.bindings.filter(
+        (binding) => binding.type === 'SERVICE' && typeof binding.entrypoint === 'string'
+      ).length,
+      servicePropsCount: body.bindings.filter(
+        (binding) => binding.type === 'SERVICE' && binding.props != null
+      ).length,
+      queueDeliveryDelayCount: body.bindings.filter(
+        (binding) => binding.type === 'QUEUE' && typeof binding.deliveryDelaySeconds === 'number'
+      ).length,
+      workerLoaderCount: body.bindings.filter((binding) => binding.type === 'WORKER_LOADER').length,
+      nonDefaultQuotaCount: body.quotas ? 1 : 0,
+      tailConsumerCount: tailConsumers.length,
+      streamingTailConsumerCount: streamingTailConsumers.length,
+      observabilityDeclared: body.observability != null,
+      versionMetadata: body.versionMetadata != null,
+    })
+    const missing = missingCapabilities(required, capabilities)
+    if (missing.length > 0) {
+      throw new VrtControlError(
+        409,
+        `Cell lacks capabilities: ${missing.join(', ')}`,
+        'VRT_CELL_CAPABILITY_MISSING'
+      )
+    }
+  }
+
+  const envNames = new Set<string>()
+  const claimEnvName = (name: string, source: string): void => {
+    if (envNames.has(name)) {
+      throw new VrtControlError(400, `${source} name "${name}" collides with another env name`)
+    }
+    envNames.add(name)
+  }
+  for (const binding of body.bindings) {
+    const name = binding?.name
+    if (typeof name === 'string') claimEnvName(name, 'binding')
+  }
+  for (const name of Object.keys(body.vars)) claimEnvName(name, 'var')
+  if (body.versionMetadata) claimEnvName(body.versionMetadata, 'versionMetadata')
+  for (const secret of await rows(deps, 'select key from plane_secrets where worker_id=$1', [
+    workerId,
+  ])) {
+    claimEnvName(String(secret.key), 'secret')
+  }
+
   const fp = sha256(
     JSON.stringify({
       bindings: body.bindings,
-      vars: Object.keys(body.vars).sort(),
+      vars: Object.keys(body.vars)
+        .sort()
+        .map((name) => [name, body.vars[name]]),
       crons: body.crons,
       compatibilityDate: body.compatibilityDate,
       compatibilityFlags: body.compatibilityFlags,
       quotas: body.quotas ?? null,
+      queueConsumers,
+      tailConsumers,
+      streamingTailConsumers,
+      versionMetadata: body.versionMetadata ?? null,
+      observability: body.observability ?? null,
+      jsonVars,
+      assetsRouting: body.assetsRouting ?? null,
+      assetsRunWorkerFirst: body.assetsRunWorkerFirst ?? [],
+      exportedClassNames: body.exportedClassNames ?? [],
     })
   )
   const effectiveQuotas = body.quotas ?? VRT_DEFAULT_QUOTAS
@@ -139,25 +331,75 @@ async function createVersion(
     compatibilityFlags: body.compatibilityFlags,
     crons: body.crons,
     quotas: effectiveQuotas,
-    varValues: body.vars,
+    varValues: stringVars,
     bindingsFingerprint: fp,
     runtimeConfigDigest: fp,
     bindings: body.bindings as unknown as readonly VrtBindingRecord[],
-    queueConsumers: body.queueConsumers as unknown as readonly VrtQueueConsumerDraft[],
+    queueConsumers,
+    tailConsumers: tailConsumers.length > 0 ? tailConsumers : undefined,
+    streamingTailConsumers: streamingTailConsumers.length > 0 ? streamingTailConsumers : undefined,
+    versionMetadata: body.versionMetadata ?? null,
+    observability: body.observability ?? null,
+    jsonVars: Object.keys(jsonVars).length > 0 ? jsonVars : null,
     assetsRouting: body.assetsRouting ?? null,
     assetsRunWorkerFirst: body.assetsRunWorkerFirst ?? [],
     exportedClassNames: body.exportedClassNames,
     createdById: 'plane-api',
   }
-  const { version, created } = await deps.store.createVersionWithBindings(input)
-  for (const [k, value] of Object.entries(body.vars)) {
-    await deps.pool.query(
-      `insert into plane_vars (worker_id, key, value) values ($1,$2,$3)
-       on conflict (worker_id, key) do update set value=excluded.value`,
-      [workerId, k, value]
-    )
-  }
-  return { version, created }
+  return deps.store.createVersionWithBindings(input)
+}
+
+async function isActiveTailTarget(
+  deps: AdminDeps,
+  cell: string,
+  targetWorkerId: string
+): Promise<boolean> {
+  const [row] = await rows(
+    deps,
+    `select 1
+       from plane_workers w
+       join plane_versions v on v.worker_id=w.id and v.version_id=w.active_version_id
+      where w.cluster_id=$1
+        and ((v.row->'tailConsumers') @> to_jsonb($2::text)
+          or (v.row->'streamingTailConsumers') @> to_jsonb($2::text))
+      limit 1`,
+    [cell, targetWorkerId]
+  )
+  return Boolean(row)
+}
+
+/** Activate a version and replace its render-input vars atomically. The
+ * reference plane's `PlaneCellTx` exposes `applyVersionVars`; keep this cast
+ * local so the portable VrtCellTx interface stays unchanged. */
+interface ActivatableVersion {
+  readonly versionId: string
+  readonly varValues: Readonly<Record<string, string>>
+  readonly queueConsumers?: readonly VrtQueueConsumerDraft[] | null
+  readonly tailConsumers?: readonly string[] | null
+  readonly streamingTailConsumers?: readonly string[] | null
+}
+
+async function activateVersionWithVars(
+  deps: AdminDeps,
+  cell: string,
+  teamIdValue: string,
+  workerIdToActivate: string,
+  version: ActivatableVersion
+): Promise<void> {
+  await deps.store.runCellTransaction(cell, async (tx) => {
+    const referenceTx = tx as unknown as {
+      assertVersionReferences?: (teamId: string, version: ActivatableVersion) => Promise<void>
+      applyVersionVars?: (workerId: string, vars: Readonly<Record<string, string>>) => Promise<void>
+    }
+    if (referenceTx.assertVersionReferences) {
+      await referenceTx.assertVersionReferences(teamIdValue, version)
+    }
+    await tx.activateVersion(workerIdToActivate, version.versionId)
+    if (typeof referenceTx.applyVersionVars !== 'function') {
+      throw new VrtControlError(501, 'store does not support version vars')
+    }
+    await referenceTx.applyVersionVars(workerIdToActivate, version.varValues ?? {})
+  })
 }
 
 export function registerWorkers(app: Hono, deps: AdminDeps): void {
@@ -216,6 +458,10 @@ export function registerWorkers(app: Hono, deps: AdminDeps): void {
     ])
     if (!worker) throw new VrtControlError(404, 'Worker not found', 'VRT_WORKER_NOT_FOUND')
     const versions = await deps.store.listVersions(id, { limit: 50 })
+    const activeVersionId = (worker.active_version_id as string | null) ?? null
+    const activeVersion = activeVersionId
+      ? await deps.store.getVersionByVersionId(id, activeVersionId)
+      : null
     const vars = await rows(
       deps,
       'select key, value from plane_vars where worker_id=$1 order by key',
@@ -236,6 +482,14 @@ export function registerWorkers(app: Hono, deps: AdminDeps): void {
         worker: mapWorker(worker),
         versions,
         vars,
+        jsonVars: activeVersion?.jsonVars ?? null,
+        observability: activeVersion?.observability ?? null,
+        versionMetadata: activeVersion?.versionMetadata ?? null,
+        tailConsumers: activeVersion?.tailConsumers ?? [],
+        streamingTailConsumers: activeVersion?.streamingTailConsumers ?? [],
+        queueConsumers: activeVersion?.queueConsumers ?? [],
+        assetsRouting: activeVersion?.assetsRouting ?? null,
+        assetsRunWorkerFirst: activeVersion?.assetsRunWorkerFirst ?? [],
         secretKeys: secrets.map((r) => r.key),
         hostnames: hosts,
       },
@@ -281,6 +535,11 @@ export function registerWorkers(app: Hono, deps: AdminDeps): void {
         .strict(),
       await readJson(c)
     )
+    if (body.status !== undefined && body.status !== 'ACTIVE') {
+      if (await isActiveTailTarget(deps, cell, id)) {
+        throw new VrtControlError(409, 'Worker is an active tail consumer')
+      }
+    }
     const [worker] = await rows(
       deps,
       `update plane_workers set
@@ -296,9 +555,13 @@ export function registerWorkers(app: Hono, deps: AdminDeps): void {
 
   app.delete('/api/v1/cells/:cellId/teams/:teamId/workers/:name', async (c) => {
     const { cellId: cell, teamId: team, name } = c.req.param()
+    const id = workerId(team, name)
+    if (await isActiveTailTarget(deps, cell, id)) {
+      throw new VrtControlError(409, 'Worker is an active tail consumer')
+    }
     const deleted = await deps.pool.query(
       'delete from plane_workers where id=$1 and cluster_id=$2',
-      [workerId(team, name), cell]
+      [id, cell]
     )
     if (deleted.rowCount === 0) throw new VrtControlError(404, 'Worker not found')
     return c.json({ data: { deleted: true } })
@@ -343,7 +606,7 @@ export function registerWorkers(app: Hono, deps: AdminDeps): void {
     let activated = false
     let revision: number | null = null
     if (body.activate) {
-      await deps.store.runCellTransaction(cell, (tx) => tx.activateVersion(id, version.versionId))
+      await activateVersionWithVars(deps, cell, team, id, version)
       activated = true
     }
     if (body.publish) {
@@ -363,9 +626,15 @@ export function registerWorkers(app: Hono, deps: AdminDeps): void {
     async (c) => {
       const { cellId: cell, teamId: team, name, versionId } = c.req.param()
       const id = workerId(team, name)
+      const [worker] = await rows(
+        deps,
+        'select id from plane_workers where id=$1 and cluster_id=$2',
+        [id, cell]
+      )
+      if (!worker) throw new VrtControlError(404, 'Worker not found')
       const version = await deps.store.getVersionByVersionId(id, versionId)
       if (!version) throw new VrtControlError(404, 'Version not found')
-      await deps.store.runCellTransaction(cell, (tx) => tx.activateVersion(id, versionId))
+      await activateVersionWithVars(deps, cell, team, id, version)
       return c.json({ data: { workerId: id, versionId, activated: true } })
     }
   )

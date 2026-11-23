@@ -221,6 +221,11 @@ export class PlaneStore {
       varValues: input.varValues,
       bindings: input.bindings,
       queueConsumers: input.queueConsumers ?? [],
+      tailConsumers: input.tailConsumers ?? null,
+      streamingTailConsumers: input.streamingTailConsumers ?? null,
+      versionMetadata: input.versionMetadata ?? null,
+      observability: input.observability ?? null,
+      jsonVars: input.jsonVars ?? null,
       bindingsFingerprint: input.bindingsFingerprint,
       runtimeConfigDigest: input.runtimeConfigDigest,
       assetsRouting: input.assetsRouting ?? null,
@@ -510,6 +515,70 @@ class PlaneCellTx {
     )
   }
 
+  /** Reference-plane-only: revalidate queue/tail references against the
+   * current rows while holding share locks, so a concurrent delete/suspend
+   * cannot race activation. Kept off VrtCellTx (reference-only hardening). */
+  async assertVersionReferences(
+    teamId: string,
+    version: {
+      readonly queueConsumers?:
+        | readonly {
+            readonly queueId: string
+            readonly queueName: string
+            readonly deadLetterQueueId: string | null
+          }[]
+        | null
+      readonly tailConsumers?: readonly string[] | null
+      readonly streamingTailConsumers?: readonly string[] | null
+    }
+  ): Promise<void> {
+    for (const consumer of version.queueConsumers ?? []) {
+      const [queue] = await this.rows(
+        `select name from plane_queues
+          where queue_id=$1 and team_id=$2 and cluster_id=$3 for share`,
+        [consumer.queueId, teamId, this.clusterId]
+      )
+      if (!queue) throw new VrtControlError(409, 'Queue consumer target not found')
+      if (String(queue.name) !== consumer.queueName) {
+        throw new VrtControlError(409, 'Queue consumer name does not match the target queue')
+      }
+      if (consumer.deadLetterQueueId !== null) {
+        const [dlq] = await this.rows(
+          `select 1 from plane_queues
+            where queue_id=$1 and team_id=$2 and cluster_id=$3 for share`,
+          [consumer.deadLetterQueueId, teamId, this.clusterId]
+        )
+        if (!dlq) throw new VrtControlError(409, 'Dead-letter queue not found')
+      }
+    }
+    const tailIds = [...(version.tailConsumers ?? []), ...(version.streamingTailConsumers ?? [])]
+    if (tailIds.length === 0) return
+    const found = await this.rows(
+      `select id from plane_workers
+        where id = any($1::text[]) and team_id=$2 and cluster_id=$3
+          and runtime='VRT' and status='ACTIVE' and active_version_id is not null
+        for share`,
+      [tailIds, teamId, this.clusterId]
+    )
+    if (found.length !== tailIds.length) {
+      throw new VrtControlError(409, 'Tail consumer target is not an active worker')
+    }
+  }
+
+  /** Reference-plane-only: replace the worker's render-input vars with the
+   * activated version's values inside the same cell transaction. Kept off
+   * VrtCellTx so other store implementations are not forced to grow it. */
+  async applyVersionVars(workerId: string, vars: Readonly<Record<string, string>>): Promise<void> {
+    await this.client.query('delete from plane_vars where worker_id=$1', [workerId])
+    for (const [key, value] of Object.entries(vars)) {
+      await this.client.query(
+        `insert into plane_vars (worker_id, key, value) values ($1,$2,$3)
+         on conflict (worker_id, key) do update set value=excluded.value`,
+        [workerId, key, value]
+      )
+    }
+  }
+
   async applyDoClasses(): Promise<readonly never[]> {
     return []
   }
@@ -653,8 +722,17 @@ class PlaneCellTx {
         bindings: version.bindings,
         hostnames: hostnames.map((h) => h.hostname as string),
         crons: version.crons,
+        queueConsumers: version.queueConsumers ?? [],
+        tailConsumers: version.tailConsumers ?? [],
+        streamingTailConsumers: version.streamingTailConsumers ?? [],
+        versionMetadata: version.versionMetadata ?? null,
+        observability: version.observability ?? null,
+        jsonVars: version.jsonVars ?? null,
         quotas: version.quotas,
-        changedAt: version.createdAt,
+        assetsRouting: version.assetsRouting ?? null,
+        assetsRunWorkerFirst: version.assetsRunWorkerFirst ?? [],
+        changedAt:
+          version.createdAt instanceof Date ? version.createdAt : new Date(version.createdAt),
       } as VrtCellWorkerView)
     }
     return out
