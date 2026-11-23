@@ -1,0 +1,68 @@
+# vrt-host — tenant supervisor + ingress (all-in-one docker variant).
+# Rendered by cell-init: __CELL_ID__ / __KEY_ID__ / __PUBKEY__ /
+# __TRUSTED_CIDR__ are substituted at bootstrap.
+cellId = "__CELL_ID__"
+workerdBinary = "/opt/vrt/workerd"
+workDir = "/data/work"
+cacheDir = "/data/cache"
+listenAddr = "0.0.0.0:8080"
+# Loopback-only by construction — the cell-controller's [[pods]].readyz
+# and health probes live here (shared netns).
+controlListen = "127.0.0.1:9091"
+metricsListen = "0.0.0.0:9494"
+doStorageDir = "/data/do"
+# Single-copy durability waiver — same dev/internal-test default as the
+# k8s base; production should use an s3 [placement].
+allowLocalDurability = true
+
+[desired]
+# The cell-controller delivers envelope+assignment into this shared
+# dir; both sides poll it.
+path = "/run/vrt/pod-delivery/envelope.json"
+assignmentFile = "/run/vrt/pod-delivery/assignment.json"
+podId = "pod-0"
+reloadMs = 1000
+graceVersions = 1
+trustedKeys = [
+  { keyId = "__KEY_ID__", publicKey = "__PUBKEY__" },
+]
+
+[render]
+mode = "capnp"
+facadeManifest = "/opt/vrt/facade/manifest.json"
+bindingBackendDir = "/run/vrt/listeners"
+systemCompatDate = "2024-09-01"
+systemCompatFlags = []
+renderInputsFile = "/run/vrt/render-inputs/render-inputs.json"
+extraArgs = []
+
+[bundles]
+baseUrl = "http://plane:8787/api/internal/clusters/__CELL_ID__"
+tokenFile = "/run/vrt/secrets/cell-token"
+
+[assets]
+dir = "/data/assets"
+baseUrl = "http://plane:8787/api/internal/clusters/__CELL_ID__"
+tokenFile = "/run/vrt/secrets/cell-token"
+
+[ingress]
+# Traefik (websecure-only) terminates TLS — the scheme is fixed https;
+# inbound client headers are never trusted.
+forwardedProto = "fixed-https"
+
+# The Traefik service shares this stack's docker subnet — trust XFF
+# only from it so cf-connecting-ip reflects the real client.
+[ingress.clientIp]
+mode = "trusted-xff"
+trustedCidrs = ["__TRUSTED_CIDR__"]
+
+[limits]
+maxRssBytes = 536870912
+maxFds = 4096
+
+[cache]
+maxEntryBytes = 1048576
+tenantBytes = 16777216
+globalBytes = 134217728
+globalInflightBytes = 33554432
+tenantInflightBytes = 4194304

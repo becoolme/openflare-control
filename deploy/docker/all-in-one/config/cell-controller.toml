@@ -1,0 +1,39 @@
+# cell-controller — desired pull/ack, envelope+assignment delivery,
+# render-inputs materialization, cron leadership (all-in-one docker).
+cell_id = "__CELL_ID__"
+control_plane_url = "http://plane:8787"
+render_inputs_dir = "/run/vrt/render-inputs"
+token_file = "/run/vrt/secrets/cell-token"
+health_listen = "127.0.0.1:9090"
+metrics_listen = "0.0.0.0:9495"
+poll_interval_secs = 10
+cron_holder = "vrt-cell-controller"
+fence_file = "/data/fence.json"
+cron_state_dir = "/data"
+replicas = 1
+egress_required = false
+trusted_keys = [
+  { keyId = "__KEY_ID__", publicKey = "__PUBKEY__" },
+]
+
+# The d1sql endpoint validator accepts only loopback or
+# `<svc>.<ns>.svc[.cluster.local]` — the compose alias on the vrt-sql
+# service gives it exactly that shape.
+[d1sql]
+endpoint = "http://vrt-sql.openflare.svc:8082"
+auth_secret_file = "/run/vrt/secrets/vrt-sql-auth-secret"
+timeout_secs = 5
+
+# Same RESP store as the provider's [kvrocks] (KV purge + data cell-ops).
+[storage_purge.kvrocks]
+urlEnv = "VRT_KVROCKS_URL"
+timeoutMs = 5000
+connectTimeoutMs = 5000
+
+# [storage_purge.s3] intentionally ABSENT — mirrors vrt-provider.toml;
+# R2 fails closed until an object store is wired.
+
+[[pods]]
+id = "pod-0"
+dir = "/run/vrt/pod-delivery"
+readyz = "http://127.0.0.1:9091"
