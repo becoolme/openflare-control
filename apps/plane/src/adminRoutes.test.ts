@@ -131,15 +131,76 @@ maybe('management API edges', () => {
     expect(
       (await call(app, 'GET', `${base}/teams/${team}/workers/${worker}/versions`)).status
     ).toBe(200)
+    const bundle = new TextEncoder().encode('edge-v1')
+    const digest = sha256(bundle)
+    expect(
+      (
+        await app.request(`${base}/bundles/${digest}`, {
+          method: 'PUT',
+          headers: auth,
+          body: bundle,
+        })
+      ).status
+    ).toBe(201)
+    expect(
+      (
+        await call(app, 'POST', `${base}/teams/${team}/workers/${worker}/versions`, {
+          versionId: 'missing-bundle',
+          bundleSha256: 'a'.repeat(64),
+          vars: {},
+        })
+      ).status
+    ).toBe(409)
     expect(
       (
         await call(app, 'POST', `${base}/teams/${team}/workers/${worker}/versions`, {
           versionId: 'v1',
-          bundleSha256: 'f'.repeat(64),
+          bundleSha256: digest,
+          bundleBytes: bundle.byteLength,
           vars: {},
         })
       ).status
     ).toBe(201)
+
+    // Real runtime artifacts: the key is sha256(canonical manifest), not
+    // sha256(stored-document bytes). The route must accept that format.
+    const runtimeDigest = 'a71da14134a9249da38199c2fc282347a451237a1702c9758214f026a809753f'
+    const runtimeBytes = new Uint8Array(
+      await readFile(
+        new URL('../../../packages/control/test/fixtures/runtime-bundle-v1.json', import.meta.url)
+      )
+    )
+    expect(
+      (
+        await app.request(`${base}/bundles/${runtimeDigest}`, {
+          method: 'PUT',
+          headers: auth,
+          body: runtimeBytes,
+        })
+      ).status
+    ).toBe(201)
+    expect(
+      (
+        await call(app, 'POST', `${base}/teams/${team}/workers/${worker}/versions`, {
+          versionId: 'runtime-v1',
+          bundleSha256: runtimeDigest,
+          bundleBytes: runtimeBytes.byteLength,
+          vars: {},
+        })
+      ).status
+    ).toBe(201)
+    const tampered = new Uint8Array(runtimeBytes)
+    const flip = tampered.length - 10
+    tampered[flip] = (tampered[flip] ?? 0) ^ 1
+    expect(
+      (
+        await app.request(`${base}/bundles/${runtimeDigest}`, {
+          method: 'PUT',
+          headers: auth,
+          body: tampered,
+        })
+      ).status
+    ).toBe(400)
     expect(
       (
         await call(

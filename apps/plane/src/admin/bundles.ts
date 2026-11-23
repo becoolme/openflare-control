@@ -1,5 +1,5 @@
 import type { Hono } from 'hono'
-import { VrtControlError, bundleKeyFor } from 'openflare-control'
+import { VrtControlError, bundleKeyFor, verifyRuntimeBundle } from 'openflare-control'
 import { type AdminDeps, digest, parse, sha256 } from './context.js'
 
 export function registerBundles(app: Hono, deps: AdminDeps): void {
@@ -13,7 +13,14 @@ export function registerBundles(app: Hono, deps: AdminDeps): void {
     }
     const bytes = new Uint8Array(await c.req.arrayBuffer())
     if (bytes.byteLength > max) throw new VrtControlError(413, 'Bundle too large')
-    if (sha256(bytes) !== d) throw new VrtControlError(400, 'Digest does not match body')
+    // Real cells consume the runtime's canonical stored document, whose
+    // object key is sha256(canonical manifest) — NOT sha256(document bytes).
+    // Keep the legacy raw-body rule as well for test fixtures/clients that
+    // only exercise the control plane.
+    const legacy = sha256(bytes) === d
+    if (!legacy && !verifyRuntimeBundle(d, bytes)) {
+      throw new VrtControlError(400, 'Digest does not match the runtime bundle or body')
+    }
     await deps.store.registerBundleObject({
       digest: d,
       bytes: bytes.byteLength,
