@@ -55,6 +55,7 @@ pnpm install
 pnpm --filter openflare-control build
 
 export PLANE_TOKEN="$(openssl rand -hex 32)"
+export PLANE_ADMIN_TOKEN="$(openssl rand -hex 32)"
 export PLANE_SIGNING_SECRET="$(openssl rand -hex 32)"
 docker compose up -d --build
 docker compose exec plane node dist/migrate.js
@@ -82,6 +83,7 @@ an S3-compatible store, Kvrocks, Postgres, and an OpenFlare checkout
 # 1. plane database + service (outside or inside the cluster)
 export DATABASE_URL=postgresql://user:pass@host/openflare_plane
 export PLANE_TOKEN="$(openssl rand -hex 32)"
+export PLANE_ADMIN_TOKEN="$(openssl rand -hex 32)"
 export PLANE_SIGNING_SECRET="$(openssl rand -hex 32)"
 export PLANE_BUNDLE_DIR=/var/lib/openflare/bundles
 pnpm --filter openflare-plane migrate
@@ -128,6 +130,9 @@ cell API is in [docs/api.md](docs/api.md).
   a private network.
 - Bearer token (`PLANE_TOKEN`) on every cell endpoint, compared in constant
   time.
+- The management API requires a separate, at-least-32-character
+  `PLANE_ADMIN_TOKEN`; it never falls back to the cell token, so a leaked cell
+  credential cannot become a management credential.
 - Desired snapshots are Ed25519-signed over canonical JSON v2; the key is
   derived from `PLANE_SIGNING_SECRET` and its public key must be listed in each
   component's `trustedKeys`. Cells reject replayed, tampered, mis-scoped or
@@ -166,9 +171,9 @@ OPENFLARE_DIR=../openflare pnpm run check:openflare-contract  # checks the pinne
 pnpm run check:package-consumption          # pack + install + import in an empty project
 pnpm run check:sanitized                    # no private refs in deploy/
 # real container + real Postgres (requires docker compose):
-PLANE_TOKEN=... pnpm test:e2e:docker
+PLANE_TOKEN=... PLANE_ADMIN_TOKEN=... pnpm test:e2e:docker
 # real kind cluster + Postgres (requires kind/kubectl):
-PLANE_TOKEN=... PLANE_SIGNING_SECRET=... pnpm test:e2e:kind
+PLANE_TOKEN=... PLANE_ADMIN_TOKEN=... PLANE_SIGNING_SECRET=... pnpm test:e2e:kind
 OPENFLARE_DIR=../openflare node scripts/vrt-k8s-check.mjs --template deploy/k8s/overlays/example
 ```
 
