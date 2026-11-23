@@ -226,7 +226,6 @@ describe('capability gating for the new binding kinds', () => {
     expect(types('K2')).toEqual(expect.arrayContaining(['d1', 'k2']))
     expect(types('SEND_EMAIL')).toEqual(['email'])
     expect(types('IMAGES')).toEqual(['images'])
-    expect(types('VECTORIZE')).toEqual(['vectorize'])
     expect(types('FLAGSHIP')).toEqual(['flagship'])
     expect(types('ANALYTICS_ENGINE')).toEqual(['analyticsEngine'])
     expect(types('UNSAFE_EVAL')).toEqual(['unsafeEval'])

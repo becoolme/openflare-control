@@ -1,6 +1,7 @@
 import type { Hono } from 'hono'
 import { z } from 'zod'
 import { VrtControlError } from 'openflare-control'
+import { randomBytes } from 'node:crypto'
 import { type AdminDeps, generatedId, parse, readJson, rows, teamId } from '../context.js'
 
 const metric = z.enum(['cosine', 'euclidean', 'dot-product'])
@@ -54,11 +55,16 @@ export function registerVectorizeService(app: Hono, deps: AdminDeps): void {
       }
       return c.json({ data: { index: existing } }, 200)
     }
-    const id = generatedId(`${cell}:${body.teamId}:vectorize:${body.name}`)
+    // Include a per-incarnation component so delete + re-create never reopens
+    // the old physical index (the provider has no purge op yet).
+    const id = generatedId(
+      `${cell}:${body.teamId}:vectorize:${body.name}:${randomBytes(8).toString('hex')}`
+    )
     await deps.pool.query(
       `insert into plane_vectorize_indexes
          (index_id, team_id, cluster_id, name, dimensions, metric)
-       values ($1,$2,$3,$4,$5,$6)`,
+       values ($1,$2,$3,$4,$5,$6)
+       on conflict (team_id, cluster_id, name) do nothing`,
       [id, body.teamId, cell, body.name, body.dimensions, body.metric]
     )
     const [index] = await rows(

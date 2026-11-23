@@ -184,6 +184,12 @@ polls `GET /api/v1/cells/{cell}/ops/{opId}?waitMs=`.
 | Workflows | `GET/POST/DELETE .../workers/{name}/workflows[/{wf}]`           | `POST .../workflows/{wf}/ops` for `WF_CREATE/GET/ACTION/EVENT/DELETE`; `GET .../ops`           |
 | Vectorize | `GET/POST /vectorize/indexes`, `DELETE /vectorize/indexes/{id}` | `GET .../{id}/binding` returns a ready version binding                                         |
 
+Vectorize indexes are cell/team-scoped; `GET .../{id}/binding` returns a
+ready binding. `index_id` includes a per-incarnation component, so deleting
+and re-creating an index never reopens the previous physical index. Delete is
+metadata-only (the provider has no purge op yet). Deploying a `VECTORIZE`
+binding requires a cell new enough to parse the vectorize wire variant.
+
 Workflow declarations are worker-scoped in the reference plane: POST accepts
 `{name, className, binding?, limitsSteps?, scriptName?}`. A POST is a full
 replacement: omitted `binding` resets to `name` (which must itself be a valid
