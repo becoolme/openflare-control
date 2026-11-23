@@ -55,6 +55,7 @@ maybe('version-scoped fields', () => {
   const tail = 'tail'
   const workerId = `${team}:${worker}`
   const tailId = `${team}:${tail}`
+  let queueId = ''
   const base = `/api/v1/cells/${cell}`
   const auth = { authorization: `Bearer ${TOKEN}` }
   const json = { ...auth, 'content-type': 'application/json' }
@@ -118,6 +119,10 @@ maybe('version-scoped fields', () => {
     })
     expect(put.status).toBe(201)
 
+    const queue = await call('POST', `${base}/queues`, { teamId: team, name: 'jobs' })
+    expect(queue.status).toBe(201)
+    queueId = queue.body.data.queue.queue_id
+
     const create = (versionId: string, extra: Record<string, unknown> = {}) =>
       call('POST', `${base}/teams/${team}/workers/${worker}/versions`, {
         versionId,
@@ -138,7 +143,7 @@ maybe('version-scoped fields', () => {
             permissionWrite: false,
           },
         ],
-        queueConsumers: [{ queueId: 'q'.repeat(26), queueName: 'jobs' }],
+        queueConsumers: [{ queueId, queueName: 'jobs' }],
         tailConsumers: [tailId],
         versionMetadata: 'CF_VERSION_METADATA',
         observability: {
@@ -171,7 +176,6 @@ maybe('version-scoped fields', () => {
     ).toBe(200)
 
     const created = await create(`v-${suffix}`)
-    if (created.status !== 201) console.log('CREATE_FAILED', JSON.stringify(created.body))
     expect(created.status).toBe(201)
     expect(
       (
@@ -192,9 +196,7 @@ maybe('version-scoped fields', () => {
     const envelope = (await desired.json()) as any
     const hello = envelope.payload.tenants[0].workers.find((w: any) => w.workerId === workerId)
     expect(hello).toBeTruthy()
-    expect(hello.queueConsumers).toEqual([
-      expect.objectContaining({ queueId: 'q'.repeat(26), queueName: 'jobs' }),
-    ])
+    expect(hello.queueConsumers).toEqual([expect.objectContaining({ queueId, queueName: 'jobs' })])
     expect(hello.tailConsumers).toEqual([{ workerId: tailId }])
     expect(hello.observability).toMatchObject({
       enabled: true,
@@ -233,7 +235,23 @@ maybe('version-scoped fields', () => {
     expect(same.status).toBe(200)
     expect(same.body.data.created).toBe(false)
 
+    // Staging a version must not mutate the serving version's render-inputs.
+    const staged = await create(`staged-${suffix}`, { vars: { GREETING: 'staged' } })
+    expect(staged.status).toBe(201)
+    const stillServing = await app.request(`/api/internal/clusters/${cell}/vrt/render-inputs`, {
+      headers: auth,
+    })
+    expect((await stillServing.json()).tenants[team].vars.GREETING).toBe('hi')
+
     // Fail-fast edges.
+    expect(
+      (
+        await create(`bad-queue-${suffix}`, {
+          queueConsumers: [{ queueId: 'q'.repeat(26), queueName: 'jobs' }],
+        })
+      ).status
+    ).toBe(400)
+    expect((await create(`collision-${suffix}`, { versionMetadata: 'GREETING' })).status).toBe(400)
     expect(
       (await create(`bad-tail-${suffix}`, { tailConsumers: [`other-team:${tail}`] })).status
     ).toBe(400)
@@ -265,5 +283,16 @@ maybe('version-scoped fields', () => {
         })
       ).status
     ).toBe(400)
+    // Referential integrity: an active tail target and a consumed queue
+    // cannot be deleted or suspended out from under the serving worker.
+    expect((await call('DELETE', `${base}/teams/${team}/workers/${tail}`)).status).toBe(409)
+    expect(
+      (
+        await call('PATCH', `${base}/teams/${team}/workers/${tail}`, {
+          status: 'SUSPENDED',
+        })
+      ).status
+    ).toBe(409)
+    expect((await call('DELETE', `${base}/queues/${queueId}`)).status).toBe(409)
   })
 })

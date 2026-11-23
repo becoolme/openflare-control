@@ -155,8 +155,8 @@ async function createVersion(
   // CF vars may be strings or JSON values. Strings stay worker-scoped in
   // plane_vars (render-inputs); JSON values are version-scoped and go through
   // computeDesired as `{"type":"json"}` bindings.
-  const stringVars: Record<string, string> = {}
-  const jsonVars: Record<string, unknown> = {}
+  const stringVars: Record<string, string> = Object.create(null)
+  const jsonVars: Record<string, unknown> = Object.create(null)
   for (const [name, value] of Object.entries(body.vars)) {
     if (typeof value === 'string') {
       stringVars[name] = value
@@ -168,6 +168,11 @@ async function createVersion(
     }
     jsonVars[name] = value
   }
+
+  const [owner] = (await rows(deps, 'select team_id, cluster_id from plane_workers where id=$1', [
+    workerId,
+  ])) as { team_id: string; cluster_id: string }[]
+  if (!owner) throw new VrtControlError(404, 'Worker not found')
 
   // `nullable().optional()` inputs must reach the store as explicit nulls:
   // computeDesired distinguishes `null` from `undefined` while validating.
@@ -182,6 +187,26 @@ async function createVersion(
     maxConcurrency: c.maxConcurrency ?? null,
   }))
 
+  for (const consumer of queueConsumers) {
+    const [queue] = await rows(
+      deps,
+      'select name from plane_queues where queue_id=$1 and team_id=$2 and cluster_id=$3',
+      [consumer.queueId, owner.team_id, owner.cluster_id]
+    )
+    if (!queue) throw new VrtControlError(400, 'Queue consumer target not found')
+    if (String(queue.name) !== consumer.queueName) {
+      throw new VrtControlError(400, 'Queue consumer name does not match the target queue')
+    }
+    if (consumer.deadLetterQueueId !== null) {
+      const [dlq] = await rows(
+        deps,
+        'select 1 from plane_queues where queue_id=$1 and team_id=$2 and cluster_id=$3',
+        [consumer.deadLetterQueueId, owner.team_id, owner.cluster_id]
+      )
+      if (!dlq) throw new VrtControlError(400, 'Dead-letter queue not found')
+    }
+  }
+
   const tailConsumers = body.tailConsumers ?? []
   const streamingTailConsumers = body.streamingTailConsumers ?? []
   const tailIds = [...tailConsumers, ...streamingTailConsumers]
@@ -192,16 +217,12 @@ async function createVersion(
     throw new VrtControlError(400, 'a worker cannot tail itself')
   }
   if (tailIds.length > 0) {
-    const [self] = await rows(deps, 'select team_id, cluster_id from plane_workers where id=$1', [
-      workerId,
-    ])
-    if (!self) throw new VrtControlError(404, 'Worker not found')
     const found = await rows(
       deps,
       `select id from plane_workers
         where id = any($1::text[]) and team_id=$2 and cluster_id=$3
           and runtime='VRT' and status='ACTIVE' and active_version_id is not null`,
-      [tailIds, self.team_id, self.cluster_id]
+      [tailIds, owner.team_id, owner.cluster_id]
     )
     if (found.length !== tailIds.length) {
       throw new VrtControlError(
@@ -209,6 +230,25 @@ async function createVersion(
         'tail consumers must be existing workers of the same team and cell'
       )
     }
+  }
+
+  const envNames = new Set<string>()
+  const claimEnvName = (name: string, source: string): void => {
+    if (envNames.has(name)) {
+      throw new VrtControlError(400, `${source} name "${name}" collides with another env name`)
+    }
+    envNames.add(name)
+  }
+  for (const binding of body.bindings) {
+    const name = binding?.name
+    if (typeof name === 'string') claimEnvName(name, 'binding')
+  }
+  for (const name of Object.keys(body.vars)) claimEnvName(name, 'var')
+  if (body.versionMetadata) claimEnvName(body.versionMetadata, 'versionMetadata')
+  for (const secret of await rows(deps, 'select key from plane_secrets where worker_id=$1', [
+    workerId,
+  ])) {
+    claimEnvName(String(secret.key), 'secret')
   }
 
   const fp = sha256(
@@ -267,18 +307,54 @@ async function createVersion(
     exportedClassNames: body.exportedClassNames,
     createdById: 'plane-api',
   }
-  const { version, created } = await deps.store.createVersionWithBindings(input)
-  for (const [name, value] of Object.entries(stringVars)) {
-    await deps.pool.query(
-      `insert into plane_vars (worker_id, key, value) values ($1,$2,$3)
-       on conflict (worker_id, key) do update set value=excluded.value`,
-      [workerId, name, value]
-    )
-  }
-  for (const name of Object.keys(jsonVars)) {
-    await deps.pool.query('delete from plane_vars where worker_id=$1 and key=$2', [workerId, name])
-  }
-  return { version, created }
+  return deps.store.createVersionWithBindings(input)
+}
+
+async function isActiveTailTarget(
+  deps: AdminDeps,
+  cell: string,
+  targetWorkerId: string
+): Promise<boolean> {
+  const [row] = await rows(
+    deps,
+    `select 1
+       from plane_workers w
+       join plane_versions v on v.worker_id=w.id and v.version_id=w.active_version_id
+      where w.cluster_id=$1
+        and ((v.row->'tailConsumers') @> to_jsonb($2::text)
+          or (v.row->'streamingTailConsumers') @> to_jsonb($2::text))
+      limit 1`,
+    [cell, targetWorkerId]
+  )
+  return Boolean(row)
+}
+
+/** Activate a version and replace its render-input vars atomically. The
+ * reference plane's `PlaneCellTx` exposes `applyVersionVars`; keep this cast
+ * local so the portable VrtCellTx interface stays unchanged. */
+async function activateVersionWithVars(
+  deps: AdminDeps,
+  cell: string,
+  workerIdToActivate: string,
+  versionId: string
+): Promise<void> {
+  await deps.store.runCellTransaction(cell, async (tx) => {
+    await tx.activateVersion(workerIdToActivate, versionId)
+    const apply = (
+      tx as unknown as {
+        applyVersionVars?: (
+          workerId: string,
+          vars: Readonly<Record<string, string>>
+        ) => Promise<void>
+      }
+    ).applyVersionVars
+    if (typeof apply !== 'function') {
+      throw new VrtControlError(501, 'store does not support version vars')
+    }
+    const version = await deps.store.getVersionByVersionId(workerIdToActivate, versionId)
+    if (!version) throw new VrtControlError(404, 'Version not found')
+    await apply.call(tx, workerIdToActivate, version.varValues ?? {})
+  })
 }
 
 export function registerWorkers(app: Hono, deps: AdminDeps): void {
@@ -337,7 +413,10 @@ export function registerWorkers(app: Hono, deps: AdminDeps): void {
     ])
     if (!worker) throw new VrtControlError(404, 'Worker not found', 'VRT_WORKER_NOT_FOUND')
     const versions = await deps.store.listVersions(id, { limit: 50 })
-    const activeVersion = versions.find((v) => v.versionId === worker.active_version_id)
+    const activeVersionId = (worker.active_version_id as string | null) ?? null
+    const activeVersion = activeVersionId
+      ? await deps.store.getVersionByVersionId(id, activeVersionId)
+      : null
     const vars = await rows(
       deps,
       'select key, value from plane_vars where worker_id=$1 order by key',
@@ -411,6 +490,11 @@ export function registerWorkers(app: Hono, deps: AdminDeps): void {
         .strict(),
       await readJson(c)
     )
+    if (body.status !== undefined && body.status !== 'ACTIVE') {
+      if (await isActiveTailTarget(deps, cell, id)) {
+        throw new VrtControlError(409, 'Worker is an active tail consumer')
+      }
+    }
     const [worker] = await rows(
       deps,
       `update plane_workers set
@@ -426,9 +510,13 @@ export function registerWorkers(app: Hono, deps: AdminDeps): void {
 
   app.delete('/api/v1/cells/:cellId/teams/:teamId/workers/:name', async (c) => {
     const { cellId: cell, teamId: team, name } = c.req.param()
+    const id = workerId(team, name)
+    if (await isActiveTailTarget(deps, cell, id)) {
+      throw new VrtControlError(409, 'Worker is an active tail consumer')
+    }
     const deleted = await deps.pool.query(
       'delete from plane_workers where id=$1 and cluster_id=$2',
-      [workerId(team, name), cell]
+      [id, cell]
     )
     if (deleted.rowCount === 0) throw new VrtControlError(404, 'Worker not found')
     return c.json({ data: { deleted: true } })
@@ -473,7 +561,7 @@ export function registerWorkers(app: Hono, deps: AdminDeps): void {
     let activated = false
     let revision: number | null = null
     if (body.activate) {
-      await deps.store.runCellTransaction(cell, (tx) => tx.activateVersion(id, version.versionId))
+      await activateVersionWithVars(deps, cell, id, version.versionId)
       activated = true
     }
     if (body.publish) {
@@ -495,7 +583,7 @@ export function registerWorkers(app: Hono, deps: AdminDeps): void {
       const id = workerId(team, name)
       const version = await deps.store.getVersionByVersionId(id, versionId)
       if (!version) throw new VrtControlError(404, 'Version not found')
-      await deps.store.runCellTransaction(cell, (tx) => tx.activateVersion(id, versionId))
+      await activateVersionWithVars(deps, cell, id, versionId)
       return c.json({ data: { workerId: id, versionId, activated: true } })
     }
   )

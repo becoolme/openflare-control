@@ -515,6 +515,20 @@ class PlaneCellTx {
     )
   }
 
+  /** Reference-plane-only: replace the worker's render-input vars with the
+   * activated version's values inside the same cell transaction. Kept off
+   * VrtCellTx so other store implementations are not forced to grow it. */
+  async applyVersionVars(workerId: string, vars: Readonly<Record<string, string>>): Promise<void> {
+    await this.client.query('delete from plane_vars where worker_id=$1', [workerId])
+    for (const [key, value] of Object.entries(vars)) {
+      await this.client.query(
+        `insert into plane_vars (worker_id, key, value) values ($1,$2,$3)
+         on conflict (worker_id, key) do update set value=excluded.value`,
+        [workerId, key, value]
+      )
+    }
+  }
+
   async applyDoClasses(): Promise<readonly never[]> {
     return []
   }
