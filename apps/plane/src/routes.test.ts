@@ -99,7 +99,7 @@ maybe('reference plane routes', () => {
       compatibilityDate: '2024-01-01',
       compatibilityFlags: [],
       crons: [],
-      quotas: { cpuMs: 10_000, memoryMb: 128, subrequests: 50, outboundConnections: 6 },
+      quotas: { cpuMs: 50, memoryMb: 128, subrequests: 50, outboundConnections: 16 },
       varValues: vars,
       bindingsFingerprint: digest.slice(0, 32),
       runtimeConfigDigest: digest,

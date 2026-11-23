@@ -5,6 +5,7 @@
  * fixture is the vendored runtime contract, so this test also proves the two
  * sides agree on the shape.
  */
+import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -128,9 +129,28 @@ maybe('cell report e2e', () => {
     })
     expect(queue.status).toBe(201)
     queueId = queue.body.data.queue.queue_id
+    const bundleA = new TextEncoder().encode('report-a')
+    const bundleB = new TextEncoder().encode('report-b')
+    const digestA = createHash('sha256').update(bundleA).digest('hex')
+    const digestB = createHash('sha256').update(bundleB).digest('hex')
+    for (const [digest, body] of [
+      [digestA, bundleA],
+      [digestB, bundleB],
+    ] as const) {
+      expect(
+        (
+          await app.request(`/api/v1/cells/${cell}/bundles/${digest}`, {
+            method: 'PUT',
+            headers: auth,
+            body,
+          })
+        ).status
+      ).toBe(201)
+    }
     const version = await call('POST', `${base}/teams/${team}/workers/${worker}/versions`, {
       versionId: `report-${suffix}`,
-      bundleSha256: 'f'.repeat(64),
+      bundleSha256: digestA,
+      bundleBytes: bundleA.byteLength,
       vars: {},
       queueConsumers: [{ queueId, queueName: 'jobs', maxBatchSize: 10 }],
       exportedClassNames: ['MyDO'],
@@ -150,7 +170,8 @@ maybe('cell report e2e', () => {
       (
         await call('POST', `${base}/teams/${team}/workers/${worker}/versions`, {
           versionId: `inactive-${suffix}`,
-          bundleSha256: 'e'.repeat(64),
+          bundleSha256: digestB,
+          bundleBytes: bundleB.byteLength,
           vars: {},
           queueConsumers: [{ queueId, queueName: 'jobs', maxBatchSize: 10 }],
           exportedClassNames: ['MyDO'],
