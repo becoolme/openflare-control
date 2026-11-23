@@ -216,6 +216,14 @@ and re-creating an index never reopens the previous physical index. Delete is
 metadata-only (the provider has no purge op yet). Deploying a `VECTORIZE`
 binding requires a cell new enough to parse the vectorize wire variant.
 
+Workflow declarations and Durable Object classes are **worker-scoped** in the
+reference plane, not snapshot-version-scoped: activating or rolling back a
+version does not restore the declaration rowset. Re-POST the desired
+declarations/migrations when rolling back across a declaration change. The
+portable store contract supports version-scoped application
+(`applyWorkflowDeclarations` / `applyDoClasses`) for product control planes such
+as Vibeploy; the minimal reference plane intentionally keeps them worker-level.
+
 Workflow declarations are worker-scoped in the reference plane: POST accepts
 `{name, className, binding?, limitsSteps?, scriptName?}`. A POST is a full
 replacement: omitted `binding` resets to `name` (which must itself be a valid
