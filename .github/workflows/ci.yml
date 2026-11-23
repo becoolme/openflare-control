@@ -104,7 +104,6 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
       - run: docker compose up -d --build
-      - run: docker compose exec -T plane node dist/migrate.js
       - run: node scripts/e2e-docker.mjs
       - if: always()
         run: docker compose logs --no-color

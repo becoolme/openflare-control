@@ -58,9 +58,11 @@ deadline-passed ops that can never be dispatched) so the action is observable.
 
 ## Upgrades
 
-`pnpm --filter openflare-plane migrate` applies `src/schema.sql`, which is
-idempotent (`create table/index if not exists`). Upgrading the plane does not
-restart cells. Upgrading cells is a normal Deployment rollout; a new cell
+The plane applies `src/schema.sql` at boot by default
+(`PLANE_MIGRATE_ON_BOOT=0` disables it for least-privilege DB roles); the
+schema is idempotent (`create table/index if not exists`), and
+`pnpm --filter openflare-plane migrate` remains the out-of-band path.
+Upgrading the plane does not restart cells. Upgrading cells is a normal Deployment rollout; a new cell
 re-pulls the latest desired snapshot and ACKs it. A revision fence ensures a
 restored plane database can never re-sign a revision a cell already applied.
 

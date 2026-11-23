@@ -50,8 +50,6 @@ kubectl --context "kind-${CLUSTER}" -n "$NS" create secret generic plane-env \
 kubectl --context "kind-${CLUSTER}" -n "$NS" rollout status deploy/postgres --timeout=120s
 kubectl --context "kind-${CLUSTER}" -n "$NS" rollout status deploy/plane --timeout=180s
 kubectl --context "kind-${CLUSTER}" -n "$NS" rollout status deploy/console --timeout=180s
-kubectl --context "kind-${CLUSTER}" -n "$NS" exec deploy/plane -- node dist/migrate.js
-
 kubectl --context "kind-${CLUSTER}" -n "$NS" port-forward svc/plane "${PORT}:8787" \
   >/tmp/openflare-plane-port-forward.log 2>&1 &
 PF_PID=$!

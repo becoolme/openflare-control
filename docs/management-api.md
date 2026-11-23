@@ -188,13 +188,14 @@ These two files call Hono's `app.request()` in-process against a real Postgres
 HTTP** with a real Postgres behind it:
 
 ```sh
-PLANE_TOKEN=... docker compose up -d --build
-docker compose exec -T plane node dist/migrate.js
-PLANE_TOKEN=... pnpm test:e2e:docker
+PLANE_TOKEN=... PLANE_ADMIN_TOKEN=... docker compose up -d --build
+PLANE_TOKEN=... PLANE_ADMIN_TOKEN=... pnpm test:e2e:docker
 ```
 
-CI's `e2e-docker` job runs exactly that sequence (compose up, migrate, script,
-logs on failure, compose down). It covers the same lifecycle plus a real
+The plane applies the idempotent schema at boot (`PLANE_MIGRATE_ON_BOOT=0`
+opts out for least-privilege DB roles). CI's `e2e-docker` job runs exactly
+that sequence (compose up, script, logs on failure, compose down). It covers
+the same lifecycle plus a real
 content-addressed bundle volume, real HTTP routing and the signed publish path.
 
 ## Real Kubernetes e2e (kind)
