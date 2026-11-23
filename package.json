@@ -16,7 +16,8 @@
     "sync:openflare-contract": "node scripts/check-openflare-contract.mjs --write",
     "check:sanitized": "node scripts/check-sanitized.mjs",
     "test:scripts": "node --test scripts/test/*.test.mjs",
-    "test:e2e:kind": "bash scripts/e2e-kind.sh"
+    "test:e2e:kind": "bash scripts/e2e-kind.sh",
+    "test:e2e:fullstack": "node scripts/e2e-fullstack.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.15.0",

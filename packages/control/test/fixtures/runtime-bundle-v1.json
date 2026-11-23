@@ -1,0 +1,14 @@
+{
+  "compatibilityDate": "2024-09-25",
+  "compatibilityFlags": [],
+  "digest": "a71da14134a9249da38199c2fc282347a451237a1702c9758214f026a809753f",
+  "mainModule": "main.js",
+  "modules": [
+    {
+      "name": "main.js",
+      "text": "export default { fetch() { return new Response('fixture-v1') } }\n",
+      "type": "esModule"
+    }
+  ],
+  "schemaVersion": 1
+}

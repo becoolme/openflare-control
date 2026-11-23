@@ -3,8 +3,8 @@
  * Service resource API e2e: D1, R2, KV, queues and workflows are managed over
  * HTTP and their data operations ride the generic cell-op channel.
  */
-import { readFile } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
+import { readFile } from 'node:fs/promises'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { Pool } from 'pg'
 import { createApp } from './routes.js'
@@ -165,13 +165,26 @@ maybe('service resource API e2e', () => {
     })
     expect(patched.body.data.queue.delivery_delay_seconds).toBe(10)
 
-    // Queue consumer + DO classes travel with the version.
+    // Queue consumer + DO classes travel with the version. The bundle must
+    // be uploaded first (content-addressed).
+    const bundle = new TextEncoder().encode(`export default { fetch: () => new Response('svc') }`)
+    const digest = createHash('sha256').update(bundle).digest('hex')
+    expect(
+      (
+        await app.request(`/api/v1/cells/${cell}/bundles/${digest}`, {
+          method: 'PUT',
+          headers: auth,
+          body: bundle,
+        })
+      ).status
+    ).toBe(201)
     const version = await call(
       'POST',
       `/api/v1/cells/${cell}/teams/${team}/workers/${worker}/versions`,
       {
         versionId: `svc-${suffix}`,
-        bundleSha256: 'f'.repeat(64),
+        bundleSha256: digest,
+        bundleBytes: bundle.byteLength,
         vars: {},
         queueConsumers: [{ queueId, queueName: 'jobs', maxBatchSize: 10 }],
         exportedClassNames: ['MyDO'],
