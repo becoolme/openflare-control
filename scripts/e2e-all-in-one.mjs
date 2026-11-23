@@ -124,7 +124,10 @@ const deploy = async (versionId, vars) => {
     compatibilityDate: '2024-09-25',
     crons: [],
     vars,
-    bindings: [],
+    // vars is the value store keyed by varRef; env names are bound
+    // separately — env.E2E_VAR needs BOTH sides (a {"type":"var"}
+    // binding reads inputs.vars[varRef]).
+    bindings: Object.keys(vars).map((k) => ({ type: 'var', name: k, varRef: k })),
     queueConsumers: [],
     exportedClassNames: [],
     assetsRouting: null,
