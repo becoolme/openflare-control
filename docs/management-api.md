@@ -228,7 +228,8 @@ for cross-worker declarations); the write is rejected with
 `409 VRT_CELL_CAPABILITY_MISSING` otherwise.
 
 `GET /api/v1/cells/{cell}/services` returns every resource with a ready-to-paste
-binding object (`d1`, `r2`, `kv`, `queue`, workflow metadata).
+canonical `VrtBindingRecord` (uppercase `type`, `resourceId`, permissions), plus
+workflow metadata.
 
 R2/KV payload scope (`tenantId`, physical `bucketId`/`namespaceId`) is resolved
 server-side and injected; a client-supplied scope is rejected. `R2_DELETE` takes

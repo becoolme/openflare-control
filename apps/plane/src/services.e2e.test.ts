@@ -626,11 +626,21 @@ maybe('service resource API e2e', () => {
     // Catalog sees every resource; bindings are ready to paste into a version.
     const services = await call('GET', `/api/v1/cells/${cell}/services`)
     expect(services.status).toBe(200)
-    expect(services.body.data.d1[0].binding).toMatchObject({ type: 'd1', databaseId })
-    expect(services.body.data.r2[0].binding).toMatchObject({ type: 'r2', bucket })
-    expect(services.body.data.kv[0].binding).toMatchObject({ type: 'kv', namespaceId })
+    expect(services.body.data.d1[0].binding).toMatchObject({
+      type: 'D1',
+      resourceId: databaseId,
+    })
+    expect(services.body.data.r2[0].binding).toMatchObject({
+      type: 'R2',
+      resourceId: bucket,
+    })
+    expect(services.body.data.kv[0].binding).toMatchObject({
+      type: 'KV',
+      resourceId: namespaceId,
+    })
     expect(services.body.data.queues[0].binding).toMatchObject({
-      type: 'queue',
+      type: 'QUEUE',
+      resourceId: queueId,
       deliveryDelaySeconds: 10,
     })
     expect(services.body.data.workflows[0]).toMatchObject({
