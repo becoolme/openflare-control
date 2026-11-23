@@ -65,11 +65,15 @@ if (retention.sweepMs > 0) {
   timer.unref()
 }
 
+let shuttingDown = false
 const shutdown = async (signal: string): Promise<void> => {
+  if (shuttingDown) return
+  shuttingDown = true
   console.log(`openflare-plane received ${signal}, draining`)
-  // server.close() only *starts* the drain — end the pool before in-flight
-  // queries settle and they surface as opaque 500s. A bounded force-exit
-  // covers a wedged connection instead of hanging the rollout.
+  // server.close() only *starts* the drain. Wait for it to finish before
+  // ending the pool: ending the pool first turns in-flight queries into
+  // opaque 500s. A bounded force-exit covers a wedged connection instead of
+  // hanging the rollout.
   const force = setTimeout(() => process.exit(1), 10_000)
   force.unref()
   await new Promise<void>((resolve) => {
