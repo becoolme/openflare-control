@@ -13,6 +13,7 @@
 import { copyFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { execFileSync } from 'node:child_process'
+import { createRequire } from 'node:module'
 import { isDeepStrictEqual } from 'node:util'
 import { fileURLToPath } from 'node:url'
 
@@ -32,6 +33,7 @@ const FILES = ['desired-ack-partial.json', 'desired-ack-tenant-failures.json', '
 const localDir = join(root, 'packages/control/test/fixtures')
 const upstreamDir = join(upstream, 'fixtures/vrt-wire')
 const problems = []
+const copied = []
 
 for (const name of FILES) {
   const src = join(upstreamDir, name)
@@ -51,9 +53,24 @@ for (const name of FILES) {
   if (isDeepStrictEqual(a, b)) continue
   if (write) {
     copyFileSync(src, dst)
+    copied.push(dst)
     console.log(`updated ${name}`)
   } else {
     problems.push(`differs from OpenFlare: ${name}`)
+  }
+}
+
+// The upstream file layout is the runtime's business, but CI runs
+// `pnpm format:check` over this repository, so re-apply Prettier to whatever
+// we copied. The comparison above stays JSON-value based, so formatting never
+// counts as drift.
+if (write && copied.length) {
+  try {
+    const require = createRequire(import.meta.url)
+    const prettier = require.resolve('prettier/bin/prettier.cjs')
+    execFileSync(process.execPath, [prettier, '--write', ...copied], { stdio: 'inherit' })
+  } catch (error) {
+    problems.push(`could not format the updated fixtures with Prettier: ${error.message}`)
   }
 }
 

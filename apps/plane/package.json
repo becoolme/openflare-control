@@ -6,7 +6,7 @@
   "license": "MIT",
   "type": "module",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && cp src/schema.sql dist/schema.sql",
     "typecheck": "tsc --noEmit",
     "dev": "tsx watch src/main.ts",
     "start": "node dist/main.js",

@@ -48,10 +48,14 @@ describe('capability requirements', () => {
     for (const key of [
       'analyticsEngine',
       'flagship',
+      'email',
+      'images',
       'k2',
       'observability',
+      'secretsStore',
       'streamingTailConsumers',
       'unsafeEval',
+      'versionMetadata',
     ]) {
       expect(VRT_CELL_CAPABILITY_KEYS).toContain(key)
     }
