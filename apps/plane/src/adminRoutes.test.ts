@@ -111,7 +111,7 @@ maybe('management API edges', () => {
     ).toBe(401)
     expect((await call(app, 'POST', '/api/v1/cells', { cellId: 'INVALID' })).status).toBe(400)
     expect((await call(app, 'DELETE', '/api/v1/cells/nope')).status).toBe(404)
-    expect((await call(app, 'GET', `/api/v1/cells/${cell}`)).status).toBe(404)
+    expect((await call(app, 'GET', `/api/v1/cells/absent-${suffix}`)).status).toBe(404)
   })
 
   it('creates the fixture cell and covers worker/version edges', async () => {
