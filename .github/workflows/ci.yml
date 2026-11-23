@@ -129,6 +129,67 @@ jobs:
           wait: 120s
       - run: bash scripts/e2e-kind.sh
 
+  # Real full-stack e2e: the management API uploads a runtime stored-document
+  # bundle, a real cell-controller/vrt-host/workerd serves it, and the ingress
+  # is asserted to return v1; a second deploy must serve v2. The runtime is
+  # checked out at OPENFLARE_CONTRACT_REV (the same pin the contract gate uses).
+  e2e-fullstack:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: vrt
+          POSTGRES_PASSWORD: vrt
+          POSTGRES_DB: openflare_plane_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U vrt"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://vrt:vrt@127.0.0.1:5432/openflare_plane_test
+      PLANE_TOKEN: fullstack-cell-token
+      PLANE_ADMIN_TOKEN: fullstack-cell-token
+      PLANE_SIGNING_SECRET: fullstack-signing-secret-1234
+      RUNTIME_DIR: ${{ github.workspace }}/openflare
+      WORKERD_BIN: ${{ github.workspace }}/openflare/.ci/workerd/workerd
+      FACADE_DIR: ${{ github.workspace }}/openflare/facade
+      VRT_HOST_BIN: ${{ github.workspace }}/openflare/target/debug/vrt-host
+      CELL_CONTROLLER_BIN: ${{ github.workspace }}/openflare/target/debug/cell-controller
+    steps:
+      - uses: actions/checkout@v4
+      - id: contract
+        run: echo "sha=$(cat OPENFLARE_CONTRACT_REV)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        with:
+          repository: becoolme/openflare
+          path: openflare
+          ref: ${{ steps.contract.outputs.sha }}
+      - uses: pnpm/action-setup@v4
+        with: { version: 9.15.3 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter openflare-control build
+      - run: pnpm --filter openflare-plane build
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: openflare
+      - name: Build the cell controller and runtime host
+        working-directory: openflare
+        run: cargo build --locked -p cell-controller -p vrt-host --bins
+      - name: Fetch the pinned workerd binary
+        working-directory: openflare
+        run: scripts/fetch-workerd.sh --out .ci/workerd --platform linux-x64
+      - name: Apply the plane schema
+        run: node apps/plane/dist/migrate.js
+      - name: Full-stack upload → deploy → invoke → update
+        run: node scripts/e2e-fullstack.mjs
+
   k8s:
     runs-on: ubuntu-24.04
     steps:
