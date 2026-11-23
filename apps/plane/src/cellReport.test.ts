@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { aggregateMetrics, percentile, type CellReport } from './cellReport.js'
+import { readFileSync } from 'node:fs'
+import { aggregateMetrics, cellReportSchema, percentile, type CellReport } from './cellReport.js'
 
 const report = (over: Partial<CellReport> = {}): CellReport => ({
   schemaVersion: 1,
@@ -122,5 +123,21 @@ describe('aggregateMetrics', () => {
     expect(other.inflight).toBe(0)
     // A worker-scoped response does not leak the other workers' breakdown.
     expect(other.workers).toEqual([])
+  })
+})
+
+describe('vendored cell-report wire fixture', () => {
+  it('parses under the strict schema the ingest route uses', () => {
+    // `packages/control/test/fixtures/cell-report.json` is a copy of the
+    // runtime's `fixtures/vrt-wire/cell-report.json` (refreshed by
+    // `pnpm run sync:openflare-contract`). Validating it here keeps the
+    // periodic-report contract honest without needing a database.
+    const raw = readFileSync(
+      new URL('../../../packages/control/test/fixtures/cell-report.json', import.meta.url),
+      'utf8'
+    )
+    const parsed = cellReportSchema.safeParse(JSON.parse(raw))
+    if (!parsed.success) console.error(parsed.error.issues)
+    expect(parsed.success).toBe(true)
   })
 })

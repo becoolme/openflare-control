@@ -1,12 +1,14 @@
 import type { Hono } from 'hono'
 import { z } from 'zod'
 import {
+  VRT_DEFAULT_QUOTAS,
   VrtControlError,
   bundleKeyFor,
   type VrtBindingRecord,
   type VrtCreateVersionInput,
   type VrtQueueConsumerDraft,
 } from 'openflare-control'
+import { publishCell } from '../publish.js'
 import {
   type AdminDeps,
   digest,
@@ -64,6 +66,99 @@ const versionBody = z
     exportedClassNames: z.array(z.string()).optional(),
   })
   .strict()
+
+const deployBody = versionBody.extend({
+  activate: z.boolean().default(true),
+  publish: z.boolean().default(false),
+})
+
+type VersionBody = z.output<typeof versionBody>
+
+/**
+ * Create a version only when its content-addressed bundle has actually been
+ * uploaded. A version row that references missing bytes would fail later at
+ * the cell's bundle fetch; fail closed here instead.
+ */
+async function createVersion(
+  deps: AdminDeps,
+  workerId: string,
+  body: VersionBody
+): Promise<{
+  version: Awaited<ReturnType<AdminDeps['store']['createVersionWithBindings']>>['version']
+  created: boolean
+}> {
+  const [bundle] = await rows(deps, 'select bytes from plane_bundle_objects where digest=$1', [
+    body.bundleSha256,
+  ])
+  if (!bundle) {
+    throw new VrtControlError(409, 'Bundle not uploaded', 'VRT_BUNDLE_NOT_UPLOADED')
+  }
+  const actualBytes = Number(bundle.bytes)
+  if (body.bundleBytes !== undefined && body.bundleBytes !== actualBytes) {
+    throw new VrtControlError(
+      409,
+      'bundleBytes does not match the uploaded bundle',
+      'VRT_BUNDLE_SIZE_MISMATCH'
+    )
+  }
+  if (deps.bundleStore.has && !(await deps.bundleStore.has(bundleKeyFor(body.bundleSha256)))) {
+    throw new VrtControlError(409, 'Bundle content is missing', 'VRT_BUNDLE_NOT_UPLOADED')
+  }
+  await deps.store.registerBundleObject({
+    digest: body.bundleSha256,
+    bytes: actualBytes,
+    createdById: 'plane-api',
+  })
+  const fp = sha256(
+    JSON.stringify({
+      bindings: body.bindings,
+      vars: Object.keys(body.vars).sort(),
+      crons: body.crons,
+      compatibilityDate: body.compatibilityDate,
+      compatibilityFlags: body.compatibilityFlags,
+      quotas: body.quotas ?? null,
+    })
+  )
+  const effectiveQuotas = body.quotas ?? VRT_DEFAULT_QUOTAS
+  if (effectiveQuotas.outboundConnections !== VRT_DEFAULT_QUOTAS.outboundConnections) {
+    throw new VrtControlError(
+      400,
+      'outboundConnections is not enforceable by the pinned runtime',
+      'VRT_QUOTA_UNSUPPORTED'
+    )
+  }
+  const input: VrtCreateVersionInput = {
+    workerId,
+    versionId: body.versionId,
+    bundleSha256: body.bundleSha256,
+    bundleKey: bundleKeyFor(body.bundleSha256),
+    bundleBytes: actualBytes,
+    mainModule: body.mainModule,
+    modules: body.modules,
+    compatibilityDate: body.compatibilityDate,
+    compatibilityFlags: body.compatibilityFlags,
+    crons: body.crons,
+    quotas: effectiveQuotas,
+    varValues: body.vars,
+    bindingsFingerprint: fp,
+    runtimeConfigDigest: fp,
+    bindings: body.bindings as unknown as readonly VrtBindingRecord[],
+    queueConsumers: body.queueConsumers as unknown as readonly VrtQueueConsumerDraft[],
+    assetsRouting: body.assetsRouting ?? null,
+    assetsRunWorkerFirst: body.assetsRunWorkerFirst ?? [],
+    exportedClassNames: body.exportedClassNames,
+    createdById: 'plane-api',
+  }
+  const { version, created } = await deps.store.createVersionWithBindings(input)
+  for (const [k, value] of Object.entries(body.vars)) {
+    await deps.pool.query(
+      `insert into plane_vars (worker_id, key, value) values ($1,$2,$3)
+       on conflict (worker_id, key) do update set value=excluded.value`,
+      [workerId, k, value]
+    )
+  }
+  return { version, created }
+}
 
 export function registerWorkers(app: Hono, deps: AdminDeps): void {
   app.get('/api/v1/cells/:cellId/workers', async (c) => {
@@ -224,57 +319,43 @@ export function registerWorkers(app: Hono, deps: AdminDeps): void {
     ])
     if (!worker) throw new VrtControlError(404, 'Worker not found')
     const body = parse(versionBody, await readJson(c))
-    await deps.store.registerBundleObject({
-      digest: body.bundleSha256,
-      bytes: body.bundleBytes ?? 0,
-      createdById: 'plane-api',
-    })
-    const fp = sha256(
-      JSON.stringify({
-        bindings: body.bindings,
-        vars: Object.keys(body.vars).sort(),
-        crons: body.crons,
-        compatibilityDate: body.compatibilityDate,
-        compatibilityFlags: body.compatibilityFlags,
-        quotas: body.quotas ?? null,
-      })
-    )
-    const input: VrtCreateVersionInput = {
-      workerId: id,
-      versionId: body.versionId,
-      bundleSha256: body.bundleSha256,
-      bundleKey: bundleKeyFor(body.bundleSha256),
-      bundleBytes: body.bundleBytes ?? 0,
-      mainModule: body.mainModule,
-      modules: body.modules,
-      compatibilityDate: body.compatibilityDate,
-      compatibilityFlags: body.compatibilityFlags,
-      crons: body.crons,
-      quotas: body.quotas ?? {
-        cpuMs: 10_000,
-        memoryMb: 128,
-        subrequests: 50,
-        outboundConnections: 6,
-      },
-      varValues: body.vars,
-      bindingsFingerprint: fp,
-      runtimeConfigDigest: fp,
-      bindings: body.bindings as unknown as readonly VrtBindingRecord[],
-      queueConsumers: body.queueConsumers as unknown as readonly VrtQueueConsumerDraft[],
-      assetsRouting: body.assetsRouting ?? null,
-      assetsRunWorkerFirst: body.assetsRunWorkerFirst ?? [],
-      exportedClassNames: body.exportedClassNames,
-      createdById: 'plane-api',
-    }
-    const { version, created } = await deps.store.createVersionWithBindings(input)
-    for (const [k, value] of Object.entries(body.vars)) {
-      await deps.pool.query(
-        `insert into plane_vars (worker_id, key, value) values ($1,$2,$3)
-         on conflict (worker_id, key) do update set value=excluded.value`,
-        [id, k, value]
-      )
-    }
+    const { version, created } = await createVersion(deps, id, body)
     return c.json({ data: { version, created } }, created ? 201 : 200)
+  })
+
+  // One-call deploy: create the version, optionally activate it, optionally
+  // publish the cell. The bundle bytes are still uploaded first via
+  // `PUT /cells/{cell}/bundles/{sha256}`; this endpoint validates that upload.
+  app.post('/api/v1/cells/:cellId/teams/:teamId/workers/:name/deploy', async (c) => {
+    const { cellId: cell, teamId: team, name } = c.req.param()
+    const id = workerId(team, name)
+    const [worker] = await rows(
+      deps,
+      'select id from plane_workers where id=$1 and cluster_id=$2',
+      [id, cell]
+    )
+    if (!worker) throw new VrtControlError(404, 'Worker not found')
+    const body = parse(deployBody, await readJson(c))
+    if (body.publish && !deps.signing) {
+      throw new VrtControlError(501, 'Signing is not configured')
+    }
+    const { version, created } = await createVersion(deps, id, body)
+    let activated = false
+    let revision: number | null = null
+    if (body.activate) {
+      await deps.store.runCellTransaction(cell, (tx) => tx.activateVersion(id, version.versionId))
+      activated = true
+    }
+    if (body.publish) {
+      revision = await publishCell(deps.store, {
+        cellId: cell,
+        signing: deps.signing!,
+        cause: 'DEPLOY',
+        workerId: id,
+        versionId: version.versionId,
+      })
+    }
+    return c.json({ data: { version, created, activated, revision } }, created ? 201 : 200)
   })
 
   app.post(

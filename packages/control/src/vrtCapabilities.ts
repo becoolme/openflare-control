@@ -44,10 +44,20 @@ export const VRT_CELL_CAPABILITY_KEYS = [
   // are implemented.
   'analyticsEngine',
   'flagship',
+  'email',
+  'images',
   'k2',
   'observability',
+  /** `{"type":"secretsStore"}` bindings render to the bundled
+   * `/workerd/secrets-store.js` worker; the control plane does not emit the
+   * wire variant yet, so the bit is accepted (never required) for now. */
+  'secretsStore',
+  'tailConsumers',
   'streamingTailConsumers',
   'unsafeEval',
+  /** `{"type":"versionMetadata"}` bindings plus the `activeVersion`
+   * `tag`/`createdAt` wire fields — also recognized-but-not-yet-emitted. */
+  'versionMetadata',
 ] as const
 
 export type VrtCellCapabilityKey = (typeof VRT_CELL_CAPABILITY_KEYS)[number]
@@ -100,6 +110,14 @@ export interface VrtCapabilityNeeds {
   readonly workerLoaderCount?: number
   /** Workers declaring non-default quotas (limits block rendered). */
   readonly nonDefaultQuotaCount?: number
+  /** Tail Workers declared by the version (`tail_consumers`). */
+  readonly tailConsumerCount?: number
+  /** Streaming Tail Workers declared by the version. */
+  readonly streamingTailConsumerCount?: number
+  /** `[observability]` declared on the version (worker-level wire field). */
+  readonly observabilityDeclared?: boolean
+  /** `[version_metadata]` declared — emits a `{"type":"json"}` binding. */
+  readonly versionMetadata?: boolean
 }
 
 /** Pure: capability bits a config needs. Deploy and rollback both call it. */
@@ -113,6 +131,25 @@ export function requiredCapabilities(needs: VrtCapabilityNeeds): VrtCellCapabili
     if (t === 'D1' || t === 'QUEUE') out.add('d1')
     // KV needs a KV backend behind the provider; v1 base cells have none.
     if (t === 'KV') out.add('kv')
+    // K2 is served by vrt-sql too — `d1` proves the backend channel, `k2`
+    // proves the cell can render + facade the binding.
+    if (t === 'K2') {
+      out.add('d1')
+      out.add('k2')
+    }
+    // SEND_EMAIL renders `cloudflare-internal:send-email` wrapped over
+    // facade-email — an old cell fails the whole config load.
+    if (t === 'SEND_EMAIL') out.add('email')
+    // IMAGES renders a wrapped binding into the images module + facade.
+    if (t === 'IMAGES') out.add('images')
+    // FLAGSHIP reads `tenants[].flagshipApps` + a wrapped internal module.
+    if (t === 'FLAGSHIP') out.add('flagship')
+    // ANALYTICS_ENGINE renders the dataset external + host ingest socket.
+    if (t === 'ANALYTICS_ENGINE') out.add('analyticsEngine')
+    // UNSAFE_EVAL renders workerd's `unsafeEval` binding.
+    if (t === 'UNSAFE_EVAL') out.add('unsafeEval')
+    // WORKER_LOADER renders the fork's `maxWorkers` capnp.
+    if (t === 'WORKER_LOADER') out.add('workerLoader')
   }
   if (needs.workflowCount > 0) out.add('workflows')
   if (needs.crossWorkerWorkflowCount > 0) out.add('workflowsCrossWorker')
@@ -121,6 +158,10 @@ export function requiredCapabilities(needs: VrtCapabilityNeeds): VrtCellCapabili
   if ((needs.queueDeliveryDelayCount ?? 0) > 0) out.add('queueDeliveryDelay')
   if ((needs.workerLoaderCount ?? 0) > 0) out.add('workerLoader')
   if ((needs.nonDefaultQuotaCount ?? 0) > 0) out.add('quotas')
+  if ((needs.tailConsumerCount ?? 0) > 0) out.add('tailConsumers')
+  if ((needs.streamingTailConsumerCount ?? 0) > 0) out.add('streamingTailConsumers')
+  if (needs.observabilityDeclared) out.add('observability')
+  if (needs.versionMetadata) out.add('versionMetadata')
   return VRT_CELL_CAPABILITY_KEYS.filter((k) => out.has(k))
 }
 
