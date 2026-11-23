@@ -57,14 +57,17 @@ await waitFor(async () => (await fetch(`${PLANE}/healthz`)).ok, 'plane healthz',
 // on the token/config/secrets it seeds.
 const ps = execFileSync(
   'docker',
-  ['compose', '-f', 'docker-compose.all-in-one.yml', 'ps', '--format', 'json'],
+  ['compose', '-f', 'docker-compose.all-in-one.yml', 'ps', '-a', '--format', 'json'],
   { encoding: 'utf8' }
 )
-const states = ps
-  .trim()
-  .split('\n')
-  .filter(Boolean)
-  .map((l) => JSON.parse(l))
+// `--format json` is NDJSON on older compose, a JSON array on newer.
+const trimmed = ps.trim()
+const states = trimmed.startsWith('[')
+  ? JSON.parse(trimmed)
+  : trimmed
+      .split('\n')
+      .filter(Boolean)
+      .map((l) => JSON.parse(l))
 const init = states.find((s) => s.Service === 'cell-init')
 assert.ok(init, 'cell-init container missing')
 assert.equal(init.State + '|' + init.ExitCode, 'exited|0', `cell-init: ${init.Status}`)
