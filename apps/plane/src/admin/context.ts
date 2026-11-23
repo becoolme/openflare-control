@@ -23,6 +23,7 @@ export interface AdminDeps {
   retention?: import('../retention.js').RetentionConfig
   /** At-rest cipher for `plane_secrets.value` — required, no plaintext fallback. */
   secrets: import('../secretsCipher.js').SecretsCipher
+  assetStore?: import('../assetStore.js').AssetStore
 }
 
 export const MAX_JSON = 1024 * 1024

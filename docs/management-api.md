@@ -138,6 +138,22 @@ model and stored canonically); `DELETE .../apps/{appId}` removes it. Apps for
 teams with workers on the cell ride `compute.desired` as
 `tenants[].flagshipApps`, and `FLAGSHIP` bindings must name a declared app.
 
+### Static assets
+
+Upload the provider-format manifest and its objects first:
+
+- `PUT /api/v1/cells/{cell}/teams/{team}/assets/objects/{sha256}` (raw bytes,
+  sha256-checked)
+- `PUT /api/v1/cells/{cell}/teams/{team}/assets/manifests/{sha256}` (canonical
+  manifest JSON, every listed object must already exist)
+
+The reference plane writes the same `<PLANE_ASSET_DIR>/<segment(team)>/
+{manifests,objects}` layout as `vrt-provider`; mount that directory (or the
+same S3-backed store) into the cell provider's `[assets] dir`. Without the
+shared store the cell fails closed with `ASSET_STORAGE_UNAVAILABLE`.
+`ASSETS` bindings then reference the manifest digest, and `assetsRouting` /
+`assetsRunWorkerFirst` control assets-first routing.
+
 ### Durable Object classes
 
 `GET/POST/DELETE .../workers/{name}/durable-object-classes[/{className}]`

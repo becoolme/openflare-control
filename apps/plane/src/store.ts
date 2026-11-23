@@ -376,11 +376,58 @@ export class PlaneStore {
   async countWfDependents(): Promise<number> {
     return 0
   }
-  async claimAssetsManifest(): Promise<void> {
-    throw new VrtControlError(501, 'assets manifests are not implemented by the reference plane')
+  async claimAssetsManifest(input: {
+    digest: string
+    teamId: string
+    workerId: string
+    objects?: readonly { digest: string; bytes: number }[]
+    totalBytes?: number
+    quotaBytes?: number
+    legacyManifestBytes?: number
+  }): Promise<void> {
+    const total =
+      input.totalBytes ??
+      input.objects?.reduce((sum, object) => sum + object.bytes, 0) ??
+      input.legacyManifestBytes ??
+      0
+    const client = await this.pool.connect()
+    try {
+      await client.query('begin')
+      await client.query('select pg_advisory_xact_lock(hashtext($1))', [
+        `plane-assets:${input.teamId}`,
+      ])
+      const used = await client.query(
+        `select coalesce(sum(total_bytes),0)::bigint as n
+           from plane_asset_manifests where team_id=$1 and digest<>$2`,
+        [input.teamId, input.digest]
+      )
+      if (
+        input.quotaBytes !== undefined &&
+        Number(used.rows[0]?.n ?? 0) + total > input.quotaBytes
+      ) {
+        throw new VrtControlError(409, 'Asset quota exceeded')
+      }
+      await client.query(
+        `insert into plane_asset_manifests (team_id, digest, total_bytes, objects)
+         values ($1,$2,$3,$4)
+         on conflict (team_id, digest) do update set
+           total_bytes=excluded.total_bytes, objects=excluded.objects`,
+        [input.teamId, input.digest, total, JSON.stringify(input.objects ?? [])]
+      )
+      await client.query('commit')
+    } catch (error) {
+      await client.query('rollback')
+      throw error
+    } finally {
+      client.release()
+    }
   }
-  async isAssetsManifestClaimed(): Promise<boolean> {
-    return false
+  async isAssetsManifestClaimed(digest: string, teamId: string): Promise<boolean> {
+    const rows = await this.rows(
+      'select 1 from plane_asset_manifests where team_id=$1 and digest=$2 limit 1',
+      [teamId, digest]
+    )
+    return rows.length > 0
   }
   async latestPublicationForVersion(): Promise<null> {
     return null

@@ -112,8 +112,8 @@ maybe('reference store behaviour', () => {
   })
 
   it('answers unimplemented port methods with a typed 501', async () => {
-    const error = await store
-      .claimAssetsManifest({ digest: 'a'.repeat(64), teamId: 't', workerId: 'w' })
+    const error = await (store as unknown as { definitelyUnimplemented: () => Promise<void> })
+      .definitelyUnimplemented()
       .catch((e) => e)
     expect(error).toBeInstanceOf(VrtControlError)
     expect(error.status).toBe(501)

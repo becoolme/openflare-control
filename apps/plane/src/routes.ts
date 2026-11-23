@@ -29,6 +29,8 @@ export interface AppDeps {
   retention?: import('./retention.js').RetentionConfig
   /** At-rest cipher for `plane_secrets.value` — required, no plaintext fallback. */
   secrets: import('./secretsCipher.js').SecretsCipher
+  /** Optional content-addressed asset store (shared with the cell provider). */
+  assetStore?: import('./assetStore.js').AssetStore
 }
 
 const MAX_BODY = 16 * 1024

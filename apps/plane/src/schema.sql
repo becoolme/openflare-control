@@ -116,6 +116,15 @@ create table if not exists plane_hostnames (
   unique (hostname, worker_id)
 );
 
+create table if not exists plane_asset_manifests (
+  team_id text not null,
+  digest text not null,
+  total_bytes bigint not null default 0,
+  objects jsonb not null default '[]'::jsonb,
+  created_at timestamptz not null default now(),
+  primary key (team_id, digest)
+);
+
 create table if not exists plane_bundle_objects (
   digest text primary key,
   bytes bigint not null,

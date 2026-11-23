@@ -5,6 +5,7 @@ import { createApp } from './routes.js'
 import { DirBundleStore } from './bundleStore.js'
 import { resolvePlaneSigningKey } from './signing.js'
 import { createSecretsCipher } from './secretsCipher.js'
+import { DirAssetStore } from './assetStore.js'
 import { pruneRetention, retentionFromEnv } from './retention.js'
 import { applySchema } from './applySchema.js'
 
@@ -53,6 +54,7 @@ const app = createApp({
   // Worker secrets get an independent at-rest key: rotating
   // PLANE_SIGNING_SECRET must never make stored secrets unreadable.
   secrets: createSecretsCipher(secretsKey),
+  assetStore: new DirAssetStore(env('PLANE_ASSET_DIR', './data/assets')),
   maxBundleBytes,
   retention,
 })
