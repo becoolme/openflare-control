@@ -121,6 +121,15 @@ call `POST /publish` for it to reach the cell. Only `status='ACTIVE'` workers
 are included in `compute.desired`; `SUSPENDED`/`DELETED` workers stop serving
 after the next publish.
 
+### Secrets Store
+
+`PUT /api/v1/cells/{cell}/teams/{team}/secrets-store/{storeId}/{secretName}`
+with `{value}` stores an encrypted team-level secret; `GET` lists names and
+`DELETE` removes one (409 while a version references it).
+`SECRETS_STORE` bindings carry `storeId`/`secretName`; `render-inputs` exposes
+the value under `secrets-store:{storeId}:{secretName}`. The cell must
+advertise the `secretsStore` capability.
+
 ### Flagship apps
 
 `GET /api/v1/cells/{cell}/teams/{team}/flagship/apps` lists apps;

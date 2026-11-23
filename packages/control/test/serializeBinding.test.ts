@@ -162,6 +162,26 @@ describe('serializeBinding', () => {
     expect(() => binding({ type: 'DO', resourceId: 'no-colon' })).toThrow(/durableObject/)
   })
 
+  it('SECRETS_STORE carries the store/secret ref', () => {
+    expect(
+      binding({
+        type: 'SECRETS_STORE',
+        resourceId: 'ignored',
+        storeId: 'default',
+        secretName: 'API_KEY',
+      })
+    ).toEqual({
+      type: 'secretsStore',
+      name: 'B',
+      storeId: 'default',
+      secretName: 'API_KEY',
+      secretRef: 'secrets-store:default:API_KEY',
+    })
+    expect(() => binding({ type: 'SECRETS_STORE', resourceId: 'ignored' })).toThrow(
+      /bindings.storeId/
+    )
+  })
+
   it('VECTORIZE carries the signed index spec', () => {
     expect(
       binding({

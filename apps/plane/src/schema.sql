@@ -134,6 +134,15 @@ create table if not exists plane_vectorize_indexes (
   unique (team_id, cluster_id, name)
 );
 
+create table if not exists plane_secrets_store (
+  team_id text not null,
+  store_id text not null,
+  secret_name text not null,
+  value text not null,
+  updated_at timestamptz not null default now(),
+  primary key (team_id, store_id, secret_name)
+);
+
 create table if not exists plane_flagship_apps (
   team_id text not null,
   app_id text not null,

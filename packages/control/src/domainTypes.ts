@@ -31,6 +31,7 @@ export interface VrtBindingRecord {
     | 'SEND_EMAIL'
     | 'IMAGES'
     | 'VECTORIZE'
+    | 'SECRETS_STORE'
   readonly resourceId: string
   readonly permissionRead: boolean
   readonly permissionWrite: boolean
@@ -54,6 +55,9 @@ export interface VrtBindingRecord {
   readonly indexName?: string
   readonly dimensions?: number
   readonly metric?: 'cosine' | 'euclidean' | 'dot-product'
+  /** SECRETS_STORE only: account/tenant store + secret name. */
+  readonly storeId?: string
+  readonly secretName?: string
 }
 
 /** P3c-1: a DO class DECLARED by the worker — the rowset member the
