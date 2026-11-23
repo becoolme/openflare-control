@@ -408,6 +408,44 @@ maybe('service resource API e2e', () => {
         config: expect.stringContaining('newCheckout'),
       }),
     ])
+    expect(flagshipTenant.flagshipApps).toEqual([
+      expect.objectContaining({
+        appId: 'checkout',
+        config: expect.stringContaining('newCheckout'),
+      }),
+    ])
+    expect(
+      (
+        await call('PUT', `/api/v1/cells/${cell}/teams/${team}/flagship/apps/bad`, {
+          config: {
+            flags: {
+              bad: { type: 'nope', enabled: true, variants: {}, defaultVariant: 'x' },
+            },
+          },
+        })
+      ).status
+    ).toBe(400)
+    expect(
+      (
+        await call('POST', `/api/v1/cells/${cell}/teams/${team}/workers/${worker}/versions`, {
+          versionId: `flagship-missing-${suffix}`,
+          bundleSha256: digest,
+          bundleBytes: bundle.byteLength,
+          bindings: [
+            {
+              name: 'FLAGS',
+              type: 'FLAGSHIP',
+              resourceId: 'missing',
+              permissionRead: true,
+              permissionWrite: false,
+            },
+          ],
+        })
+      ).status
+    ).toBe(400)
+    expect(
+      (await call('DELETE', `/api/v1/cells/${cell}/teams/${team}/flagship/apps/checkout`)).status
+    ).toBe(409)
 
     const wf = await call(
       'POST',

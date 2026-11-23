@@ -595,6 +595,15 @@ class PlaneCellTx {
     }
 
     for (const binding of version.bindings ?? []) {
+      if (binding.type === 'FLAGSHIP' && typeof binding.resourceId === 'string') {
+        const [app] = await this.rows(
+          `select 1 from plane_flagship_apps
+            where team_id=$1 and app_id=$2 for share`,
+          [teamId, binding.resourceId]
+        )
+        if (!app) throw new VrtControlError(409, 'Flagship app is no longer declared')
+        continue
+      }
       if (binding.type !== 'DO' || typeof binding.resourceId !== 'string') continue
       const sep = binding.resourceId.lastIndexOf(':')
       const declaringId = sep === -1 ? '' : binding.resourceId.slice(0, sep)

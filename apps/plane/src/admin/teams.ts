@@ -139,8 +139,19 @@ export function registerTeams(app: Hono, deps: AdminDeps): void {
     if (Number(count!.n) > 0) {
       throw new VrtControlError(409, 'Team still has workers', 'VRT_TEAM_NOT_EMPTY')
     }
-    const deleted = await deps.pool.query('delete from plane_teams where team_id=$1', [id])
-    if (deleted.rowCount === 0) throw new VrtControlError(404, 'Team not found')
+    const client = await deps.pool.connect()
+    try {
+      await client.query('begin')
+      await client.query('delete from plane_flagship_apps where team_id=$1', [id])
+      const deleted = await client.query('delete from plane_teams where team_id=$1', [id])
+      if (deleted.rowCount === 0) throw new VrtControlError(404, 'Team not found')
+      await client.query('commit')
+    } catch (error) {
+      await client.query('rollback')
+      throw error
+    } finally {
+      client.release()
+    }
     return c.json({ data: { deleted: true } })
   })
 }
