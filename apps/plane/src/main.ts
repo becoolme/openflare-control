@@ -31,16 +31,19 @@ const adminToken = env('PLANE_ADMIN_TOKEN')
 if (adminToken.length < 32) {
   throw new Error('PLANE_ADMIN_TOKEN must be at least 32 characters')
 }
+const secretsKey = env('PLANE_SECRETS_KEY')
+if (secretsKey.length < 32) {
+  throw new Error('PLANE_SECRETS_KEY must be at least 32 characters')
+}
 const app = createApp({
   store,
   pool,
   bundleStore: new DirBundleStore(env('PLANE_BUNDLE_DIR', './data/bundles')),
   adminToken,
   signing,
-  // The signing secret is already a required high-entropy value, so it also
-  // roots the at-rest cipher (HKDF under a distinct domain salt — the two
-  // keys never collide).
-  secrets: createSecretsCipher(env('PLANE_SIGNING_SECRET')),
+  // Worker secrets get an independent at-rest key: rotating
+  // PLANE_SIGNING_SECRET must never make stored secrets unreadable.
+  secrets: createSecretsCipher(secretsKey),
   maxBundleBytes,
   retention,
 })

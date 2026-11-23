@@ -43,6 +43,7 @@ DATABASE_URL=postgresql://postgres@127.0.0.1:5432/openflare_fullstack \
 RUNTIME_DIR=../openflare \
 WORKERD_BIN=../openflare/.ci/workerd/workerd \
 PLANE_SIGNING_SECRET=fullstack-signing-secret-1234 \
+PLANE_SECRETS_KEY=fullstack-secrets-key-0123456789abcdef \
 PLANE_ADMIN_TOKEN=fullstack-admin-token-0123456789abcdef \
 node scripts/e2e-fullstack.mjs
 ```

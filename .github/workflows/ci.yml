@@ -23,7 +23,7 @@ jobs:
       - run: pnpm run typecheck
       - run: pnpm run check:package
       - run: pnpm run check:sanitized
-      - run: PLANE_ADMIN_TOKEN=y PLANE_SIGNING_SECRET=z CONSOLE_AUTH_PASSWORD=c docker compose config -q
+      - run: PLANE_ADMIN_TOKEN=y PLANE_SIGNING_SECRET=z PLANE_SECRETS_KEY=k CONSOLE_AUTH_PASSWORD=c docker compose config -q
 
   control:
     runs-on: ubuntu-24.04
@@ -98,6 +98,7 @@ jobs:
     env:
       PLANE_ADMIN_TOKEN: docker-e2e-admin-token-0123456789ab
       PLANE_SIGNING_SECRET: docker-e2e-signing-secret
+      PLANE_SECRETS_KEY: docker-e2e-secrets-key-0123456789
       CONSOLE_AUTH_PASSWORD: docker-e2e-console-password
     steps:
       - uses: actions/checkout@v4
@@ -117,6 +118,7 @@ jobs:
     env:
       PLANE_ADMIN_TOKEN: kind-e2e-admin-token-0123456789abcd
       PLANE_SIGNING_SECRET: kind-e2e-signing-secret
+      PLANE_SECRETS_KEY: kind-e2e-secrets-key-0123456789ab
       CONSOLE_AUTH_PASSWORD: kind-e2e-console-password
       KIND_CLUSTER: openflare-e2e
       PLANE_E2E_PORT: '18787'
@@ -154,6 +156,7 @@ jobs:
       DATABASE_URL: postgresql://vrt:vrt@127.0.0.1:5432/openflare_plane_test
       PLANE_ADMIN_TOKEN: fullstack-admin-token-0123456789abcdef
       PLANE_SIGNING_SECRET: fullstack-signing-secret-1234
+      PLANE_SECRETS_KEY: fullstack-secrets-key-0123456789abcdef
       RUNTIME_DIR: ${{ github.workspace }}/openflare
       WORKERD_BIN: ${{ github.workspace }}/openflare/.ci/workerd/workerd
       FACADE_DIR: ${{ github.workspace }}/openflare/facade

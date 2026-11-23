@@ -3,12 +3,13 @@
  * by design (render-inputs hands them to the cell), but a Postgres dump,
  * backup or volume leak must not hand them out in cleartext. AES-256-GCM
  * with a random IV per write; the key is HKDF-derived from
- * PLANE_SIGNING_SECRET under a domain salt distinct from the signing key,
- * so no separate key management is needed and the two uses never collide.
+ * PLANE_SECRETS_KEY. It is deliberately independent of the Ed25519 signing
+ * secret: rotating the signing key must not make every stored secret
+ * unreadable.
  *
  * Stored shape: `enc:v1:<iv_b64>:<tag_b64>:<ct_b64>`. Rows written before
- * this change carry no prefix and decrypt as themselves — a lazy migration;
- * each value is re-sealed the next time it is written.
+ * this change carry no prefix and decrypt as themselves; the read path
+ * re-seals them so upgrading actually encrypts existing values.
  */
 import { createCipheriv, createDecipheriv, hkdfSync, randomBytes } from 'node:crypto'
 
@@ -18,13 +19,18 @@ export interface SecretsCipher {
   encrypt(plaintext: string): string
   /** Rows without the `enc:v1:` prefix are pre-encryption plaintext. */
   decrypt(stored: string): string
+  /** True when a stored value already carries the sealed shape. */
+  isEncrypted(stored: string): boolean
 }
 
-export function createSecretsCipher(signingSecret: string): SecretsCipher {
+export function createSecretsCipher(secretsKey: string): SecretsCipher {
+  if (!secretsKey || secretsKey.length < 16) {
+    throw new Error('PLANE_SECRETS_KEY must be at least 16 characters')
+  }
   const key = Buffer.from(
     hkdfSync(
       'sha256',
-      Buffer.from(signingSecret),
+      Buffer.from(secretsKey),
       Buffer.from('openflare-secrets-v1'),
       Buffer.from('aes-256-gcm'),
       32
@@ -36,6 +42,9 @@ export function createSecretsCipher(signingSecret: string): SecretsCipher {
       const cipher = createCipheriv('aes-256-gcm', key, iv)
       const body = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()])
       return `${PREFIX}${iv.toString('base64')}:${cipher.getAuthTag().toString('base64')}:${body.toString('base64')}`
+    },
+    isEncrypted(stored) {
+      return stored.startsWith(PREFIX)
     },
     decrypt(stored) {
       if (!stored.startsWith(PREFIX)) return stored

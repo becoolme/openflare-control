@@ -154,6 +154,14 @@ maybe('management API e2e', () => {
     expect(
       (await call('POST', `${base}/teams/${team}/workers/${worker}/hostnames`, { hostname })).status
     ).toBe(201)
+    const storedSecret = await pool.query(
+      'select value from plane_secrets where worker_id=$1 and key=$2',
+      [`${team}:${worker}`, 'API_KEY']
+    )
+    const storedValue = (storedSecret.rows[0] as { value: string }).value
+    expect(storedValue).not.toBe('super-secret')
+    expect(TEST_SECRETS_CIPHER.isEncrypted(storedValue)).toBe(true)
+    expect(TEST_SECRETS_CIPHER.decrypt(storedValue)).toBe('super-secret')
 
     // version + activate
     const created = await call('POST', `${base}/teams/${team}/workers/${worker}/versions`, {
