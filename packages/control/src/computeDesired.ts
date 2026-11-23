@@ -40,6 +40,7 @@ import {
   VRT_MAX_COMPAT_FLAGS,
   VRT_MAX_CRONS_PER_WORKER,
   VRT_MAX_IDENTIFIER_LEN,
+  VRT_MAX_JSON_BINDING_BYTES,
   VRT_MAX_OUTBOUND_CONNECTIONS,
   VRT_MAX_REF_LEN,
   VRT_MAX_ROUTES_PER_WORKER,
@@ -90,9 +91,11 @@ import {
   type VrtCronRecord,
   type VrtDoClassView,
   type VrtQueueConsumerView,
+  type VrtObservability,
   type VrtQuotasRecord,
   type VrtWorkflowView,
 } from './domainTypes.js'
+import { flagshipConfigIsValid } from './flagshipConfig.js'
 
 export type {
   VrtBindingRecord,
@@ -145,6 +148,11 @@ export interface ComputeDesiredBuild {
 export interface TenantDesired {
   readonly tenantId: string
   readonly workers: readonly WorkerDesired[]
+  /** CF Flagship — serialized `{appId, config}` per app, sorted by appId.
+   * Tenant-level: flag edits republish without a redeploy. Omitted when
+   * empty so old cells (deny_unknown_fields) keep accepting non-flagship
+   * snapshots. */
+  readonly flagshipApps?: readonly { readonly appId: string; readonly config: string }[]
 }
 
 export interface WorkerDesired {
@@ -164,6 +172,14 @@ export interface WorkerDesired {
    * see QueueConsumerDesired in snapshot-protocol). Empty for workers
    * that consume nothing. */
   readonly queueConsumers: readonly Record<string, unknown>[]
+  /** Tail Workers: `[{workerId}]` — omitted when empty so old cells
+   * (deny_unknown_fields) keep accepting non-tail snapshots. */
+  readonly tailConsumers?: readonly Record<string, unknown>[]
+  readonly streamingTailConsumers?: readonly Record<string, unknown>[]
+  /** CF `[observability]` — `{enabled, logsEnabled, invocationLogs,
+   * headSamplingRatePpm}`; omitted when absent so old cells keep
+   * accepting pre-observability snapshots. */
+  readonly observability?: Record<string, unknown>
   /** P3c-1: declared DO classes → `durableObjectNamespaces` +
    * `durableObjectStorage.localDisk` in capnp. Optional: omitted
    * entirely when empty so old cells (deny_unknown_fields) keep
@@ -305,6 +321,68 @@ export function serializeBinding(
       if (limit > 1_000_000) throw invalid('bindings.limit')
       return { type: 'ratelimit', name, namespaceId: m[1], limit, period: Number(m[3]) }
     }
+    case 'WORKER_LOADER': {
+      // Pure capability — the only identity is the binding name.
+      // `resourceId` is the constant sentinel minted by the adapter;
+      // anything else means a corrupted or hand-built record.
+      if (resourceId !== 'loader') throw invalid('bindings.workerLoader')
+      return { type: 'workerLoader', name }
+    }
+    case 'UNSAFE_EVAL': {
+      // Pure capability like WORKER_LOADER — constant sentinel.
+      if (resourceId !== 'unsafe-eval') throw invalid('bindings.unsafeEval')
+      return { type: 'unsafeEval', name }
+    }
+    case 'ANALYTICS_ENGINE': {
+      // `resourceId` IS the dataset name minted by the adapter —
+      // charset-bound because it renders as a workerd service name, an
+      // `--external-addr` token and a filesystem path segment.
+      if (!/^[A-Za-z0-9_]{1,256}$/.test(resourceId)) throw invalid('bindings.dataset')
+      return { type: 'analyticsEngine', name, dataset: resourceId }
+    }
+    case 'FLAGSHIP': {
+      // `resourceId` IS the appId — resolved against
+      // `tenants[].flagshipApps` in build() (same-tenant rule);
+      // charset-bound because it renders into an innerBinding name.
+      if (!/^[A-Za-z0-9_.:-]{1,128}$/.test(resourceId)) throw invalid('bindings.flagshipApp')
+      return { type: 'flagship', name, appId: resourceId }
+    }
+    case 'K2': {
+      // K2: streamId is server-minted 32-hex — the same whitelist the
+      // Rust `K2Binding::validate` enforces. Routing is always by
+      // streamId; the display name never leaves the control plane.
+      if (!/^[0-9a-f]{32}$/.test(resourceId)) throw invalid('bindings.streamId')
+      return {
+        type: 'k2',
+        name,
+        streamId: resourceId,
+        permissions: { read: binding.permissionRead, write: binding.permissionWrite },
+      }
+    }
+    case 'SEND_EMAIL': {
+      // CF send binding — resourceId is the binding NAME itself; the
+      // restriction set is signed into desired state and enforced
+      // provider-side.
+      const dest = binding.destinationAddress
+      const allowedDest = binding.allowedDestinationAddresses ?? []
+      if (dest !== undefined && allowedDest.length > 0) {
+        throw invalid('bindings.destinationAddress')
+      }
+      return {
+        type: 'sendEmail',
+        name,
+        ...(dest !== undefined ? { destinationAddress: dest } : {}),
+        ...(allowedDest.length ? { allowedDestinationAddresses: [...allowedDest] } : {}),
+        ...(binding.allowedSenderAddresses?.length
+          ? { allowedSenderAddresses: [...binding.allowedSenderAddresses] }
+          : {}),
+        permissions: { read: binding.permissionRead, write: binding.permissionWrite },
+      }
+    }
+    case 'IMAGES':
+      // CF Images: pure capability — the transform engine lives in the
+      // facade-images system worker, so the wire carries name only.
+      return { type: 'images', name }
     case 'SERVICE': {
       // Target membership in the same tenant is checked in build() where the
       // tenant worker set is known. Optional fields are emitted only when set,
@@ -599,6 +677,10 @@ export function buildComputeDesiredPayload(input: {
   /** RV-R55: typed cell capacity (committed-memory budget, MB). Absent ⇒
    * VRT_DEFAULT_CELL_MEMORY_BUDGET_MB; present-but-invalid fails closed. */
   capacity?: VrtCellCapacity
+  /** CF Flagship: every team's flag apps (`{tenantId, appId, config}`).
+   * Tenant-level: a flag edit republishes without a redeploy. Absent ⇒
+   * no tenant carries `flagshipApps`. */
+  flagshipApps?: readonly { tenantId: string; appId: string; config: string }[]
 }): ComputeDesiredBuild {
   const { cellId, revision } = input
   const memoryBudgetMb = resolveCellMemoryBudgetMb(input.capacity)
@@ -699,6 +781,29 @@ export function buildComputeDesiredPayload(input: {
   // gate; this is the publication-side fail-closed backstop.
   const queueConsumerClaims = new Map<string, string>()
 
+  // CF Flagship: group app rows per tenant — proven once up front so a
+  // malformed row fails the publication rather than dropping every bound
+  // worker one by one (the doc would never carry a bad flag model).
+  const flagshipAppsByTenant = new Map<string, { appId: string; config: string }[]>()
+  const flagshipAppIdsByTenant = new Map<string, Set<string>>()
+  for (const app of input.flagshipApps ?? []) {
+    if (!validVrtIdentifier(app.tenantId)) throw invalid('flagshipApps.tenantId')
+    if (!/^[A-Za-z0-9_.:-]{1,128}$/.test(app.appId)) throw invalid('flagshipApps.appId')
+    if (!flagshipConfigIsValid(app.config)) throw invalid('flagshipApps.config')
+    const ids = flagshipAppIdsByTenant.get(app.tenantId) ?? new Set<string>()
+    if (ids.has(app.appId)) continue
+    ids.add(app.appId)
+    flagshipAppIdsByTenant.set(app.tenantId, ids)
+    const list = flagshipAppsByTenant.get(app.tenantId) ?? []
+    list.push({ appId: app.appId, config: app.config })
+    flagshipAppsByTenant.set(app.tenantId, list)
+  }
+  for (const [tenantId, list] of flagshipAppsByTenant) {
+    if (list.length > 64) throw invalid('flagshipApps capacity')
+    list.sort((a, b) => (a.appId < b.appId ? -1 : a.appId > b.appId ? 1 : 0))
+    flagshipAppsByTenant.set(tenantId, list)
+  }
+
   const tenantList: TenantDesired[] = tenantIds.map((tenantId) => {
     const list = [...tenants.get(tenantId)!].sort((a, b) =>
       a.workerId < b.workerId ? -1 : a.workerId > b.workerId ? 1 : 0
@@ -714,6 +819,8 @@ export function buildComputeDesiredPayload(input: {
       list.length = VRT_MAX_WORKERS_PER_TENANT
     }
     const workerNames = new Set<string>()
+    /** Every worker id of this tenant — tail consumers must resolve here. */
+    const allWorkerIds = new Set(list.map((w) => w.workerId))
 
     const excludedHere: { workerId: string; reason: string }[] = []
     const candidateIds = new Set<string>()
@@ -757,13 +864,63 @@ export function buildComputeDesiredPayload(input: {
             if (bindingNames.has(binding.name)) throw invalid('duplicate bindingName')
             bindingNames.add(binding.name)
             if (!validVrtBindingName(binding.name)) throw invalid('binding name')
-            return serializeBinding(
+            const serialized = serializeBinding(
               binding,
               worker.workerId,
               worker.assetsRouting ?? null,
               worker.assetsRunWorkerFirst ?? []
             )
+            // CF Flagship: a `FLAGSHIP` binding names an appId that must be
+            // one of THIS tenant's `flagshipApps` — the wrapped `innerBinding`
+            // render reads the tenant set, so an unresolved appId would
+            // produce a worker that cannot evaluate. Same per-worker
+            // isolation as other binding faults.
+            if (
+              serialized.type === 'flagship' &&
+              !flagshipAppIdsByTenant.get(tenantId)?.has(serialized.appId as string)
+            ) {
+              throw invalid('bindings.flagshipApp')
+            }
+            return serialized
           })
+
+        // CF `[version_metadata]`: `env.<binding>` is `{id, tag,
+        // timestamp}` of the SERVING version — synthesized here (not stored
+        // as a literal) so a rollback reports the reactivated version's own
+        // values. `timestamp` is the version's createdAt in epoch-ms string
+        // form (wrangler shape).
+        if (worker.versionMetadata != null) {
+          if (bindingNames.has(worker.versionMetadata)) {
+            throw invalid('versionMetadata.binding')
+          }
+          if (!validVrtBindingName(worker.versionMetadata)) {
+            throw invalid('versionMetadata.binding')
+          }
+          bindingNames.add(worker.versionMetadata)
+          bindings.push({
+            type: 'json',
+            name: worker.versionMetadata,
+            value: JSON.stringify({
+              id: worker.versionId,
+              tag: '',
+              timestamp: String(worker.changedAt?.getTime() ?? 0),
+            }),
+          })
+        }
+
+        // CF typed `[vars]`: non-string values reach env as real JS values
+        // via `{"type":"json"}` literals — version-scoped state, so a
+        // rollback restores the served version's own values.
+        for (const [name, raw] of Object.entries(worker.jsonVars ?? {})) {
+          if (bindingNames.has(name)) throw invalid('vars')
+          if (!validVrtBindingName(name)) throw invalid('vars')
+          const value = JSON.stringify(raw)
+          if (value === undefined || value.length > VRT_MAX_JSON_BINDING_BYTES) {
+            throw invalid('vars')
+          }
+          bindingNames.add(name)
+          bindings.push({ type: 'json', name, value })
+        }
 
         if (worker.hostnames.length > VRT_MAX_ROUTES_PER_WORKER) throw invalid('routes capacity')
         // Hostname claims commit only when the whole worker validates —
@@ -844,6 +1001,33 @@ export function buildComputeDesiredPayload(input: {
           if (queueConsumerClaims.has(claimKey)) throw invalid('queueConsumers.queueId')
           queueConsumerClaims.set(claimKey, worker.workerId)
         }
+
+        // Tail Workers: stored consumer workerIds must all be members of
+        // this tenant's worker set (fail closed on a corrupted row);
+        // dedupe — a duplicated id would emit a duplicate tail service.
+        const seenTailConsumers = new Set<string>()
+        const tailConsumers = (worker.tailConsumers ?? []).map((workerId) => {
+          if (!validVrtIdentifier(workerId) || !allWorkerIds.has(workerId)) {
+            throw invalid('tailConsumers.workerId')
+          }
+          if (seenTailConsumers.has(workerId)) throw invalid('tailConsumers.workerId')
+          seenTailConsumers.add(workerId)
+          return { workerId }
+        })
+
+        // Streaming Tail Workers: identical same-tenant rule and dedupe as
+        // `tailConsumers`, emitted as `streamingTails` designators.
+        const seenStreamingTailConsumers = new Set<string>()
+        const streamingTailConsumers = (worker.streamingTailConsumers ?? []).map((workerId) => {
+          if (!validVrtIdentifier(workerId) || !allWorkerIds.has(workerId)) {
+            throw invalid('streamingTailConsumers.workerId')
+          }
+          if (seenStreamingTailConsumers.has(workerId)) {
+            throw invalid('streamingTailConsumers.workerId')
+          }
+          seenStreamingTailConsumers.add(workerId)
+          return { workerId }
+        })
 
         // P3c-1: declared DO classes — validate like the Rust
         // validator (fail closed, same field names) so a poisoned row
@@ -951,6 +1135,33 @@ export function buildComputeDesiredPayload(input: {
           crons,
           quotas,
           queueConsumers,
+          // Tail Workers — omitted when empty (same wire-compat rule as
+          // durableObjectClasses: old cells deny_unknown_fields).
+          ...(tailConsumers.length ? { tailConsumers } : {}),
+          ...(streamingTailConsumers.length ? { streamingTailConsumers } : {}),
+          // `[observability]` — re-bounds-checked at the snapshot boundary
+          // (a corrupted version row must never emit an out-of-range rate);
+          // omitted when absent for wire-compat.
+          ...(worker.observability != null
+            ? {
+                observability: (() => {
+                  const o = worker.observability!
+                  if (
+                    !Number.isSafeInteger(o.headSamplingRatePpm) ||
+                    o.headSamplingRatePpm < 0 ||
+                    o.headSamplingRatePpm > 1_000_000
+                  ) {
+                    throw invalid('observability.headSamplingRatePpm')
+                  }
+                  return {
+                    enabled: o.enabled,
+                    logsEnabled: o.logsEnabled,
+                    invocationLogs: o.invocationLogs,
+                    headSamplingRatePpm: o.headSamplingRatePpm,
+                  }
+                })(),
+              }
+            : {}),
           // Wire-compat (P3c-1-r1): the field is emitted ONLY when the
           // worker declares classes. Old cells parse with
           // `deny_unknown_fields` — an unconditional empty array would
@@ -1073,7 +1284,14 @@ export function buildComputeDesiredPayload(input: {
       }
     }
     excluded.push(...excludedHere)
-    return { tenantId, workers }
+    const tenantFlagshipApps = flagshipAppsByTenant.get(tenantId)
+    return {
+      tenantId,
+      workers,
+      ...(tenantFlagshipApps && tenantFlagshipApps.length > 0
+        ? { flagshipApps: tenantFlagshipApps }
+        : {}),
+    }
   })
 
   return {

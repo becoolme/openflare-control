@@ -12,6 +12,7 @@ import type {
   VrtCellWorkerView,
   VrtDoClassRow,
   VrtDoMigrationInput,
+  VrtObservability,
   VrtQueueConsumerDraft,
   VrtWorkflowInput,
   VrtWorkflowRow,
@@ -65,6 +66,16 @@ export interface VrtStoreVersion {
   readonly compatibilityDate: string
   readonly compatibilityFlags: readonly string[]
   readonly crons: readonly { scheduleId: string; expression: string }[]
+  /** Tail Workers: resolved consumer workerIds; `null` on pre-feature rows. */
+  readonly tailConsumers: readonly string[] | null
+  /** Streaming Tail Workers: resolved consumer workerIds; `null` pre-feature. */
+  readonly streamingTailConsumers: readonly string[] | null
+  /** CF `[version_metadata]`: env binding name; `null` = none. */
+  readonly versionMetadata: string | null
+  /** CF `[observability]`: gates + sampling; `null` = defaults. */
+  readonly observability?: VrtObservability | null
+  /** CF typed `[vars]`: non-string values → `{"type":"json"}` bindings. */
+  readonly jsonVars: Readonly<Record<string, unknown>> | null
   readonly quotas: {
     cpuMs: number
     memoryMb: number
@@ -164,6 +175,16 @@ export interface VrtCreateVersionInput {
   readonly bindingsFingerprint: string
   readonly runtimeConfigDigest: string
   readonly bindings: readonly VrtBindingRecord[]
+  /** Tail Workers: resolved consumer workerIds (absent ⇒ none). */
+  readonly tailConsumers?: readonly string[]
+  /** Streaming Tail Workers: resolved consumer workerIds (absent ⇒ none). */
+  readonly streamingTailConsumers?: readonly string[]
+  /** CF `[version_metadata]`: env binding name (absent ⇒ none). */
+  readonly versionMetadata?: string | null
+  /** CF typed `[vars]`: non-string values → `{"type":"json"}` bindings. */
+  readonly jsonVars?: Readonly<Record<string, unknown>> | null
+  /** CF `[observability]`: gates + sampling (absent ⇒ defaults). */
+  readonly observability?: VrtObservability | null
   /** T37b: resolved queue consumers for this version (empty when the
    * version consumes nothing — older rows simply have no consumer). */
   readonly queueConsumers?: readonly VrtQueueConsumerDraft[]
@@ -267,6 +288,12 @@ export interface VrtCellTx {
   lockCell(): Promise<boolean>
   /** Allocate the next compute.desired revision (monotone per cell). */
   allocateRevision(): Promise<number>
+  /** CF Flagship: every team's `{appId, config}` — tenant-level flag model
+   * that rides the desired document so a flag edit republishes without a
+   * redeploy. Empty when no app exists. */
+  flagshipApps(): Promise<
+    readonly { tenantId: string; appId: string; config: string }[]
+  >
   /** Activate `versionId` for `workerId`: supersede the worker's other ACTIVE
    * versions and point `workers.activeVrtVersionId` at it. */
   activateVersion(workerId: string, versionId: string): Promise<void>
@@ -437,6 +464,9 @@ export interface VrtControlStore {
   findVrtD1DatabaseScope(databaseId: string): Promise<{ teamId: string; clusterId: string } | null>
   /** T37: queue ownership probe — same no-oracle discipline. */
   findVrtQueueScope(queueId: string): Promise<{ teamId: string; clusterId: string } | null>
+  /** CF K2: stream ownership probe — returns the stream's
+   * (teamId, clusterId) or null (same no-oracle discipline as D1/queue). */
+  findVrtK2Scope(streamId: string): Promise<{ teamId: string; clusterId: string } | null>
   /** P3c-1: DO class rows declared by `workerId` (deploy-time
    * pre-check; the authoritative mutation runs inside the cell tx). */
   listDoClasses(workerId: string): Promise<readonly VrtDoClassRow[]>
