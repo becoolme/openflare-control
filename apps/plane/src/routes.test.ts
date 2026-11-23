@@ -238,6 +238,40 @@ maybe('reference plane routes', () => {
     expect(other.status).toBe(404)
   })
 
+  it('treats malformed publication envelopes as unreferenced', async () => {
+    // Use high revisions on the provisioned cell so the row exercises the
+    // real auth path, then remove them before later tests read "latest".
+    const revisions = [9_000_001, 9_000_002, 9_000_003]
+    const envelopes = [
+      { payload: { tenants: null } },
+      { payload: { tenants: [{ workers: null }] } },
+      { payload: { tenants: [{ workers: [{ activeVersion: null }] }] } },
+    ]
+    const now = new Date()
+    const expires = new Date(now.getTime() + 3_600_000)
+    try {
+      for (const [index, envelope] of envelopes.entries()) {
+        const revision = revisions[index]!
+        await pool.query(
+          `insert into plane_publications
+             (cell_id, revision, envelope, payload_digest, envelope_digest, cause, issued_at, expires_at)
+           values ($1,$2,$3,$4,$4,'TEST',$5,$6)`,
+          [cluster, revision, JSON.stringify(envelope), sha256(`bad-${revision}`), now, expires]
+        )
+      }
+      const res = await app.request(
+        `/api/internal/clusters/${cluster}/vrt/bundles/${'a'.repeat(64)}`,
+        { headers: auth }
+      )
+      expect(res.status).toBe(404)
+    } finally {
+      await pool.query(
+        'delete from plane_publications where cell_id=$1 and revision = any($2::bigint[])',
+        [cluster, revisions]
+      )
+    }
+  })
+
   it('rejects an ack that echoes a different cell id', async () => {
     const desired = await app.request(`/api/internal/clusters/${cluster}/vrt/desired`, {
       headers: auth,
