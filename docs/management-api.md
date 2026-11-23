@@ -164,6 +164,12 @@ polls `GET /api/v1/cells/{cell}/ops/{opId}?waitMs=`.
 | Queues    | `GET/POST /queues`, `PATCH/DELETE /queues/{id}`           | metadata only; producers/consumers are worker bindings (queue send stays on the data plane)    |
 | Workflows | `GET/POST/DELETE .../workers/{name}/workflows[/{wf}]`     | `POST .../workflows/{wf}/ops` for `WF_CREATE/GET/ACTION/EVENT/DELETE`; `GET .../ops`           |
 
+Workflow declarations are worker-scoped in the reference plane: POST accepts
+`{name, className, binding?, limitsSteps?, scriptName?}` (binding defaults to
+name; scriptName must name a same-team/cell VRT worker). They are published in
+the next `compute.desired`; activating an older version does not roll the
+declaration rowset back.
+
 `GET /api/v1/cells/{cell}/services` returns every resource with a ready-to-paste
 binding object (`d1`, `r2`, `kv`, `queue`, workflow metadata).
 

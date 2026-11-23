@@ -1,8 +1,23 @@
 import type { Hono } from 'hono'
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
-import { VrtControlError } from 'openflare-control'
-import { type AdminDeps, generatedId, mapOp, parse, readJson, rows, workerId } from '../context.js'
+import {
+  MAX_WORKFLOWS_PER_WORKER,
+  MAX_WORKFLOW_STEPS,
+  VrtControlError,
+  WORKFLOW_IDENT_RE,
+  WORKFLOW_NAME_RE,
+} from 'openflare-control'
+import {
+  type AdminDeps,
+  generatedId,
+  mapOp,
+  parse,
+  readJson,
+  rows,
+  sha256,
+  workerId,
+} from '../context.js'
 
 const WF_KINDS = ['WF_CREATE', 'WF_GET', 'WF_ACTION', 'WF_EVENT', 'WF_DELETE'] as const
 
@@ -12,7 +27,8 @@ export function registerWorkflowService(app: Hono, deps: AdminDeps): void {
   app.get(base, async (c) => {
     const list = await rows(
       deps,
-      `select workflow_id, worker_id, team_id, cluster_id, name, class_name, created_at
+      `select workflow_id, worker_id, team_id, cluster_id, name, class_name, binding,
+              unique_key, limits_steps, service_worker_id, created_at
          from plane_workflows where worker_id=$1 order by name`,
       [workerId(c.req.param('teamId'), c.req.param('name'))]
     )
@@ -33,17 +49,99 @@ export function registerWorkflowService(app: Hono, deps: AdminDeps): void {
     const body = parse(
       z
         .object({
-          name: z.string().regex(/^[A-Za-z_$][A-Za-z0-9_$]{0,63}$/),
-          className: z.string().regex(/^[A-Za-z_$][A-Za-z0-9_$]{0,63}$/),
+          name: z.string().regex(WORKFLOW_NAME_RE),
+          className: z.string().regex(WORKFLOW_IDENT_RE),
+          binding: z.string().regex(WORKFLOW_IDENT_RE).optional(),
+          limitsSteps: z.number().int().min(1).max(MAX_WORKFLOW_STEPS).nullable().optional(),
+          scriptName: z
+            .string()
+            .regex(/^[a-z0-9][a-z0-9-]{0,62}$/)
+            .optional(),
         })
         .strict(),
       await readJson(c)
     )
+    const binding = body.binding ?? body.name
+    if (!WORKFLOW_IDENT_RE.test(binding)) {
+      throw new VrtControlError(400, 'Invalid workflow binding')
+    }
+    let serviceWorkerId: string | null = null
+    if (body.scriptName && body.scriptName !== name) {
+      const target = workerId(team, body.scriptName)
+      const [targetWorker] = await rows(
+        deps,
+        'select id from plane_workers where id=$1 and team_id=$2 and cluster_id=$3',
+        [target, team, cell]
+      )
+      if (!targetWorker) throw new VrtControlError(404, 'scriptName worker not found')
+      serviceWorkerId = target
+    }
+    const [count] = await rows(
+      deps,
+      'select count(*)::int as n from plane_workflows where worker_id=$1',
+      [id]
+    )
+    const [existing] = await rows(
+      deps,
+      'select 1 from plane_workflows where worker_id=$1 and name=$2',
+      [id, body.name]
+    )
+    if (!existing && Number(count?.n ?? 0) >= MAX_WORKFLOWS_PER_WORKER) {
+      throw new VrtControlError(409, 'Too many workflows for this worker')
+    }
+    const [collision] = await rows(
+      deps,
+      `select 1 from plane_workers w
+        join plane_versions v on v.worker_id=w.id and v.version_id=w.active_version_id
+       where w.id=$1
+         and (
+           exists (
+             select 1 from jsonb_array_elements(
+               case when jsonb_typeof(v.row->'bindings')='array'
+                 then v.row->'bindings' else '[]'::jsonb end
+             ) b where b->>'name'=$2
+           )
+           or (case when jsonb_typeof(v.row->'jsonVars')='object'
+             then v.row->'jsonVars' else '{}'::jsonb end) ? $2
+           or v.row->>'versionMetadata'=$2
+         )
+       union all
+       select 1 from plane_vars where worker_id=$1 and key=$2
+       union all
+       select 1 from plane_secrets where worker_id=$1 and key=$2
+       union all
+       select 1 from plane_workflows where worker_id=$1 and binding=$2 and name<>$3
+       limit 1`,
+      [id, binding, body.name]
+    )
+    if (collision) {
+      throw new VrtControlError(409, `Workflow binding "${binding}" collides with another env name`)
+    }
     const workflowId = generatedId(`${cell}:${id}:workflow:${body.name}`)
+    const uniqueKey = sha256(`${id}:workflow:${body.name}`)
     await deps.pool.query(
-      `insert into plane_workflows (workflow_id, worker_id, team_id, cluster_id, name, class_name)
-       values ($1,$2,$3,$4,$5,$6) on conflict (worker_id, name) do nothing`,
-      [workflowId, id, team, cell, body.name, body.className]
+      `insert into plane_workflows
+         (workflow_id, worker_id, team_id, cluster_id, name, class_name, binding,
+          unique_key, limits_steps, service_worker_id)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+       on conflict (worker_id, name) do update set
+         class_name=excluded.class_name,
+         binding=excluded.binding,
+         unique_key=excluded.unique_key,
+         limits_steps=excluded.limits_steps,
+         service_worker_id=excluded.service_worker_id`,
+      [
+        workflowId,
+        id,
+        team,
+        cell,
+        body.name,
+        body.className,
+        binding,
+        uniqueKey,
+        body.limitsSteps ?? null,
+        serviceWorkerId,
+      ]
     )
     const [workflow] = await rows(
       deps,

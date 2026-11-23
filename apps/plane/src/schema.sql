@@ -183,9 +183,19 @@ create table if not exists plane_workflows (
   cluster_id text not null,
   name text not null,
   class_name text not null,
+  binding text,
+  unique_key text,
+  limits_steps integer,
+  service_worker_id text,
   created_at timestamptz not null default now(),
   unique (worker_id, name)
 );
+-- Upgrade rows created before workflow declarations were wired. Nullable
+-- columns keep old rows readable; cellView ignores incomplete declarations.
+alter table plane_workflows add column if not exists binding text;
+alter table plane_workflows add column if not exists unique_key text;
+alter table plane_workflows add column if not exists limits_steps integer;
+alter table plane_workflows add column if not exists service_worker_id text;
 
 create table if not exists plane_logs (
   id bigserial primary key,

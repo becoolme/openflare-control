@@ -711,6 +711,13 @@ class PlaneCellTx {
         `select hostname from plane_hostnames where worker_id=$1 and status='VERIFIED'`,
         [r.id as string]
       )
+      const workflows = await this.rows(
+        `select name, binding, class_name, unique_key, limits_steps, service_worker_id
+           from plane_workflows
+          where worker_id=$1 and binding is not null and unique_key is not null
+          order by name`,
+        [r.id as string]
+      )
       out.push({
         workerId: r.id as string,
         teamId: r.team_id as string,
@@ -723,6 +730,14 @@ class PlaneCellTx {
         hostnames: hostnames.map((h) => h.hostname as string),
         crons: version.crons,
         queueConsumers: version.queueConsumers ?? [],
+        workflows: workflows.map((w) => ({
+          name: String(w.name),
+          binding: String(w.binding),
+          className: String(w.class_name),
+          uniqueKey: String(w.unique_key),
+          limitsSteps: w.limits_steps == null ? null : Number(w.limits_steps),
+          serviceWorkerId: (w.service_worker_id as string | null) ?? null,
+        })),
         tailConsumers: version.tailConsumers ?? [],
         streamingTailConsumers: version.streamingTailConsumers ?? [],
         versionMetadata: version.versionMetadata ?? null,

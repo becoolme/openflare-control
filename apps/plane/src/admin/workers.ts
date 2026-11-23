@@ -289,6 +289,13 @@ async function createVersion(
   ])) {
     claimEnvName(String(secret.key), 'secret')
   }
+  for (const workflow of await rows(
+    deps,
+    'select binding from plane_workflows where worker_id=$1 and binding is not null',
+    [workerId]
+  )) {
+    claimEnvName(String(workflow.binding), 'workflow')
+  }
 
   const fp = sha256(
     JSON.stringify({
