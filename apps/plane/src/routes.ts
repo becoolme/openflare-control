@@ -2,7 +2,6 @@ import { Hono, type Context } from 'hono'
 import { createHash, timingSafeEqual } from 'node:crypto'
 import {
   VrtControlError,
-  bundleDigestsInEnvelope,
   bundleKeyFor,
   latestDesiredEnvelope,
   recordDesiredAck,
@@ -147,11 +146,24 @@ export function createApp(deps: AppDeps): Hono {
       const cellId = auth(c, deps.token)
       const digest = c.req.param('digest')
       if (!/^[0-9a-f]{64}$/.test(digest)) throw new VrtControlError(404, 'Not found')
-      const publications = await deps.store.recentPublications(cellId, 200)
-      const allowed = new Set<string>()
-      for (const p of publications)
-        for (const d of bundleDigestsInEnvelope(p.envelope)) allowed.add(d)
-      if (!allowed.has(digest)) throw new VrtControlError(404, 'Not found')
+      // A cell may only fetch digests its own publications reference — but
+      // the check must cover EVERY retained publication, not a recent slice:
+      // a digest that fell outside the old 200-row window 404'd a bundle a
+      // still-referenced envelope legitimately points at. This jsonb probe is
+      // the SQL twin of `bundleDigestsInEnvelope` (packages/control/
+      // publicationDigests.ts) — keep the two paths in sync if the envelope
+      // shape moves.
+      const { rowCount } = await deps.pool.query(
+        `select 1
+           from plane_publications p,
+                jsonb_array_elements(p.envelope -> 'payload' -> 'tenants') as tenant,
+                jsonb_array_elements(tenant -> 'workers') as worker
+          where p.cell_id = $1
+            and worker -> 'activeVersion' ->> 'artifactDigest' = $2
+          limit 1`,
+        [cellId, digest]
+      )
+      if ((rowCount ?? 0) === 0) throw new VrtControlError(404, 'Not found')
       const object = await deps.bundleStore.get(bundleKeyFor(digest))
       if (!object) throw new VrtControlError(404, 'Not found')
       const maxBytes = deps.maxBundleBytes ?? 128 * 1024 * 1024
