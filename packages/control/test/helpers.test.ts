@@ -57,6 +57,7 @@ describe('capability bits', () => {
         email: false,
         images: false,
         k2: false,
+        vectorize: false,
         observability: false,
         secretsStore: false,
         tailConsumers: false,

@@ -47,6 +47,7 @@ export const VRT_CELL_CAPABILITY_KEYS = [
   'email',
   'images',
   'k2',
+  'vectorize',
   'observability',
   /** `{"type":"secretsStore"}` bindings render to the bundled
    * `/workerd/secrets-store.js` worker; the control plane does not emit the
@@ -142,6 +143,7 @@ export function requiredCapabilities(needs: VrtCapabilityNeeds): VrtCellCapabili
     if (t === 'SEND_EMAIL') out.add('email')
     // IMAGES renders a wrapped binding into the images module + facade.
     if (t === 'IMAGES') out.add('images')
+    if (t === 'VECTORIZE') out.add('vectorize')
     // FLAGSHIP reads `tenants[].flagshipApps` + a wrapped internal module.
     if (t === 'FLAGSHIP') out.add('flagship')
     // ANALYTICS_ENGINE renders the dataset external + host ingest socket.

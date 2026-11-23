@@ -370,7 +370,11 @@ export function serializeBinding(
     }
     case 'VECTORIZE': {
       if (!/^[0-9a-z]{26}$/.test(resourceId)) throw invalid('bindings.vectorize.indexId')
-      if (binding.indexName == null || !/^[a-z0-9]+(-[a-z0-9]+){0,15}$/.test(binding.indexName)) {
+      if (
+        binding.indexName == null ||
+        binding.indexName.length > 64 ||
+        !/^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/.test(binding.indexName)
+      ) {
         throw invalid('bindings.vectorize.indexName')
       }
       const dims = binding.dimensions

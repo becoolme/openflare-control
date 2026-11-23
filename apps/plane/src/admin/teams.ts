@@ -143,6 +143,7 @@ export function registerTeams(app: Hono, deps: AdminDeps): void {
     try {
       await client.query('begin')
       await client.query('delete from plane_flagship_apps where team_id=$1', [id])
+      await client.query('delete from plane_vectorize_indexes where team_id=$1', [id])
       const deleted = await client.query('delete from plane_teams where team_id=$1', [id])
       if (deleted.rowCount === 0) throw new VrtControlError(404, 'Team not found')
       await client.query('commit')

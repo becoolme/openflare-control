@@ -6,8 +6,8 @@ import { type AdminDeps, generatedId, parse, readJson, rows, teamId } from '../c
 const metric = z.enum(['cosine', 'euclidean', 'dot-product'])
 const indexName = z
   .string()
-  .regex(/^[a-z0-9]+(-[a-z0-9]+)*$/)
   .max(64)
+  .regex(/^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/)
 
 export function registerVectorizeService(app: Hono, deps: AdminDeps): void {
   const base = '/api/v1/cells/:cellId/vectorize/indexes'
@@ -38,13 +38,27 @@ export function registerVectorizeService(app: Hono, deps: AdminDeps): void {
         .strict(),
       await readJson(c)
     )
+    const [existing] = await rows(
+      deps,
+      `select index_id, team_id, cluster_id, name, dimensions, metric, created_at
+         from plane_vectorize_indexes
+        where team_id=$1 and cluster_id=$2 and name=$3`,
+      [body.teamId, cell, body.name]
+    )
+    if (existing) {
+      if (
+        Number(existing.dimensions) !== body.dimensions ||
+        String(existing.metric) !== body.metric
+      ) {
+        throw new VrtControlError(409, 'Vectorize index dimensions/metric are immutable')
+      }
+      return c.json({ data: { index: existing } }, 200)
+    }
     const id = generatedId(`${cell}:${body.teamId}:vectorize:${body.name}`)
     await deps.pool.query(
       `insert into plane_vectorize_indexes
          (index_id, team_id, cluster_id, name, dimensions, metric)
-       values ($1,$2,$3,$4,$5,$6)
-       on conflict (team_id, cluster_id, name) do update set
-         dimensions=excluded.dimensions, metric=excluded.metric`,
+       values ($1,$2,$3,$4,$5,$6)`,
       [id, body.teamId, cell, body.name, body.dimensions, body.metric]
     )
     const [index] = await rows(
@@ -58,9 +72,26 @@ export function registerVectorizeService(app: Hono, deps: AdminDeps): void {
   })
 
   app.delete(`${base}/:indexId`, async (c) => {
+    const cell = c.req.param('cellId')
+    const indexId = c.req.param('indexId')
+    const [referenced] = await rows(
+      deps,
+      `select 1
+         from plane_workers w
+         join plane_versions v on v.worker_id=w.id,
+              jsonb_array_elements(
+                case when jsonb_typeof(v.row->'bindings')='array'
+                  then v.row->'bindings' else '[]'::jsonb end
+              ) binding
+        where w.cluster_id=$1 and binding->>'type'='VECTORIZE'
+          and binding->>'resourceId'=$2
+        limit 1`,
+      [cell, indexId]
+    )
+    if (referenced) throw new VrtControlError(409, 'Vectorize index is referenced by a version')
     const deleted = await deps.pool.query(
       'delete from plane_vectorize_indexes where index_id=$1 and cluster_id=$2',
-      [c.req.param('indexId'), c.req.param('cellId')]
+      [indexId, cell]
     )
     if (deleted.rowCount === 0) throw new VrtControlError(404, 'Vectorize index not found')
     return c.json({ data: { deleted: true } })

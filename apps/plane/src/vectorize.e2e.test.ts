@@ -120,6 +120,12 @@ maybe('vectorize', () => {
       ).status
     ).toBe(400)
 
+    await createPlaneStore(pool).recordCellCapabilities(cell, {
+      cron: true,
+      assets: true,
+      vectorize: true,
+    })
+
     const bundle = new TextEncoder().encode('export default { fetch: () => new Response("vx") }')
     const digest = sha256(bundle)
     const put = await app.request(`${base}/bundles/${digest}`, {
@@ -173,5 +179,54 @@ maybe('vectorize', () => {
         metric: 'cosine',
       })
     )
+    expect(
+      (
+        await call('POST', `${base}/vectorize/indexes`, {
+          teamId: team,
+          name: 'docs-index',
+          dimensions: 512,
+          metric: 'cosine',
+        })
+      ).status
+    ).toBe(409)
+    expect((await call('DELETE', `${base}/vectorize/indexes/${indexId}`)).status).toBe(409)
+    expect(
+      (
+        await call('POST', `${base}/vectorize/indexes`, {
+          teamId: team,
+          name: 'bad-metric',
+          dimensions: 8,
+          metric: 'bad',
+        })
+      ).status
+    ).toBe(400)
+    expect((await call('GET', `${base}/vectorize/indexes/missing/binding`)).status).toBe(404)
+
+    // The index is scoped to its owning team.
+    const otherTeam = `other-${suffix}`
+    expect(
+      (await call('POST', `${base}/workers`, { teamId: otherTeam, name: worker })).status
+    ).toBe(201)
+    expect(
+      (
+        await call('POST', `${base}/teams/${otherTeam}/workers/${worker}/versions`, {
+          versionId: `other-${suffix}`,
+          bundleSha256: digest,
+          bundleBytes: bundle.byteLength,
+          bindings: [
+            {
+              name: 'VECTORS',
+              type: 'VECTORIZE',
+              resourceId: indexId,
+              indexName: 'docs-index',
+              dimensions: 768,
+              metric: 'cosine',
+              permissionRead: true,
+              permissionWrite: true,
+            },
+          ],
+        })
+      ).status
+    ).toBe(400)
   })
 })
