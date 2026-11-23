@@ -337,6 +337,7 @@ maybe('service resource API e2e', () => {
       workflows: true,
       workflowsCrossWorker: true,
       flagship: true,
+      secretsStore: true,
     })
     // Flagship app + binding ride the next publication.
     const flagship = await call(
@@ -445,6 +446,92 @@ maybe('service resource API e2e', () => {
     ).toBe(400)
     expect(
       (await call('DELETE', `/api/v1/cells/${cell}/teams/${team}/flagship/apps/checkout`)).status
+    ).toBe(409)
+
+    // Secrets Store value + binding.
+    expect(
+      (
+        await call('PUT', `/api/v1/cells/${cell}/teams/${team}/secrets-store/default/API_KEY`, {
+          value: 'store-secret',
+        })
+      ).status
+    ).toBe(200)
+    const secretsVersion = await call(
+      'POST',
+      `/api/v1/cells/${cell}/teams/${team}/workers/${worker}/versions`,
+      {
+        versionId: `secrets-${suffix}`,
+        bundleSha256: digest,
+        bundleBytes: bundle.byteLength,
+        queueConsumers: [{ queueId, queueName: 'jobs', maxBatchSize: 10 }],
+        bindings: [
+          {
+            name: 'FLAGS',
+            type: 'FLAGSHIP',
+            resourceId: 'checkout',
+            permissionRead: true,
+            permissionWrite: false,
+          },
+          {
+            name: 'MY_DO',
+            type: 'DO',
+            resourceId: `${workerId}:MyDO`,
+            permissionRead: true,
+            permissionWrite: false,
+          },
+          {
+            name: 'SECRETS',
+            type: 'SECRETS_STORE',
+            resourceId: 'default:API_KEY',
+            storeId: 'default',
+            secretName: 'API_KEY',
+            permissionRead: true,
+            permissionWrite: false,
+          },
+        ],
+      }
+    )
+    expect(secretsVersion.status).toBe(201)
+    expect(
+      (
+        await call(
+          'POST',
+          `/api/v1/cells/${cell}/teams/${team}/workers/${worker}/versions/secrets-${suffix}/activate`,
+          {}
+        )
+      ).status
+    ).toBe(200)
+    expect((await call('POST', `/api/v1/cells/${cell}/publish`, { cause: 'SECRETS' })).status).toBe(
+      201
+    )
+    const secretInputs = await app.request(`/api/internal/clusters/${cell}/vrt/render-inputs`, {
+      headers: auth,
+    })
+    const secretBody = (await secretInputs.json()) as any
+    expect(secretBody.tenants[team].secrets['secrets-store:default:API_KEY']).toBe('store-secret')
+    expect(
+      (
+        await call('POST', `/api/v1/cells/${cell}/teams/${team}/workers/${worker}/versions`, {
+          versionId: `secrets-missing-${suffix}`,
+          bundleSha256: digest,
+          bundleBytes: bundle.byteLength,
+          bindings: [
+            {
+              name: 'SECRETS',
+              type: 'SECRETS_STORE',
+              resourceId: 'default:missing',
+              storeId: 'default',
+              secretName: 'missing',
+              permissionRead: true,
+              permissionWrite: false,
+            },
+          ],
+        })
+      ).status
+    ).toBe(400)
+    expect(
+      (await call('DELETE', `/api/v1/cells/${cell}/teams/${team}/secrets-store/default/API_KEY`))
+        .status
     ).toBe(409)
 
     const wf = await call(

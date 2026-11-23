@@ -19,6 +19,7 @@ export async function collectRenderInputs(
     [cellId]
   )
   const tenants: CellRenderInputs['tenants'] = {}
+  const storeSecretsByTeam = new Map<string, Record<string, string>>()
   for (const worker of workers.rows as { id: string; team_id: string }[]) {
     const tenant = (tenants[worker.team_id] ??= { vars: {}, secrets: {} })
     const vars = await pool.query('select key, value from plane_vars where worker_id=$1', [
@@ -29,6 +30,25 @@ export async function collectRenderInputs(
     const secretRows = await pool.query('select key, value from plane_secrets where worker_id=$1', [
       worker.id,
     ])
+    let storeSecrets = storeSecretsByTeam.get(worker.team_id)
+    if (!storeSecrets) {
+      storeSecrets = {}
+      const storeRows = await pool.query(
+        'select store_id, secret_name, value from plane_secrets_store where team_id=$1',
+        [worker.team_id]
+      )
+      for (const row of storeRows.rows as {
+        store_id: string
+        secret_name: string
+        value: string
+      }[]) {
+        storeSecrets[`secrets-store:${row.store_id}:${row.secret_name}`] = secrets.decrypt(
+          row.value
+        )
+      }
+      storeSecretsByTeam.set(worker.team_id, storeSecrets)
+    }
+    Object.assign(tenant.secrets, storeSecrets)
     for (const row of secretRows.rows as { key: string; value: string }[]) {
       const plaintext = secrets.decrypt(row.value)
       tenant.secrets[row.key] = plaintext

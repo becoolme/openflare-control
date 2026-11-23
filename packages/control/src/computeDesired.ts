@@ -395,6 +395,15 @@ export function serializeBinding(
         permissions: { read: binding.permissionRead, write: binding.permissionWrite },
       }
     }
+    case 'SECRETS_STORE': {
+      const storeId = binding.storeId
+      const secretName = binding.secretName
+      if (!storeId || !validVrtIdentifier(storeId)) throw invalid('bindings.storeId')
+      if (!secretName || !validVrtIdentifier(secretName)) throw invalid('bindings.secretName')
+      const secretRef = `secrets-store:${storeId}:${secretName}`
+      if (!validVrtIdentifier(secretRef, VRT_MAX_REF_LEN)) throw invalid('bindings.secretRef')
+      return { type: 'secretsStore', name, storeId, secretName, secretRef }
+    }
     case 'IMAGES':
       // CF Images: pure capability — the transform engine lives in the
       // facade-images system worker, so the wire carries name only.

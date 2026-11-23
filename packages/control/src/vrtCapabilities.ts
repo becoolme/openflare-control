@@ -147,6 +147,8 @@ export function requiredCapabilities(needs: VrtCapabilityNeeds): VrtCellCapabili
     if (t === 'FLAGSHIP') out.add('flagship')
     // ANALYTICS_ENGINE renders the dataset external + host ingest socket.
     if (t === 'ANALYTICS_ENGINE') out.add('analyticsEngine')
+    // SECRETS_STORE renders a service binding to the bundled worker.
+    if (t === 'SECRETS_STORE') out.add('secretsStore')
     // UNSAFE_EVAL renders workerd's `unsafeEval` binding.
     if (t === 'UNSAFE_EVAL') out.add('unsafeEval')
     // WORKER_LOADER renders the fork's `maxWorkers` capnp.

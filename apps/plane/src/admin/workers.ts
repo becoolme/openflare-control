@@ -300,6 +300,22 @@ async function createVersion(
     }
   }
 
+  for (const binding of body.bindings) {
+    if (binding.type !== 'SECRETS_STORE') continue
+    const storeId = binding.storeId
+    const secretName = binding.secretName
+    if (typeof storeId !== 'string' || typeof secretName !== 'string') {
+      throw new VrtControlError(400, 'Secrets Store binding requires storeId and secretName')
+    }
+    const [secret] = await rows(
+      deps,
+      `select 1 from plane_secrets_store
+        where team_id=$1 and store_id=$2 and secret_name=$3`,
+      [owner.team_id, storeId, secretName]
+    )
+    if (!secret) throw new VrtControlError(400, 'Secrets Store secret is not declared')
+  }
+
   const capabilities = await deps.store.cellCapabilities(owner.cluster_id)
   if (capabilities !== null) {
     const required = requiredCapabilities({
