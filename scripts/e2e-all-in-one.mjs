@@ -4,6 +4,7 @@
 // The workflow brings the stack up; this script only talks HTTP.
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
+import { request } from 'node:http'
 import { buildRuntimeBundle } from '../packages/control/dist/index.js'
 
 const PLANE = 'http://127.0.0.1:8787'
@@ -142,11 +143,23 @@ await waitFor(
 )
 
 // Ingress: Host header routes to the worker; the var travels through
-// the cell's render-inputs into the worker env.
+// the cell's render-inputs into the worker env. Raw http.request —
+// fetch treats Host as forbidden.
+const ingress = () =>
+  new Promise((resolve, reject) => {
+    const req = request(INGRESS, { headers: { host: hostname, connection: 'close' } }, (res) => {
+      let body = ''
+      res.on('data', (c) => (body += c))
+      res.on('end', () => resolve({ status: res.statusCode, body }))
+    })
+    req.on('error', reject)
+    req.end()
+  })
+
 await waitFor(
   async () => {
-    const res = await fetch(INGRESS, { headers: { host: hostname } })
-    return res.ok && (await res.text()) === 'aio:all-in-one-var'
+    const res = await ingress()
+    return res.status === 200 && res.body === 'aio:all-in-one-var'
   },
   `ingress ${hostname}`,
   120_000
