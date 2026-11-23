@@ -201,7 +201,7 @@ async function main() {
   const queueId = r.body.data.queue.queue_id
   r = await request('GET', `/api/v1/cells/${cell}/services`)
   assert.equal(r.status, 200)
-  assert.equal(r.body.data.queues[0].binding.type, 'queue')
+  assert.equal(r.body.data.queues[0].binding.type, 'QUEUE')
 
   // Runtime cell report: the deployed plane ingests the exact wire shape the
   // cell controller pushes, and the console sees real metrics/stats.

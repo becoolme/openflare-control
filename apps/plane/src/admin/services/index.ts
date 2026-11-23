@@ -36,19 +36,34 @@ export function registerServices(app: Hono, deps: AdminDeps): void {
           databaseId: r.database_id,
           teamId: r.team_id,
           name: r.name,
-          binding: { type: 'd1', databaseId: r.database_id, epoch: 1 },
+          binding: {
+            type: 'D1',
+            resourceId: r.database_id,
+            permissionRead: true,
+            permissionWrite: true,
+          },
         })),
         r2: r2.map((r) => ({
           bucketName: r.bucket_name,
           bucketId: r.bucket_id,
           teamId: r.team_id,
-          binding: { type: 'r2', bucket: r.bucket_name },
+          binding: {
+            type: 'R2',
+            resourceId: r.bucket_name,
+            permissionRead: true,
+            permissionWrite: true,
+          },
         })),
         kv: kv.map((r) => ({
           namespaceId: r.namespace_id,
           title: r.title,
           teamId: r.team_id,
-          binding: { type: 'kv', namespaceId: r.namespace_id },
+          binding: {
+            type: 'KV',
+            resourceId: r.namespace_id,
+            permissionRead: true,
+            permissionWrite: true,
+          },
         })),
         queues: queues.map((r) => ({
           queueId: r.queue_id,
@@ -56,9 +71,10 @@ export function registerServices(app: Hono, deps: AdminDeps): void {
           teamId: r.team_id,
           deliveryDelaySeconds: r.delivery_delay_seconds,
           binding: {
-            type: 'queue',
-            queueId: r.queue_id,
-            queueName: r.queue_id,
+            type: 'QUEUE',
+            resourceId: r.queue_id,
+            permissionRead: true,
+            permissionWrite: true,
             ...(r.delivery_delay_seconds == null
               ? {}
               : { deliveryDelaySeconds: r.delivery_delay_seconds }),
@@ -83,6 +99,8 @@ export function registerServices(app: Hono, deps: AdminDeps): void {
             indexName: r.name,
             dimensions: Number(r.dimensions),
             metric: r.metric,
+            permissionRead: true,
+            permissionWrite: true,
           },
         })),
         hyperdrive: hyperdrive.map((r) => ({
@@ -94,6 +112,8 @@ export function registerServices(app: Hono, deps: AdminDeps): void {
           binding: {
             type: 'HYPERDRIVE',
             resourceId: `vrtdb:${r.hyperdrive_id}`,
+            permissionRead: true,
+            permissionWrite: true,
           },
         })),
       },
