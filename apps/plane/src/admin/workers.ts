@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto'
 import type { Hono } from 'hono'
 import { z } from 'zod'
 import {
@@ -6,6 +7,7 @@ import {
   VrtControlError,
   missingCapabilities,
   requiredCapabilities,
+  workerDoClassNameSchema,
   bundleKeyFor,
   type VrtBindingRecord,
   type VrtCreateVersionInput,
@@ -109,7 +111,7 @@ const versionBody = z
       .optional(),
     assetsRouting: z.enum(['ASSETS_FIRST', 'WORKER_FIRST']).nullable().optional(),
     assetsRunWorkerFirst: z.array(z.string()).optional(),
-    exportedClassNames: z.array(z.string()).optional(),
+    exportedClassNames: z.array(workerDoClassNameSchema).optional(),
   })
   .strict()
 
@@ -233,6 +235,16 @@ async function createVersion(
         'tail consumers must be existing workers of the same team and cell'
       )
     }
+  }
+
+  // `exportedClassNames` predates the class resource API. Keep it as an
+  // alias that declares the classes instead of silently ignoring it.
+  for (const className of body.exportedClassNames ?? []) {
+    await deps.pool.query(
+      `insert into plane_do_classes (worker_id, class_name, unique_key, enable_sql)
+       values ($1,$2,$3,true) on conflict (worker_id, class_name) do nothing`,
+      [workerId, className, randomBytes(32).toString('hex')]
+    )
   }
 
   for (const binding of body.bindings) {
@@ -417,7 +429,11 @@ async function isActiveTailTarget(
 interface ActivatableVersion {
   readonly versionId: string
   readonly varValues: Readonly<Record<string, string>>
-  readonly bindings?: readonly { readonly name?: string }[]
+  readonly bindings?: readonly {
+    readonly name?: string
+    readonly type?: string
+    readonly resourceId?: string
+  }[]
   readonly jsonVars?: Readonly<Record<string, unknown>> | null
   readonly versionMetadata?: string | null
   readonly queueConsumers?: readonly VrtQueueConsumerDraft[] | null

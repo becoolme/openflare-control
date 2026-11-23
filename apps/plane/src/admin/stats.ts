@@ -415,7 +415,8 @@ export function registerStats(app: Hono, deps: AdminDeps): void {
       `select w.id
          from plane_workers w
          join plane_do_classes c on c.worker_id = w.id
-        where w.cluster_id=$1 and c.class_name=$2`,
+        where w.cluster_id=$1 and c.class_name=$2
+          and w.status='ACTIVE' and w.active_version_id is not null`,
       [cell, className]
     )
     if (declared.length === 0) {
@@ -486,7 +487,8 @@ export function registerStats(app: Hono, deps: AdminDeps): void {
         `select w.id
            from plane_workers w
            join plane_do_classes c on c.worker_id=w.id
-          where w.cluster_id=$1 and c.class_name=$2`,
+          where w.cluster_id=$1 and c.class_name=$2
+            and w.status='ACTIVE' and w.active_version_id is not null`,
         [cell, name]
       )
       for (const w of workers) {
@@ -538,7 +540,8 @@ export function registerStats(app: Hono, deps: AdminDeps): void {
       `select w.id
          from plane_workers w
          join plane_do_classes c on c.worker_id = w.id
-        where w.cluster_id=$1 and c.class_name=$2`,
+        where w.cluster_id=$1 and c.class_name=$2
+          and w.status='ACTIVE' and w.active_version_id is not null`,
       [cell, className]
     )
     if (declared.length === 0) {

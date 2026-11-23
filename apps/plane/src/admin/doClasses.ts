@@ -82,32 +82,35 @@ export function registerDoClasses(app: Hono, deps: AdminDeps): void {
        values ($1,$2,$3,$4,$5)
        on conflict (worker_id, class_name) do update set
          enable_sql=excluded.enable_sql,
-         transfer_from_worker_id=excluded.transfer_from_worker_id`,
+         transfer_from_worker_id=coalesce(
+           plane_do_classes.transfer_from_worker_id,
+           excluded.transfer_from_worker_id
+         )`,
       [id, body.className, uniqueKey, body.enableSql ?? true, body.transferFromWorkerId ?? null]
     )
-    return c.json(
-      {
-        data: {
-          className: body.className,
-          uniqueKey,
-          enableSql: body.enableSql ?? true,
-          transferFromWorkerId: body.transferFromWorkerId ?? null,
-        },
-      },
-      201
+    const [stored] = await rows(
+      deps,
+      `select class_name, unique_key, enable_sql, transfer_from_worker_id
+         from plane_do_classes where worker_id=$1 and class_name=$2`,
+      [id, body.className]
     )
+    return c.json({ data: mapClass(stored!) }, 201)
   })
 
+  type QueryRunner = {
+    query: (sql: string, params: unknown[]) => Promise<{ rows: Record<string, unknown>[] }>
+  }
+
   const assertNotReferenced = async (
+    runner: QueryRunner,
     id: string,
     cell: string,
     className: string
   ): Promise<void> => {
-    const [referenced] = await rows(
-      deps,
+    const result = await runner.query(
       `select 1
          from plane_workers w
-         join plane_versions v on v.version_id=w.active_version_id,
+         join plane_versions v on v.worker_id=w.id,
               jsonb_array_elements(
                 case when jsonb_typeof(v.row->'bindings')='array'
                   then v.row->'bindings' else '[]'::jsonb end
@@ -117,20 +120,32 @@ export function registerDoClasses(app: Hono, deps: AdminDeps): void {
         limit 1`,
       [cell, id, className]
     )
-    if (referenced) {
-      throw new VrtControlError(409, 'Durable Object class is referenced by an active version')
+    if (result.rows.length > 0) {
+      throw new VrtControlError(409, 'Durable Object class is referenced by a version')
     }
   }
 
   app.delete(`${base}/:className`, async (c) => {
     const { id, cell } = await workerFor(c)
     const className = parse(workerDoClassNameSchema, c.req.param('className'))
-    await assertNotReferenced(id, cell, className)
-    const deleted = await deps.pool.query(
-      'delete from plane_do_classes where worker_id=$1 and class_name=$2',
-      [id, className]
-    )
-    if (deleted.rowCount === 0) throw new VrtControlError(404, 'Durable Object class not found')
+    const client = await deps.pool.connect()
+    try {
+      await client.query('begin')
+      await assertNotReferenced(client, id, cell, className)
+      const deleted = await client.query(
+        'delete from plane_do_classes where worker_id=$1 and class_name=$2',
+        [id, className]
+      )
+      if (deleted.rowCount === 0) {
+        throw new VrtControlError(404, 'Durable Object class not found')
+      }
+      await client.query('commit')
+    } catch (error) {
+      await client.query('rollback')
+      throw error
+    } finally {
+      client.release()
+    }
     return c.json({ data: { deleted: true } })
   })
 
@@ -160,14 +175,21 @@ export function registerDoClasses(app: Hono, deps: AdminDeps): void {
     try {
       await client.query('begin')
       for (const className of body.deletedClasses ?? []) {
-        await assertNotReferenced(id, cell, className)
+        await assertNotReferenced(client, id, cell, className)
         await client.query('delete from plane_do_classes where worker_id=$1 and class_name=$2', [
           id,
           className,
         ])
       }
       for (const rename of body.renamedClasses ?? []) {
-        await assertNotReferenced(id, cell, rename.from)
+        await assertNotReferenced(client, id, cell, rename.from)
+        const targetExists = await client.query(
+          'select 1 from plane_do_classes where worker_id=$1 and class_name=$2',
+          [id, rename.to]
+        )
+        if (targetExists.rows.length > 0) {
+          throw new VrtControlError(409, `Durable Object class already exists: ${rename.to}`)
+        }
         const updated = await client.query(
           `update plane_do_classes set class_name=$3
             where worker_id=$1 and class_name=$2`,
