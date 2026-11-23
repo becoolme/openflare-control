@@ -235,6 +235,29 @@ async function createVersion(
     }
   }
 
+  for (const binding of body.bindings) {
+    if (binding.type !== 'DO' || typeof binding.resourceId !== 'string') continue
+    const sep = binding.resourceId.lastIndexOf(':')
+    const declaringId = sep === -1 ? '' : binding.resourceId.slice(0, sep)
+    const className = sep === -1 ? '' : binding.resourceId.slice(sep + 1)
+    const [declaringWorker] = await rows(
+      deps,
+      'select id from plane_workers where id=$1 and team_id=$2 and cluster_id=$3',
+      [declaringId, owner.team_id, owner.cluster_id]
+    )
+    if (!declaringWorker) {
+      throw new VrtControlError(400, 'DO binding declaring worker is not in this team/cell')
+    }
+    const [declared] = await rows(
+      deps,
+      'select 1 from plane_do_classes where worker_id=$1 and class_name=$2',
+      [declaringId, className]
+    )
+    if (!declared) {
+      throw new VrtControlError(400, `Durable Object class is not declared: ${className}`)
+    }
+  }
+
   const capabilities = await deps.store.cellCapabilities(owner.cluster_id)
   if (capabilities !== null) {
     const required = requiredCapabilities({
@@ -536,11 +559,22 @@ export function registerWorkers(app: Hono, deps: AdminDeps): void {
     if (!versionId) return c.json({ data: { classes: [], bindings: [] } })
     const version = await deps.store.getVersionByVersionId(id, versionId)
     if (!version) throw new VrtControlError(404, 'Active version not found')
+    const classes = await rows(
+      deps,
+      `select class_name, unique_key, enable_sql, transfer_from_worker_id
+         from plane_do_classes where worker_id=$1 order by class_name`,
+      [id]
+    )
     const bindings = (version.bindings ?? []).filter((b) => b.type === 'DO')
     return c.json({
       data: {
         versionId,
-        classes: version.exportedClassNames ?? [],
+        classes: classes.map((row) => ({
+          className: String(row.class_name),
+          uniqueKey: String(row.unique_key),
+          enableSql: row.enable_sql === true,
+          transferFromWorkerId: (row.transfer_from_worker_id as string | null) ?? null,
+        })),
         bindings,
       },
     })

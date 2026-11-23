@@ -176,6 +176,16 @@ create table if not exists plane_queues (
   unique (team_id, cluster_id, name)
 );
 
+create table if not exists plane_do_classes (
+  worker_id text not null references plane_workers(id) on delete cascade,
+  class_name text not null,
+  unique_key text not null,
+  enable_sql boolean not null default true,
+  transfer_from_worker_id text,
+  created_at timestamptz not null default now(),
+  primary key (worker_id, class_name)
+);
+
 create table if not exists plane_workflows (
   workflow_id text primary key,
   worker_id text not null references plane_workers(id) on delete cascade,

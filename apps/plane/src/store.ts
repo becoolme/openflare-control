@@ -743,6 +743,12 @@ class PlaneCellTx {
           order by name`,
         [r.id as string]
       )
+      const doClasses = await this.rows(
+        `select class_name, unique_key, enable_sql, transfer_from_worker_id
+           from plane_do_classes
+          where worker_id=$1 order by class_name`,
+        [r.id as string]
+      )
       out.push({
         workerId: r.id as string,
         teamId: r.team_id as string,
@@ -762,6 +768,14 @@ class PlaneCellTx {
           uniqueKey: String(w.unique_key),
           limitsSteps: w.limits_steps == null ? null : Number(w.limits_steps),
           serviceWorkerId: (w.service_worker_id as string | null) ?? null,
+        })),
+        durableObjectClasses: doClasses.map((c) => ({
+          className: String(c.class_name),
+          uniqueKey: String(c.unique_key),
+          enableSql: c.enable_sql === true,
+          ...(c.transfer_from_worker_id
+            ? { transferFromWorkerId: String(c.transfer_from_worker_id) }
+            : {}),
         })),
         tailConsumers: version.tailConsumers ?? [],
         streamingTailConsumers: version.streamingTailConsumers ?? [],

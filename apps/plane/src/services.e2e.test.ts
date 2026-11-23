@@ -205,11 +205,97 @@ maybe('service resource API e2e', () => {
         )
       ).status
     ).toBe(200)
+    const doClass = await call(
+      'POST',
+      `/api/v1/cells/${cell}/teams/${team}/workers/${worker}/durable-object-classes`,
+      { className: 'MyDO' }
+    )
+    expect(doClass.status).toBe(201)
     const dos = await call(
       'GET',
       `/api/v1/cells/${cell}/teams/${team}/workers/${worker}/durable-objects`
     )
-    expect(dos.body.data.classes).toEqual(['MyDO'])
+    expect(dos.body.data.classes).toEqual([
+      expect.objectContaining({
+        className: 'MyDO',
+        uniqueKey: expect.stringMatching(/^[0-9a-f]{64}$/),
+        enableSql: true,
+      }),
+    ])
+
+    const doVersion = await call(
+      'POST',
+      `/api/v1/cells/${cell}/teams/${team}/workers/${worker}/versions`,
+      {
+        versionId: `do-${suffix}`,
+        bundleSha256: digest,
+        bundleBytes: bundle.byteLength,
+        queueConsumers: [{ queueId, queueName: 'jobs', maxBatchSize: 10 }],
+        bindings: [
+          {
+            name: 'MY_DO',
+            type: 'DO',
+            resourceId: `${workerId}:MyDO`,
+            permissionRead: true,
+            permissionWrite: false,
+          },
+        ],
+      }
+    )
+    expect(doVersion.status).toBe(201)
+    expect(
+      (
+        await call(
+          'POST',
+          `/api/v1/cells/${cell}/teams/${team}/workers/${worker}/versions/do-${suffix}/activate`,
+          {}
+        )
+      ).status
+    ).toBe(200)
+    expect(
+      (
+        await call('POST', `/api/v1/cells/${cell}/teams/${team}/workers/${worker}/versions`, {
+          versionId: `bad-do-${suffix}`,
+          bundleSha256: digest,
+          bundleBytes: bundle.byteLength,
+          bindings: [
+            {
+              name: 'BAD_DO',
+              type: 'DO',
+              resourceId: `${workerId}:MissingDO`,
+              permissionRead: true,
+              permissionWrite: false,
+            },
+          ],
+        })
+      ).status
+    ).toBe(400)
+    expect((await call('POST', `/api/v1/cells/${cell}/publish`, { cause: 'DO' })).status).toBe(201)
+    const doDesired = await app.request(`/api/internal/clusters/${cell}/vrt/desired`, {
+      headers: auth,
+    })
+    const doEnvelope = (await doDesired.json()) as any
+    const doServed = doEnvelope.payload.tenants
+      .flatMap((tenant: any) => tenant.workers)
+      .find((candidate: any) => candidate.workerId === workerId)
+    expect(doServed.durableObjectClasses).toEqual([
+      expect.objectContaining({ className: 'MyDO', enableSql: true }),
+    ])
+    expect(doServed.bindings).toContainEqual(
+      expect.objectContaining({ type: 'durableObject', name: 'MY_DO', className: 'MyDO' })
+    )
+    expect(
+      (
+        await call(
+          'POST',
+          `/api/v1/cells/${cell}/teams/${team}/workers/${worker}/durable-object-classes/migrations`,
+          { newSqliteClasses: ['ExtraDO'] }
+        )
+      ).status
+    ).toBe(200)
+    expect(
+      (await call('POST', `/api/v1/cells/${cell}/publish`, { cause: 'DO-MIGRATE' })).status
+    ).toBe(201)
 
     // Workflow declaration + instance op
     await store.recordCellCapabilities(cell, {

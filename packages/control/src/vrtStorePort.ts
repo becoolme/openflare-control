@@ -250,7 +250,7 @@ export function collectCrossWorkerTargets(
     if (b.type === 'SERVICE') {
       put({ workerId: b.resourceId, requireActive: true, kind: 'service' })
     } else if (b.type === 'DO') {
-      const sep = b.resourceId.indexOf(':')
+      const sep = b.resourceId.lastIndexOf(':')
       if (sep > 0) {
         put({ workerId: b.resourceId.slice(0, sep), requireActive: false, kind: 'durableObject' })
       }

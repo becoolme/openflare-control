@@ -331,6 +331,13 @@ maybe('cell report e2e', () => {
     })
 
     // DO: declared/bindings + instances/storage real.
+    expect(
+      (
+        await call('POST', `${base}/teams/${team}/workers/${worker}/durable-object-classes`, {
+          className: 'MyDO',
+        })
+      ).status
+    ).toBe(201)
     const doStats = await call('GET', `${base}/durable-objects/MyDO/stats`)
     expect(doStats.body.data).toMatchObject({
       workers: 1,
