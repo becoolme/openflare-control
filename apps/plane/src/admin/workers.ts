@@ -6,6 +6,7 @@ import {
   VRT_MAX_JSON_BINDING_BYTES,
   VrtControlError,
   missingCapabilities,
+  serializeBinding,
   requiredCapabilities,
   workerDoClassNameSchema,
   bundleKeyFor,
@@ -321,6 +322,24 @@ async function createVersion(
       [owner.team_id, storeId, secretName]
     )
     if (!secret) throw new VrtControlError(400, 'Secrets Store secret is not declared')
+  }
+
+  for (const binding of body.bindings) {
+    try {
+      serializeBinding(
+        binding as unknown as VrtBindingRecord,
+        workerId,
+        body.assetsRouting ?? null,
+        body.assetsRunWorkerFirst ?? []
+      )
+    } catch (error) {
+      throw new VrtControlError(
+        400,
+        `Invalid binding ${String(binding.name)}: ${
+          error instanceof Error ? error.message : 'invalid'
+        }`
+      )
+    }
   }
 
   const capabilities = await deps.store.cellCapabilities(owner.cluster_id)

@@ -6,8 +6,8 @@ const id26 = z.string().regex(/^[0-9a-z]{26}$/)
 const identifier = z.string().regex(/^[A-Za-z0-9_.:-]{1,256}$/)
 const workerRef = z.string().regex(/^[a-z0-9][a-z0-9-]{0,62}:[a-z0-9][a-z0-9-]{0,62}$/)
 const permissions = {
-  permissionRead: z.boolean().optional().default(false),
-  permissionWrite: z.boolean().optional().default(false),
+  permissionRead: z.boolean().optional().default(true),
+  permissionWrite: z.boolean().optional().default(true),
 }
 
 const base = { name: key }
@@ -56,8 +56,9 @@ export const bindingRecordSchema = z.discriminatedUnion('type', [
       entrypoint: z
         .string()
         .regex(/^[A-Za-z_$][A-Za-z0-9_$]{0,63}$/)
+        .nullable()
         .optional(),
-      props: z.string().optional(),
+      props: z.string().nullable().optional(),
       ...permissions,
     })
     .strict(),
