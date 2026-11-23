@@ -1,5 +1,63 @@
 # Changelog
 
+## 2026-11-22 — re-pin the wire contract to OpenFlare `5751f90`
+
+- Bumped `OPENFLARE_CONTRACT_REV` from `99a834b` to `5751f90` (versioned
+  preview URLs, the `vrt` → `of` CLI rename and version-metadata projection).
+- No wire fixture changed: the cell's `AckReport` / `AckCapabilities` and
+  `CellReport` are byte-identical between the two revisions, so the vendored
+  `desired-ack-*` and `cell-report` fixtures and the derived capability schema
+  stayed as they were.
+- The desired snapshot gained one strictly optional field, `workers[].preview`
+  (`PreviewDesired { workerId, versionId }`, plus the `MAX_PREVIEWS_PER_WORKER`
+  bound). Version previews are not implemented in the plane yet, so it is left
+  unemitted; `versionMetadata` remains the recognized-but-not-required bit for
+  the `activeVersion` `tag`/`createdAt` projection (also unemitted).
+
+## 2026-11-22 — sync the wire contract to OpenFlare main
+
+- Re-pinned `OPENFLARE_CONTRACT_REV` to OpenFlare `99a834b` and refreshed the
+  vendored `desired-ack-*` fixtures (runtime merged quotas, service props,
+  queue delivery delay, secrets store, version metadata, k2, email, images,
+  vectorize, tail consumers and more).
+- Accepted the new ACK capability bits `secretsStore` and `versionMetadata` in
+  the strict (derived) capability schema. The plane does not emit either wire
+  field yet, so both are recognized-but-not-required; without this a healthy
+  cell reporting them would have had its whole ACK rejected.
+- `scripts/check-openflare-contract.mjs --write` now reformats the copied
+  fixtures with Prettier, so a sync no longer trips `pnpm format:check`.
+- Drift guards: the control contract test discovers every vendored
+  `desired-ack-*.json` from disk and validates it, and the plane validates the
+  vendored `cell-report.json` against the ingest schema without a database.
+
+## 2026-11-22 — full-stack execution e2e
+
+- Added the runtime bundle format (`buildRuntimeBundle` /
+  `verifyRuntimeBundle`): the object key is sha256(canonical manifest) and the
+  inner stored-document digest is re-derived. `PUT /bundles/{digest}` accepts
+  it (legacy raw fixture bytes remain accepted for control-plane-only tests);
+  `DirBundleStore` stores by the key digest, not sha256(body).
+- Added `scripts/e2e-fullstack.mjs` and the `e2e-fullstack` CI job: management
+  API → real cell-controller → real vrt-host → pinned workerd → ingress, v1
+  response, redeploy v2, v2 response.
+- Runtime fix (openflare#77): control-event socket names accept
+  `sock-<teamId>:<workerName>` (colon) and the 256-byte bound, otherwise a real
+  cell rejected the listen event as `control`/circuit-open.
+
+## 2026-11-22 — worker deploy lifecycle
+
+- Added `POST /cells/{cell}/teams/{team}/workers/{name}/deploy`: create a
+  version, optionally activate and publish in one call.
+- Version creation now fails closed unless the content-addressed bundle was
+  uploaded (`409 VRT_BUNDLE_NOT_UPLOADED`) and the claimed `bundleBytes`
+  matches (`409 VRT_BUNDLE_SIZE_MISMATCH`).
+- `SUSPENDED`/`DELETED` worker status is honored by `compute.desired` (only
+  `ACTIVE` workers are published); the metadata change takes effect on the
+  next `POST /publish`.
+- `DirBundleStore.has` is a stat probe instead of reading the whole bundle.
+- Added a worker lifecycle e2e: upload → deploy/publish → suspend → activate
+  → delete, plus missing-bundle and size-mismatch edges.
+
 ## 2026-11-22 — runtime metrics/report collection
 
 - Added the cell report wire contract (`fixtures/vrt-wire/cell-report.json`)
