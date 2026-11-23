@@ -87,7 +87,11 @@ services:
   # One-shot bootstrap: cell row + pull token + signing key + secrets +
   # rendered configs. Idempotent — never rotates existing files.
   cell-init:
-    image: openflare-plane:local
+    # Rebuilds the plane Dockerfile rather than reusing the plane service's
+    # image: an image-only service triggers a registry pull before the
+    # build completes; a second build section just hits the layer cache.
+    image: openflare-cell-init:local
+    build: { context: ., dockerfile: apps/plane/Dockerfile }
     user: '0:0'
     depends_on:
       plane:
