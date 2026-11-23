@@ -278,7 +278,8 @@ async function main() {
   )
   if (STUB) assert.ok(existsSync(STUB_BIN), `stub binary missing: ${STUB_BIN}`)
   else assert.ok(existsSync(WORKERD_BIN), `workerd binary missing: ${WORKERD_BIN}`)
-  if (!STUB) assert.ok(existsSync(VRT_PROVIDER_BIN), `vrt-provider binary missing: ${VRT_PROVIDER_BIN}`)
+  if (!STUB)
+    assert.ok(existsSync(VRT_PROVIDER_BIN), `vrt-provider binary missing: ${VRT_PROVIDER_BIN}`)
   assert.ok(existsSync(join(FACADE_DIR, 'manifest.json')), `facade manifest missing: ${FACADE_DIR}`)
 
   const root = await mkdtemp(join(tmpdir(), 'ofs-'))
