@@ -12,6 +12,24 @@ The plane is not on the tenant request path. If it is down, cells keep serving
 their last accepted snapshot until its 24 h expiry, then fail closed (they
 refuse new work rather than serving an unverified document).
 
+## Transport security (TLS)
+
+The plane and console speak plain HTTP. Everything on the wire is sensitive:
+bearer tokens authenticate both APIs, and the cell channel's render-inputs
+carries worker **secrets in cleartext** by design (cells must inject them as
+bindings). Therefore:
+
+- **Loopback and cluster-internal hops are fine without TLS.** The compose
+  defaults already bind every published port to `127.0.0.1`; pod-to-pod
+  traffic inside one trust domain stays on the cluster network.
+- **Any hop leaving the host/cluster boundary must be TLS-terminated** — a
+  reverse proxy or ingress in front of the plane/console, or a service mesh
+  doing mTLS. Never expose a bearer-authenticated endpoint over plaintext
+  HTTP to a shared network: the token grants full access to anyone who
+  sniffs it.
+- `*_BIND=0.0.0.0` on the compose ports is the deliberate opt-out — use it
+  only behind a TLS terminator or on a fully trusted network.
+
 ## Signing key
 
 The key is derived from `PLANE_SIGNING_SECRET` (HKDF → Ed25519). Its
