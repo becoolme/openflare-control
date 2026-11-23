@@ -484,8 +484,9 @@ export function registerStats(app: Hono, deps: AdminDeps): void {
       const workers = await rows(
         deps,
         `select w.id
-           from plane_workers w join plane_versions v on v.version_id = w.active_version_id
-          where w.cluster_id=$1 and coalesce(v.row->'exportedClassNames','[]'::jsonb) ? $2`,
+           from plane_workers w
+           join plane_do_classes c on c.worker_id=w.id
+          where w.cluster_id=$1 and c.class_name=$2`,
         [cell, name]
       )
       for (const w of workers) {

@@ -1,7 +1,8 @@
+import { randomBytes } from 'node:crypto'
 import type { Hono } from 'hono'
 import { z } from 'zod'
 import { VrtControlError, workerDoClassNameSchema } from 'openflare-control'
-import { type AdminDeps, parse, readJson, rows, sha256, workerId } from './context.js'
+import { type AdminDeps, parse, readJson, rows, workerId } from './context.js'
 
 const workerRef = z.string().regex(/^[a-z0-9][a-z0-9-]{0,62}:[a-z0-9][a-z0-9-]{0,62}$/)
 
@@ -42,7 +43,7 @@ export function registerDoClasses(app: Hono, deps: AdminDeps): void {
   })
 
   app.post(base, async (c) => {
-    const { id, cell } = await workerFor(c)
+    const { id, cell, team } = await workerFor(c)
     const body = parse(
       z
         .object({
@@ -59,12 +60,22 @@ export function registerDoClasses(app: Hono, deps: AdminDeps): void {
       }
       const [source] = await rows(
         deps,
-        'select id from plane_workers where id=$1 and cluster_id=$2',
-        [body.transferFromWorkerId, cell]
+        'select id from plane_workers where id=$1 and cluster_id=$2 and team_id=$3',
+        [body.transferFromWorkerId, cell, team]
       )
-      if (!source) throw new VrtControlError(400, 'Transfer source worker not found in this cell')
+      if (!source) {
+        throw new VrtControlError(400, 'Transfer source worker not found in this team/cell')
+      }
+      const [declared] = await rows(
+        deps,
+        'select 1 from plane_do_classes where worker_id=$1 and class_name=$2',
+        [body.transferFromWorkerId, body.className]
+      )
+      if (!declared) {
+        throw new VrtControlError(400, 'Transfer source does not declare this class')
+      }
     }
-    const uniqueKey = sha256(`${id}:do:${body.className}`)
+    const uniqueKey = randomBytes(32).toString('hex')
     await deps.pool.query(
       `insert into plane_do_classes
          (worker_id, class_name, unique_key, enable_sql, transfer_from_worker_id)
@@ -87,9 +98,34 @@ export function registerDoClasses(app: Hono, deps: AdminDeps): void {
     )
   })
 
+  const assertNotReferenced = async (
+    id: string,
+    cell: string,
+    className: string
+  ): Promise<void> => {
+    const [referenced] = await rows(
+      deps,
+      `select 1
+         from plane_workers w
+         join plane_versions v on v.version_id=w.active_version_id,
+              jsonb_array_elements(
+                case when jsonb_typeof(v.row->'bindings')='array'
+                  then v.row->'bindings' else '[]'::jsonb end
+              ) binding
+        where w.cluster_id=$1 and binding->>'type'='DO'
+          and binding->>'resourceId' = $2 || ':' || $3
+        limit 1`,
+      [cell, id, className]
+    )
+    if (referenced) {
+      throw new VrtControlError(409, 'Durable Object class is referenced by an active version')
+    }
+  }
+
   app.delete(`${base}/:className`, async (c) => {
-    const { id } = await workerFor(c)
+    const { id, cell } = await workerFor(c)
     const className = parse(workerDoClassNameSchema, c.req.param('className'))
+    await assertNotReferenced(id, cell, className)
     const deleted = await deps.pool.query(
       'delete from plane_do_classes where worker_id=$1 and class_name=$2',
       [id, className]
@@ -99,7 +135,7 @@ export function registerDoClasses(app: Hono, deps: AdminDeps): void {
   })
 
   app.post(`${base}/migrations`, async (c) => {
-    const { id } = await workerFor(c)
+    const { id, cell } = await workerFor(c)
     const body = parse(
       z
         .object({
@@ -124,12 +160,14 @@ export function registerDoClasses(app: Hono, deps: AdminDeps): void {
     try {
       await client.query('begin')
       for (const className of body.deletedClasses ?? []) {
+        await assertNotReferenced(id, cell, className)
         await client.query('delete from plane_do_classes where worker_id=$1 and class_name=$2', [
           id,
           className,
         ])
       }
       for (const rename of body.renamedClasses ?? []) {
+        await assertNotReferenced(id, cell, rename.from)
         const updated = await client.query(
           `update plane_do_classes set class_name=$3
             where worker_id=$1 and class_name=$2`,
@@ -149,7 +187,7 @@ export function registerDoClasses(app: Hono, deps: AdminDeps): void {
                (worker_id, class_name, unique_key, enable_sql)
              values ($1,$2,$3,$4)
              on conflict (worker_id, class_name) do update set enable_sql=excluded.enable_sql`,
-            [id, className, sha256(`${id}:do:${className}`), flag]
+            [id, className, randomBytes(32).toString('hex'), flag]
           )
         }
       }

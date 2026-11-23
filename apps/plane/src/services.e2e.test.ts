@@ -293,6 +293,37 @@ maybe('service resource API e2e', () => {
         )
       ).status
     ).toBe(200)
+    // Rename keeps the existing storage key; re-creating the old name mints
+    // a new key instead of aliasing the renamed class.
+    const temp = await call(
+      'POST',
+      `/api/v1/cells/${cell}/teams/${team}/workers/${worker}/durable-object-classes`,
+      { className: 'TempDO' }
+    )
+    expect(temp.status).toBe(201)
+    expect(
+      (
+        await call(
+          'POST',
+          `/api/v1/cells/${cell}/teams/${team}/workers/${worker}/durable-object-classes/migrations`,
+          { renamedClasses: [{ from: 'TempDO', to: 'TempDO2' }] }
+        )
+      ).status
+    ).toBe(200)
+    const recreated = await call(
+      'POST',
+      `/api/v1/cells/${cell}/teams/${team}/workers/${worker}/durable-object-classes`,
+      { className: 'TempDO' }
+    )
+    expect(recreated.body.data.uniqueKey).not.toBe(temp.body.data.uniqueKey)
+    expect(
+      (
+        await call(
+          'DELETE',
+          `/api/v1/cells/${cell}/teams/${team}/workers/${worker}/durable-object-classes/MyDO`
+        )
+      ).status
+    ).toBe(409)
     expect(
       (await call('POST', `/api/v1/cells/${cell}/publish`, { cause: 'DO-MIGRATE' })).status
     ).toBe(201)

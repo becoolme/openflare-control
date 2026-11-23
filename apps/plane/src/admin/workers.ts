@@ -556,16 +556,14 @@ export function registerWorkers(app: Hono, deps: AdminDeps): void {
     )
     if (!worker) throw new VrtControlError(404, 'Worker not found')
     const versionId = worker.active_version_id as string | null
-    if (!versionId) return c.json({ data: { classes: [], bindings: [] } })
-    const version = await deps.store.getVersionByVersionId(id, versionId)
-    if (!version) throw new VrtControlError(404, 'Active version not found')
+    const version = versionId ? await deps.store.getVersionByVersionId(id, versionId) : null
     const classes = await rows(
       deps,
       `select class_name, unique_key, enable_sql, transfer_from_worker_id
          from plane_do_classes where worker_id=$1 order by class_name`,
       [id]
     )
-    const bindings = (version.bindings ?? []).filter((b) => b.type === 'DO')
+    const bindings = (version?.bindings ?? []).filter((b) => b.type === 'DO')
     return c.json({
       data: {
         versionId,
@@ -625,6 +623,14 @@ export function registerWorkers(app: Hono, deps: AdminDeps): void {
     }
     if (await isWorkflowTarget(deps, cell, id)) {
       throw new VrtControlError(409, 'Worker is the target of a workflow binding')
+    }
+    const [transferSource] = await rows(
+      deps,
+      'select 1 from plane_do_classes where transfer_from_worker_id=$1 limit 1',
+      [id]
+    )
+    if (transferSource) {
+      throw new VrtControlError(409, 'Worker is a DO class transfer source')
     }
     const deleted = await deps.pool.query(
       'delete from plane_workers where id=$1 and cluster_id=$2',

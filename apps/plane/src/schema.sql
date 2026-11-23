@@ -185,6 +185,8 @@ create table if not exists plane_do_classes (
   created_at timestamptz not null default now(),
   primary key (worker_id, class_name)
 );
+create unique index if not exists plane_do_classes_unique_key
+  on plane_do_classes (unique_key);
 
 create table if not exists plane_workflows (
   workflow_id text primary key,
