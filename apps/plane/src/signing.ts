@@ -10,8 +10,8 @@ import type { SnapshotSigningContext } from 'openflare-control'
 export function resolvePlaneSigningKey(
   secret = process.env.PLANE_SIGNING_SECRET
 ): SnapshotSigningContext {
-  if (!secret || secret.length < 16) {
-    throw new Error('PLANE_SIGNING_SECRET must be at least 16 characters')
+  if (!secret || secret.length < 32) {
+    throw new Error('PLANE_SIGNING_SECRET must be at least 32 characters')
   }
   const seed = Buffer.from(
     hkdfSync(

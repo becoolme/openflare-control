@@ -89,6 +89,15 @@ export function registerCells(app: Hono, deps: AdminDeps): void {
       await client.query('delete from plane_cell_ops where cell_id=$1', [cell])
       await client.query('delete from plane_logs where cell_id=$1', [cell])
       await client.query('delete from plane_vectorize_indexes where cluster_id=$1', [cell])
+      // Cluster-scoped resources carry no cascade FK — without these a
+      // re-created cell id resurrects the old cell's resource catalog.
+      await client.query('delete from plane_hyperdrives where cluster_id=$1', [cell])
+      await client.query('delete from plane_d1_databases where cluster_id=$1', [cell])
+      await client.query('delete from plane_r2_buckets where cluster_id=$1', [cell])
+      await client.query('delete from plane_kv_namespaces where cluster_id=$1', [cell])
+      await client.query('delete from plane_queues where cluster_id=$1', [cell])
+      await client.query('delete from plane_cell_metrics where cell_id=$1', [cell])
+      await client.query('delete from plane_cell_resources where cell_id=$1', [cell])
       const deleted = await client.query('delete from plane_cells where cell_id=$1', [cell])
       await client.query('commit')
       if (deleted.rowCount === 0) throw new VrtControlError(404, 'Cell not found')

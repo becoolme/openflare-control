@@ -314,6 +314,9 @@ export function createApp(deps: AppDeps): Hono {
       )
       for (const row of rows as { team_id?: string; manifest?: string }[]) {
         if (!row.team_id || !row.manifest) continue
+        // A corrupt stored digest must skip the row, not throw a 500 out of
+        // assertDigest inside the store.
+        if (!/^[0-9a-f]{64}$/.test(row.manifest)) continue
         const manifest = await store.getManifest(row.team_id, row.manifest)
         if (!manifest) continue
         let parsed: { files?: { sha256?: unknown }[] }
@@ -424,6 +427,12 @@ export function createApp(deps: AppDeps): Hono {
             now: new Date(),
             signing: deps.signing,
           })
+          console.info('[openflare-plane] D1 PROMOTE applied', {
+            databaseId: op.databaseId,
+            epoch: promotion.epoch,
+            lsn: promotion.lsn,
+            revision,
+          })
           return { acked: true, published: true }
         })
         if (outcome.acked) acked++
@@ -495,6 +504,12 @@ export function createApp(deps: AppDeps): Hono {
           publishedById: null,
           now: new Date(),
           signing: deps.signing!,
+        })
+        console.info('[openflare-plane] D1 automatic writer applied', {
+          databaseId,
+          epoch,
+          lsn,
+          revision,
         })
         return { applied: true, published: true, revision }
       })

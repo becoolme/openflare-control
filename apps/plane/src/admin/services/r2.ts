@@ -6,6 +6,7 @@ import {
   type AdminDeps,
   generatedId,
   mapOp,
+  opExpiresAt,
   parse,
   readJson,
   requireTeam,
@@ -81,7 +82,7 @@ export function registerR2Service(app: Hono, deps: AdminDeps): void {
         .object({
           kind: z.enum(R2_KINDS),
           payload: z.record(z.unknown()).default({}),
-          expiresAt: z.number().int().optional(),
+          expiresAt: opExpiresAt,
         })
         .strict(),
       await readJson(c)

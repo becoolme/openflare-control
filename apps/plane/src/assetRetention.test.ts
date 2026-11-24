@@ -109,4 +109,38 @@ maybe('asset retention', () => {
       ).rowCount
     ).toBe(0)
   })
+
+  it('reclaims rows with corrupt stored digests instead of aborting the sweep', async () => {
+    // A malformed digest can't name a file: assertDigest would throw and
+    // wedge every future sweep behind the same poisoned row. The sweep must
+    // drop the row and carry on.
+    await pool.query(
+      `insert into plane_asset_manifests (team_id, digest, total_bytes, objects, created_at)
+       values ($1,'not-a-digest',1,'[]',now() - interval '30 days')`,
+      [team]
+    )
+    await pool.query(
+      `insert into plane_asset_objects (team_id, digest, bytes, created_at)
+       values ($1,'also-bad',1,now() - interval '30 days')`,
+      [team]
+    )
+    const store = new MemoryAssetStore()
+    const report = await pruneAssets(pool, store, 7)
+    expect(report.manifestsDeleted).toBeGreaterThanOrEqual(1)
+    expect(report.objectsDeleted).toBeGreaterThanOrEqual(1)
+    expect(
+      (
+        await pool.query(
+          "select count(*)::int as n from plane_asset_manifests where digest='not-a-digest'"
+        )
+      ).rows[0]!.n
+    ).toBe(0)
+    expect(
+      (
+        await pool.query(
+          "select count(*)::int as n from plane_asset_objects where digest='also-bad'"
+        )
+      ).rows[0]!.n
+    ).toBe(0)
+  })
 })

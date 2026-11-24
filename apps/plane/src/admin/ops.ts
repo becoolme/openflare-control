@@ -2,9 +2,9 @@ import type { Hono } from 'hono'
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import { VrtControlError } from 'openflare-control'
-import { type AdminDeps, databaseId, mapOp, parse, readJson, rows } from './context.js'
+import { type AdminDeps, databaseId, mapOp, opExpiresAt, parse, readJson, rows } from './context.js'
 
-const expires = z.number().int().min(0).max(4_102_444_800).optional()
+const expires = opExpiresAt
 
 // Kinds the generic endpoint accepts. Resource-scoped kinds (R2_*, KV_*,
 // STORAGE_PURGE, D1) carry server-injected scope — tenantId/bucketId/

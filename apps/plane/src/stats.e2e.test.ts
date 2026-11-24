@@ -55,7 +55,7 @@ maybe('management API stats edges', () => {
       bundleStore: new NoBundles(),
       adminToken: TOKEN,
       secrets: TEST_SECRETS_CIPHER,
-      signing: resolvePlaneSigningKey('stats-signing-secret-1234'),
+      signing: resolvePlaneSigningKey('stats-signing-secret-0123456789abcdef'),
     })
     await provisionCellToken(cell)
   })

@@ -50,7 +50,7 @@ maybe('publishCell', () => {
   })
 
   it('increments the revision and records a verifiable signed envelope', async () => {
-    const signing = resolvePlaneSigningKey('publish-test-secret-1234')
+    const signing = resolvePlaneSigningKey('publish-test-secret-0123456789abcdef')
     const first = await publishCell(store, { cellId: cluster, signing })
     const second = await publishCell(store, {
       cellId: cluster,
@@ -76,7 +76,7 @@ maybe('publishCell', () => {
   })
 
   it('serializes concurrent publishes on the cell row', async () => {
-    const signing = resolvePlaneSigningKey('publish-test-secret-1234')
+    const signing = resolvePlaneSigningKey('publish-test-secret-0123456789abcdef')
     const revisions = await Promise.all(
       Array.from({ length: 4 }, () => publishCell(store, { cellId: cluster, signing }))
     )

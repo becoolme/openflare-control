@@ -71,7 +71,7 @@ maybe('vectorize', () => {
       pool,
       bundleStore: new MemoryBundles(),
       adminToken: TOKEN,
-      signing: resolvePlaneSigningKey('vectorize-signing-secret-1234'),
+      signing: resolvePlaneSigningKey('vectorize-signing-secret-0123456789abcdef'),
       secrets: createSecretsCipher('vectorize-secrets-key'),
     })
     await provisionCellToken(cell)

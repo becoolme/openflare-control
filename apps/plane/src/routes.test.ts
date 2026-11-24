@@ -70,7 +70,7 @@ maybe('reference plane routes', () => {
     pool = new Pool({ connectionString: url })
     await pool.query(await readFile(new URL('./schema.sql', import.meta.url), 'utf8'))
     store = createPlaneStore(pool)
-    signing = resolvePlaneSigningKey('routes-test-secret-1234')
+    signing = resolvePlaneSigningKey('routes-test-secret-0123456789abcdef')
     bundles = new MemoryBundles()
     app = createApp({ store, pool, bundleStore: bundles, secrets: TEST_SECRETS_CIPHER })
     await provisionCellToken(cluster)

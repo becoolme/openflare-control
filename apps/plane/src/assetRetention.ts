@@ -64,7 +64,11 @@ export async function pruneAssets(
     )
     if (expired.length === 0) break
     for (const row of expired) {
-      await assets.deleteManifest(row.team_id, row.digest)
+      // A corrupt stored digest can't name a file — drop only the row, and
+      // never let assertDigest abort the whole sweep.
+      if (/^[0-9a-f]{64}$/.test(row.digest)) {
+        await assets.deleteManifest(row.team_id, row.digest)
+      }
       await pool.query('delete from plane_asset_manifests where team_id=$1 and digest=$2', [
         row.team_id,
         row.digest,
@@ -88,7 +92,9 @@ export async function pruneAssets(
     )
     if (expired.length === 0) break
     for (const row of expired) {
-      await assets.deleteObject(row.team_id, row.digest)
+      if (/^[0-9a-f]{64}$/.test(row.digest)) {
+        await assets.deleteObject(row.team_id, row.digest)
+      }
       await pool.query('delete from plane_asset_objects where team_id=$1 and digest=$2', [
         row.team_id,
         row.digest,

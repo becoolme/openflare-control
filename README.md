@@ -118,10 +118,12 @@ and rollout/rollback.
 ## Deploy a worker
 
 ```sh
+# Secrets come from env so they never land in argv/ps history.
+export SEED_SECRET_API_KEY=...
 pnpm --filter openflare-plane exec tsx src/seed.ts \
   --cluster prod-cell-1 --team demo --name hello \
   --version ver-1 --digest <sha256-of-bundle> \
-  --var GREETING=hello --secret API_KEY=... \
+  --var GREETING=hello --secret API_KEY \
   --hostname hello.workers.example.com
 ```
 

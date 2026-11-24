@@ -1,6 +1,7 @@
 /** Filesystem BundleStore for the reference plane (`PLANE_BUNDLE_DIR`). */
-import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { randomUUID } from 'node:crypto'
 import type { BundleStore } from 'openflare-control'
 
 export class DirBundleStore implements BundleStore {
@@ -14,7 +15,11 @@ export class DirBundleStore implements BundleStore {
     const digest = key.split('/').pop() ?? ''
     if (!/^[0-9a-f]{64}$/.test(digest)) throw new Error('bundle key must end in a 64-hex digest')
     await mkdir(this.dir, { recursive: true })
-    await writeFile(join(this.dir, digest), body)
+    // Crash mid-write must never leave a partial bundle at the digest path —
+    // readers treat the file as the content-addressed truth.
+    const tmp = join(this.dir, `${digest}.${randomUUID()}.tmp`)
+    await writeFile(tmp, body)
+    await rename(tmp, join(this.dir, digest))
     return { key, sha256: digest }
   }
 

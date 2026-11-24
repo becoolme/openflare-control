@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -35,5 +35,20 @@ describe('filesystem bundle store', () => {
     expect(await store.get(bundleKeyFor('a'.repeat(64)))).toBeNull()
     expect(await store.get('../../etc/passwd')).toBeNull()
     expect(await store.get('workers/v1/bundles/not-a-digest')).toBeNull()
+  })
+
+  it('leaves only the digest file — no partial writes at the content address', async () => {
+    const digest = '2'.repeat(64)
+    await store.put(bundleKeyFor(digest), new TextEncoder().encode('v1'))
+    await store.put(bundleKeyFor(digest), new TextEncoder().encode('v2'))
+    // tmp+rename: the directory holds only finished, digest-named objects —
+    // never a stranded .tmp — and a repeat put replaces it atomically.
+    const files = readdirSync(dir)
+    expect(files).toContain(digest)
+    expect(files.every((f) => /^[0-9a-f]{64}$/.test(f))).toBe(true)
+    const object = await store.get(bundleKeyFor(digest))
+    expect(new Uint8Array(await new Response(object!.stream).arrayBuffer())).toEqual(
+      new TextEncoder().encode('v2')
+    )
   })
 })
