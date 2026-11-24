@@ -253,6 +253,9 @@ maybe('vectorize', () => {
 
     // The index is scoped to its owning team.
     const otherTeam = `other-${suffix}`
+    expect((await call('POST', '/api/v1/teams', { teamId: otherTeam, name: 'E2E' })).status).toBe(
+      201
+    )
     expect(
       (await call('POST', `${base}/workers`, { teamId: otherTeam, name: worker })).status
     ).toBe(201)
