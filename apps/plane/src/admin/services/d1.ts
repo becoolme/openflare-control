@@ -58,12 +58,27 @@ export function registerD1Service(app: Hono, deps: AdminDeps): void {
   })
 
   app.delete('/api/v1/cells/:cellId/d1/databases/:databaseId', async (c) => {
-    const deleted = await deps.pool.query(
-      'delete from plane_d1_databases where database_id=$1 and cluster_id=$2',
-      [parse(databaseId, c.req.param('databaseId')), c.req.param('cellId')]
-    )
-    if (deleted.rowCount === 0) throw new VrtControlError(404, 'D1 database not found')
-    return c.json({ data: { deleted: true } })
+    const cell = c.req.param('cellId')
+    const id = parse(databaseId, c.req.param('databaseId'))
+    const client = await deps.pool.connect()
+    try {
+      await client.query('begin')
+      // Ops key on the database id — a deterministic id re-created later
+      // must not resurrect ops minted against the deleted database.
+      await client.query('delete from plane_d1_ops where cell_id=$1 and database_id=$2', [cell, id])
+      const deleted = await client.query(
+        'delete from plane_d1_databases where database_id=$1 and cluster_id=$2',
+        [id, cell]
+      )
+      await client.query('commit')
+      if (deleted.rowCount === 0) throw new VrtControlError(404, 'D1 database not found')
+      return c.json({ data: { deleted: true } })
+    } catch (error) {
+      await client.query('rollback')
+      throw error
+    } finally {
+      client.release()
+    }
   })
 
   app.post('/api/v1/cells/:cellId/d1/databases/:databaseId/query', async (c) => {

@@ -288,16 +288,32 @@ export function registerWorkflowService(app: Hono, deps: AdminDeps): void {
   })
 
   app.delete(`${base}/:workflowName`, async (c) => {
-    const deleted = await deps.pool.query(
-      'delete from plane_workflows where worker_id=$1 and name=$2 and cluster_id=$3',
-      [
-        workerId(c.req.param('teamId'), c.req.param('name')),
-        parse(workflowNameSchema, c.req.param('workflowName')),
-        c.req.param('cellId'),
-      ]
-    )
-    if (deleted.rowCount === 0) throw new VrtControlError(404, 'Workflow not found')
-    return c.json({ data: { deleted: true } })
+    const cell = c.req.param('cellId')
+    const id = workerId(c.req.param('teamId'), c.req.param('name'))
+    const wfName = parse(workflowNameSchema, c.req.param('workflowName'))
+    const client = await deps.pool.connect()
+    try {
+      await client.query('begin')
+      // Workflow ops carry worker_id + resource_key — a re-created workflow
+      // must not inherit ops minted against the deleted one.
+      await client.query(
+        `delete from plane_cell_ops
+          where cell_id=$1 and worker_id=$2 and resource_key=$3 and kind like 'WF\\_%'`,
+        [cell, id, wfName]
+      )
+      const deleted = await client.query(
+        'delete from plane_workflows where worker_id=$1 and name=$2 and cluster_id=$3',
+        [id, wfName, cell]
+      )
+      await client.query('commit')
+      if (deleted.rowCount === 0) throw new VrtControlError(404, 'Workflow not found')
+      return c.json({ data: { deleted: true } })
+    } catch (error) {
+      await client.query('rollback')
+      throw error
+    } finally {
+      client.release()
+    }
   })
 
   app.post(`${base}/:workflowName/ops`, async (c) => {

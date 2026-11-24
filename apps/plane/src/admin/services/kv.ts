@@ -66,12 +66,34 @@ export function registerKvService(app: Hono, deps: AdminDeps): void {
   })
 
   app.delete('/api/v1/cells/:cellId/kv/namespaces/:namespaceId', async (c) => {
-    const deleted = await deps.pool.query(
-      'delete from plane_kv_namespaces where namespace_id=$1 and cluster_id=$2',
-      [parse(resourceId, c.req.param('namespaceId')), c.req.param('cellId')]
-    )
-    if (deleted.rowCount === 0) throw new VrtControlError(404, 'KV namespace not found')
-    return c.json({ data: { deleted: true } })
+    const cell = c.req.param('cellId')
+    const id = parse(resourceId, c.req.param('namespaceId'))
+    const client = await deps.pool.connect()
+    try {
+      await client.query('begin')
+      // Ops key on the namespace's physical_id — a re-created namespace id
+      // must not inherit ops minted against the deleted one.
+      await client.query(
+        `delete from plane_cell_ops
+          where cell_id=$1
+            and resource_key=(
+              select physical_id from plane_kv_namespaces
+               where namespace_id=$2 and cluster_id=$1)`,
+        [cell, id]
+      )
+      const deleted = await client.query(
+        'delete from plane_kv_namespaces where namespace_id=$1 and cluster_id=$2',
+        [id, cell]
+      )
+      await client.query('commit')
+      if (deleted.rowCount === 0) throw new VrtControlError(404, 'KV namespace not found')
+      return c.json({ data: { deleted: true } })
+    } catch (error) {
+      await client.query('rollback')
+      throw error
+    } finally {
+      client.release()
+    }
   })
 
   app.post('/api/v1/cells/:cellId/kv/namespaces/:namespaceId/ops', async (c) => {
