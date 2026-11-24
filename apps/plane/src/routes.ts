@@ -347,7 +347,11 @@ export function createApp(deps: AppDeps): Hono {
         const ack = raw as { seq?: unknown; status?: unknown; result?: unknown; error?: unknown }
         const seq = Number(ack.seq)
         const status = ack.status
-        if (!Number.isSafeInteger(seq) || seq < 0 || (status !== 'DONE' && status !== 'FAILED')) {
+        if (
+          !Number.isSafeInteger(seq) ||
+          seq < 0 ||
+          (status !== 'DONE' && status !== 'FAILED' && status !== 'EXPIRED')
+        ) {
           malformed++
           continue
         }
