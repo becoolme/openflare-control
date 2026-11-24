@@ -165,15 +165,22 @@ export function registerTeams(app: Hono, deps: AdminDeps): void {
           where database_id in (select database_id from plane_d1_databases where team_id=$1)`,
         [id]
       )
+      // Worker-scoped ops (WF_* carry worker_id=`team:name`, resource_key=
+      // workflow name) resurrect the same way through the deterministic
+      // worker id; team ids can't contain LIKE metacharacters. The union is
+      // kind-filtered so another team's workflow that happens to be named
+      // like a resource id keeps its ops.
       await client.query(
         `delete from plane_cell_ops
-          where resource_key in (
-            select bucket_id from plane_r2_buckets where team_id=$1
-            union all select physical_id from plane_kv_namespaces where team_id=$1
-            union all select index_id from plane_vectorize_indexes where team_id=$1
-            union all select queue_id from plane_queues where team_id=$1
-            union all select hyperdrive_id from plane_hyperdrives where team_id=$1
-          )`,
+          where worker_id like $1 || ':%'
+             or (kind not like 'WF\\_%'
+                 and resource_key in (
+                   select bucket_id from plane_r2_buckets where team_id=$1
+                   union all select physical_id from plane_kv_namespaces where team_id=$1
+                   union all select index_id from plane_vectorize_indexes where team_id=$1
+                   union all select queue_id from plane_queues where team_id=$1
+                   union all select hyperdrive_id from plane_hyperdrives where team_id=$1
+                 ))`,
         [id]
       )
       await client.query('delete from plane_flagship_apps where team_id=$1', [id])
@@ -200,14 +207,16 @@ export function registerTeams(app: Hono, deps: AdminDeps): void {
         try {
           await deps.assetStore.deleteManifest(id, row.digest)
         } catch {
-          // Best-effort fs cleanup; a stray file ages out via retention.
+          // Best-effort only — with the row gone, retention can't see a
+          // leaked file either; a failed delete leaves it on disk.
         }
       }
       for (const row of assetRows.objects) {
         try {
           await deps.assetStore.deleteObject(id, row.digest)
         } catch {
-          // Best-effort fs cleanup; a stray file ages out via retention.
+          // Best-effort only — with the row gone, retention can't see a
+          // leaked file either; a failed delete leaves it on disk.
         }
       }
     }

@@ -604,6 +604,13 @@ maybe('management API edges', () => {
        values ($1,$2,$3,'KV_GET','{}'::jsonb)`,
       [randomUUID(), cell, doomedPhysical]
     )
+    // Worker-scoped ops key on worker_id=`team:name` — the deterministic
+    // composite resurrects under a same-named worker after team re-create.
+    await pool.query(
+      `insert into plane_cell_ops (id, cell_id, worker_id, resource_key, kind, payload)
+       values ($1,$2,$3,'wf-name','WF_GET','{}'::jsonb)`,
+      [randomUUID(), cell, `${orphanTeam}:ghost`]
+    )
 
     expect((await call(assetsApp, 'DELETE', `/api/v1/teams/${orphanTeam}`)).status).toBe(200)
     expect(assets.manifests.size).toBe(0)
@@ -618,7 +625,8 @@ maybe('management API edges', () => {
          (select count(*)::int from plane_asset_manifests where team_id=$1) +
          (select count(*)::int from plane_asset_objects where team_id=$1) +
          (select count(*)::int from plane_d1_ops where database_id=$2) +
-         (select count(*)::int from plane_cell_ops where resource_key=$3) as n`,
+         (select count(*)::int from plane_cell_ops where resource_key=$3) +
+         (select count(*)::int from plane_cell_ops where worker_id like $1 || ':%') as n`,
       [orphanTeam, doomedDbId, doomedPhysical]
     )
     expect(orphans.rows[0]!.n).toBe(0)

@@ -730,11 +730,25 @@ export function registerWorkers(app: Hono, deps: AdminDeps): void {
     if (transferSource) {
       throw new VrtControlError(409, 'Worker is a DO class transfer source')
     }
-    const deleted = await deps.pool.query(
-      'delete from plane_workers where id=$1 and cluster_id=$2',
-      [id, cell]
-    )
-    if (deleted.rowCount === 0) throw new VrtControlError(404, 'Worker not found')
+    const client = await deps.pool.connect()
+    try {
+      await client.query('begin')
+      const deleted = await client.query(
+        'delete from plane_workers where id=$1 and cluster_id=$2',
+        [id, cell]
+      )
+      if (deleted.rowCount === 0) throw new VrtControlError(404, 'Worker not found')
+      // Ops for this worker (WF_*, worker-scoped) key on the deterministic
+      // `team:name` id — leave them and a same-named worker inherits the
+      // dead worker's queued/resulted ops.
+      await client.query('delete from plane_cell_ops where worker_id=$1', [id])
+      await client.query('commit')
+    } catch (error) {
+      await client.query('rollback')
+      throw error
+    } finally {
+      client.release()
+    }
     return c.json({ data: { deleted: true } })
   })
 
