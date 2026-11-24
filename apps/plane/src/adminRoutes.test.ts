@@ -530,6 +530,8 @@ maybe('management API edges', () => {
     const detail = await call(app, 'GET', `/api/v1/cells/${cell}`)
     expect(detail.status).toBe(200)
     expect(detail.body.data.latestPublication).toBeNull()
+    const cells = await call(app, 'GET', '/api/v1/cells')
+    expect(cells.body.data.cells.some((row: { cellId: string }) => row.cellId === cell)).toBe(true)
   })
 
   it('deletes the team and its team-scoped resources', async () => {
@@ -625,6 +627,10 @@ maybe('management API edges', () => {
       doomed,
       digest,
     ])
+    await pool.query(
+      `insert into plane_asset_manifests (team_id, digest, total_bytes) values ($1,$2,1)`,
+      [doomed, digest]
+    )
     expect((await call(failApp, 'DELETE', `/api/v1/teams/${doomed}`)).status).toBe(200)
   })
 })
