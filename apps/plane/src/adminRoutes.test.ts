@@ -251,6 +251,7 @@ maybe('management API edges', () => {
     const legacy = list.body.data.hyperdrives.find((h: { name: string }) => h.name === 'legacy')
     expect(legacy.origin).toBe('postgres://***@h/db')
     expect(legacy.origin).not.toContain('s3cret')
+    expect((await call(app, 'GET', `${base}/hyperdrive/${'f'.repeat(26)}`)).status).toBe(404)
   })
 
   it('covers vars/secrets/hostname validation and conflicts', async () => {
