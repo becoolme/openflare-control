@@ -64,7 +64,7 @@ export function registerAssets(app: Hono, deps: AdminDeps): void {
     parse(teamId, team)
     const [worker] = (
       await deps.pool.query(
-        'select id from plane_workers where cluster_id=$1 and team_id=$2 limit 1',
+        'select id from plane_workers where cluster_id=$1 and team_id=$2 order by id limit 1',
         [cell, team]
       )
     ).rows as { id: string }[]

@@ -2,9 +2,9 @@ import type { Hono } from 'hono'
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import { VrtControlError } from 'openflare-control'
-import { type AdminDeps, databaseId, mapOp, parse, readJson, rows } from './context.js'
+import { type AdminDeps, databaseId, mapOp, opExpiresAt, parse, readJson, rows } from './context.js'
 
-const expires = z.number().int().optional()
+const expires = opExpiresAt
 
 async function findOp(deps: AdminDeps, cell: string, id: string) {
   const [d1] = await rows(

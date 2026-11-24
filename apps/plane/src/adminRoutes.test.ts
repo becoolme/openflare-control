@@ -294,6 +294,9 @@ maybe('management API edges', () => {
     })
     expect(mismatch.status).toBe(400)
     expect((await call(app, 'GET', `${base}/publications/9999`)).status).toBe(404)
+    // Malformed numeric params degrade to 400/default, never to a 500.
+    expect((await call(app, 'GET', `${base}/publications/abc`)).status).toBe(400)
+    expect((await call(app, 'GET', `${base}/publications?limit=abc`)).status).toBe(200)
     expect((await call(app, 'GET', `${base}/publications?limit=0`)).status).toBe(200)
     expect((await call(noSigningApp, 'POST', `${base}/publish`, {})).status).toBe(501)
     expect((await call(app, 'POST', `${base}/publish`, undefined)).status).toBe(201)
@@ -319,6 +322,18 @@ maybe('management API edges', () => {
           databaseId: 'a'.repeat(26),
           kind: 'NOPE',
           payload: {},
+        })
+      ).status
+    ).toBe(400)
+    // expiresAt feeds to_timestamp() — absurd values must be a 400 at the
+    // boundary, not a Postgres range-error 500.
+    expect(
+      (
+        await call(app, 'POST', `${base}/d1-ops`, {
+          databaseId: 'a'.repeat(26),
+          kind: 'DROP',
+          payload: {},
+          expiresAt: 1e15,
         })
       ).status
     ).toBe(400)

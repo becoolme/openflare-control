@@ -14,6 +14,7 @@ import {
   type AdminDeps,
   generatedId,
   mapOp,
+  opExpiresAt,
   parse,
   readJson,
   rows,
@@ -313,7 +314,7 @@ export function registerWorkflowService(app: Hono, deps: AdminDeps): void {
           action: z.string().min(1).max(64).optional(),
           eventType: z.string().min(1).max(128).optional(),
           payload: z.unknown().optional(),
-          expiresAt: z.number().int().optional(),
+          expiresAt: opExpiresAt,
         })
         .strict(),
       await readJson(c)

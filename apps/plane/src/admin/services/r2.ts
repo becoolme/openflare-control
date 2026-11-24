@@ -2,7 +2,16 @@ import type { Hono } from 'hono'
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import { VrtControlError, validVrtBucketName } from 'openflare-control'
-import { type AdminDeps, generatedId, mapOp, parse, readJson, rows, teamId } from '../context.js'
+import {
+  type AdminDeps,
+  generatedId,
+  mapOp,
+  opExpiresAt,
+  parse,
+  readJson,
+  rows,
+  teamId,
+} from '../context.js'
 
 const R2_KINDS = ['R2_LIST', 'R2_HEAD', 'R2_GET', 'R2_PUT', 'R2_DELETE'] as const
 
@@ -70,7 +79,7 @@ export function registerR2Service(app: Hono, deps: AdminDeps): void {
         .object({
           kind: z.enum(R2_KINDS),
           payload: z.record(z.unknown()).default({}),
-          expiresAt: z.number().int().optional(),
+          expiresAt: opExpiresAt,
         })
         .strict(),
       await readJson(c)
