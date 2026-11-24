@@ -11,6 +11,7 @@ import { Pool } from 'pg'
 import { bundleKeyFor, type BundleStore } from 'openflare-control'
 import { createApp } from './routes.js'
 import { createPlaneStore } from './store.js'
+import { MemoryAssetStore } from './assetStore.js'
 import { resolvePlaneSigningKey } from './signing.js'
 import { createSecretsCipher } from './secretsCipher.js'
 
@@ -46,6 +47,8 @@ maybe('management API edges', () => {
   let pool: Pool
   let app: ReturnType<typeof createApp>
   let noSigningApp: ReturnType<typeof createApp>
+  let assets: MemoryAssetStore
+  let assetsApp: ReturnType<typeof createApp>
   const suffix = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`
   const cell = `edge-${suffix}`
   const provisionCellToken = async (cellId: string) => {
@@ -78,6 +81,8 @@ maybe('management API edges', () => {
     }
     app = createApp({ ...deps, signing: resolvePlaneSigningKey('edge-signing-secret-1234') })
     noSigningApp = createApp(deps)
+    assets = new MemoryAssetStore()
+    assetsApp = createApp({ ...deps, assetStore: assets })
     await provisionCellToken(cell)
   })
   afterAll(async () => {
@@ -528,6 +533,22 @@ maybe('management API edges', () => {
     expect(
       (await call(app, 'POST', '/api/v1/teams', { teamId: orphanTeam, name: 'doomed' })).status
     ).toBe(201)
+    // Asset rows + live fs payloads: deleting the team must remove both.
+    const manifestBytes = new TextEncoder().encode('{"m":1}')
+    const objectBytes = new TextEncoder().encode('payload')
+    const manifestDigest = sha256(manifestBytes)
+    const objectDigest = sha256(objectBytes)
+    await assets.putManifest(orphanTeam, manifestDigest, manifestBytes)
+    await assets.putObject(orphanTeam, objectDigest, objectBytes)
+    await pool.query(
+      `insert into plane_asset_manifests (team_id, digest, total_bytes) values ($1,$2,$3)`,
+      [orphanTeam, manifestDigest, manifestBytes.byteLength]
+    )
+    await pool.query(`insert into plane_asset_objects (team_id, digest, bytes) values ($1,$2,$3)`, [
+      orphanTeam,
+      objectDigest,
+      objectBytes.byteLength,
+    ])
     expect(
       (
         await call(app, 'POST', `${base}/d1/databases`, {
@@ -545,7 +566,9 @@ maybe('management API edges', () => {
       ).status
     ).toBe(201)
 
-    expect((await call(app, 'DELETE', `/api/v1/teams/${orphanTeam}`)).status).toBe(200)
+    expect((await call(assetsApp, 'DELETE', `/api/v1/teams/${orphanTeam}`)).status).toBe(200)
+    expect(assets.manifests.size).toBe(0)
+    expect(assets.objects.size).toBe(0)
     const orphans = await pool.query(
       `select
          (select count(*)::int from plane_d1_databases where team_id=$1) +
@@ -558,5 +581,16 @@ maybe('management API edges', () => {
       [orphanTeam]
     )
     expect(orphans.rows[0]!.n).toBe(0)
+  })
+
+  it('rejects team deletes that are unsafe or unknown', async () => {
+    expect((await call(app, 'DELETE', `/api/v1/teams/ghost-${suffix}`)).status).toBe(404)
+    // A team that still owns workers refuses to delete.
+    const busy = `busy-${suffix}`
+    expect((await call(app, 'POST', '/api/v1/teams', { teamId: busy, name: 'b' })).status).toBe(201)
+    expect((await call(app, 'POST', `${base}/workers`, { teamId: busy, name: 'w2' })).status).toBe(
+      201
+    )
+    expect((await call(app, 'DELETE', `/api/v1/teams/${busy}`)).status).toBe(409)
   })
 })
