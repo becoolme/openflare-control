@@ -60,7 +60,22 @@ export function registerConfig(app: Hono, deps: AdminDeps): void {
     return workerId(team, name)
   }
 
+  // The worker id is `team:name` — globally unique — so a lookup that skips
+  // `cluster_id` resolves the same row through any cell's path. Every
+  // vars/secrets/hostname route must pin the worker to `:cellId` or a write
+  // issued under the wrong cell silently mutates the real worker.
+  const assertWorkerOnCell = async (c: {
+    req: { param: (k: string) => string }
+  }): Promise<void> => {
+    const [row] = await rows(deps, 'select 1 from plane_workers where id=$1 and cluster_id=$2', [
+      worker(c),
+      c.req.param('cellId'),
+    ])
+    if (!row) throw new VrtControlError(404, 'Worker not found')
+  }
+
   app.get('/api/v1/cells/:cellId/teams/:teamId/workers/:name/vars', async (c) => {
+    await assertWorkerOnCell(c)
     const list = await rows(
       deps,
       'select key, value from plane_vars where worker_id=$1 order by key',
@@ -70,6 +85,7 @@ export function registerConfig(app: Hono, deps: AdminDeps): void {
   })
 
   app.put('/api/v1/cells/:cellId/teams/:teamId/workers/:name/vars/:key', async (c) => {
+    await assertWorkerOnCell(c)
     const k = c.req.param('key')
     parse(key, k)
     const body = parse(z.object({ value: z.string() }).strict(), await readJson(c))
@@ -97,6 +113,7 @@ export function registerConfig(app: Hono, deps: AdminDeps): void {
   })
 
   app.delete('/api/v1/cells/:cellId/teams/:teamId/workers/:name/vars/:key', async (c) => {
+    await assertWorkerOnCell(c)
     await deps.pool.query('delete from plane_vars where worker_id=$1 and key=$2', [
       worker(c),
       c.req.param('key'),
@@ -105,6 +122,7 @@ export function registerConfig(app: Hono, deps: AdminDeps): void {
   })
 
   app.get('/api/v1/cells/:cellId/teams/:teamId/workers/:name/secrets', async (c) => {
+    await assertWorkerOnCell(c)
     const list = await rows(deps, 'select key from plane_secrets where worker_id=$1 order by key', [
       worker(c),
     ])
@@ -112,6 +130,7 @@ export function registerConfig(app: Hono, deps: AdminDeps): void {
   })
 
   app.put('/api/v1/cells/:cellId/teams/:teamId/workers/:name/secrets/:key', async (c) => {
+    await assertWorkerOnCell(c)
     const k = c.req.param('key')
     parse(key, k)
     const body = parse(z.object({ value: z.string() }).strict(), await readJson(c))
@@ -136,6 +155,7 @@ export function registerConfig(app: Hono, deps: AdminDeps): void {
   })
 
   app.delete('/api/v1/cells/:cellId/teams/:teamId/workers/:name/secrets/:key', async (c) => {
+    await assertWorkerOnCell(c)
     await deps.pool.query('delete from plane_secrets where worker_id=$1 and key=$2', [
       worker(c),
       c.req.param('key'),
@@ -164,6 +184,7 @@ export function registerConfig(app: Hono, deps: AdminDeps): void {
   })
 
   app.delete('/api/v1/cells/:cellId/teams/:teamId/workers/:name/hostnames/:hostname', async (c) => {
+    await assertWorkerOnCell(c)
     const deleted = await deps.pool.query(
       'delete from plane_hostnames where worker_id=$1 and hostname=$2',
       [worker(c), c.req.param('hostname')]

@@ -62,13 +62,51 @@ export function requireAdmin(c: Context, expected: string): void {
   }
 }
 
-export async function readJson(c: Context, max = MAX_JSON): Promise<unknown> {
+/**
+ * Read the request body with the byte cap enforced WHILE streaming — a
+ * chunked body without an honest content-length cannot force the whole
+ * payload into memory before the size check runs.
+ */
+export async function readBody(c: Context, max: number): Promise<Buffer> {
   const declared = Number(c.req.header('content-length') ?? '0')
   if (Number.isFinite(declared) && declared > max) {
     throw new VrtControlError(413, 'Payload too large')
   }
-  const raw = await c.req.text()
-  if (Buffer.byteLength(raw, 'utf8') > max) throw new VrtControlError(413, 'Payload too large')
+  const body = c.req.raw.body
+  if (!body) return Buffer.alloc(0)
+  const reader = body.getReader()
+  const chunks: Buffer[] = []
+  let total = 0
+  try {
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      total += value.byteLength
+      if (total > max) {
+        await reader.cancel().catch(() => {})
+        throw new VrtControlError(413, 'Payload too large')
+      }
+      chunks.push(Buffer.from(value))
+    }
+  } finally {
+    reader.releaseLock()
+  }
+  return Buffer.concat(chunks)
+}
+
+export async function readJson(c: Context, max = MAX_JSON): Promise<unknown> {
+  const raw = await readBody(c, max)
+  try {
+    return JSON.parse(raw.toString('utf8'))
+  } catch {
+    throw new VrtControlError(400, 'Invalid JSON')
+  }
+}
+
+/** Capped body read for endpoints where an empty body is valid input. */
+export async function readJsonOrEmpty(c: Context, max = MAX_JSON): Promise<unknown> {
+  const raw = (await readBody(c, max)).toString('utf8').trim()
+  if (!raw) return {}
   try {
     return JSON.parse(raw)
   } catch {

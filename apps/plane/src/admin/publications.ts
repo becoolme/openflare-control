@@ -2,19 +2,12 @@ import type { Hono } from 'hono'
 import { z } from 'zod'
 import { VrtControlError } from 'openflare-control'
 import { publishCell } from '../publish.js'
-import { type AdminDeps, parse } from './context.js'
+import { type AdminDeps, parse, readJsonOrEmpty } from './context.js'
 
 export function registerPublications(app: Hono, deps: AdminDeps): void {
   app.post('/api/v1/cells/:cellId/publish', async (c) => {
     const cell = c.req.param('cellId')
     if (!deps.signing) throw new VrtControlError(501, 'Signing is not configured')
-    const raw = await c.req.text()
-    let parsed: unknown
-    try {
-      parsed = raw.trim() ? JSON.parse(raw) : {}
-    } catch {
-      throw new VrtControlError(400, 'Invalid JSON')
-    }
     const body = parse(
       z
         .object({
@@ -23,7 +16,7 @@ export function registerPublications(app: Hono, deps: AdminDeps): void {
           versionId: z.string().optional(),
         })
         .strict(),
-      parsed
+      await readJsonOrEmpty(c)
     )
     const revision = await publishCell(deps.store, {
       cellId: cell,

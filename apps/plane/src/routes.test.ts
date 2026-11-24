@@ -375,6 +375,22 @@ maybe('reference plane routes', () => {
       body: '{}',
     })
     expect(tooBig.status).toBe(413)
+
+    // No content-length at all: the cap must stop the stream mid-read, not
+    // after the whole body has been buffered.
+    const streamed = await app.request(`/api/internal/clusters/${cluster}/vrt/desired/ack`, {
+      method: 'POST',
+      headers: { ...auth, 'content-type': 'application/json' },
+      body: new ReadableStream({
+        start(controller) {
+          controller.enqueue(new Uint8Array(64 * 1024).fill(120))
+          controller.close()
+        },
+      }),
+      // @ts-expect-error — RequestInit.duplex is required for stream bodies
+      duplex: 'half',
+    })
+    expect(streamed.status).toBe(413)
   })
 
   it('answers unimplemented channels with empty shapes, not false success', async () => {

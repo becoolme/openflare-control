@@ -510,6 +510,22 @@ maybe('service resource API e2e', () => {
     })
     const secretBody = (await secretInputs.json()) as any
     expect(secretBody.tenants[team].secrets['secrets-store:default:API_KEY']).toBe('store-secret')
+
+    // A secrets-store value no active binding references must NOT ship to
+    // the cell — disclosure is scoped to what deployments actually bind.
+    expect(
+      (
+        await call('PUT', `/api/v1/cells/${cell}/teams/${team}/secrets-store/default/UNBOUND`, {
+          value: 'never-ship',
+        })
+      ).status
+    ).toBe(200)
+    const reboundInputs = await app.request(`/api/internal/clusters/${cell}/vrt/render-inputs`, {
+      headers: auth,
+    })
+    const reboundBody = (await reboundInputs.json()) as any
+    expect(reboundBody.tenants[team].secrets['secrets-store:default:UNBOUND']).toBeUndefined()
+    expect(reboundBody.tenants[team].secrets['secrets-store:default:API_KEY']).toBe('store-secret')
     const secretsDesired = await app.request(`/api/internal/clusters/${cell}/vrt/desired`, {
       headers: auth,
     })
