@@ -1,5 +1,5 @@
 import type { Hono } from 'hono'
-import { type AdminDeps, rows } from '../context.js'
+import { type AdminDeps, maskOrigin, rows } from '../context.js'
 import { registerD1Service } from './d1.js'
 import { registerHyperdriveService } from './hyperdrive.js'
 import { registerKvService } from './kv.js'
@@ -111,7 +111,9 @@ export function registerServices(app: Hono, deps: AdminDeps): void {
           hyperdriveId: r.hyperdrive_id,
           teamId: r.team_id,
           name: r.name,
-          origin: r.origin,
+          // Same masking as the hyperdrive GETs — a legacy origin with
+          // embedded userinfo must not leak through the catalog either.
+          origin: maskOrigin(r as { origin: string }).origin,
           caching: r.caching,
           binding: {
             type: 'HYPERDRIVE',

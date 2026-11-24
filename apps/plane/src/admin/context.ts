@@ -200,3 +200,42 @@ export const mapLog = (r: Row) => ({
 export function generatedId(seed: string): string {
   return createHash('sha256').update(seed).digest('hex').slice(0, 26)
 }
+
+// Origins are `host:port/db` or `scheme://host/db` — credentials live with
+// the provider, never in the plane. Writes reject an embedded userinfo and
+// reads mask it, so a legacy row can't echo a password back through GETs.
+const ORIGIN_SCHEME_RE = /^[a-z][a-z0-9+.-]*:\/\//i
+
+// Index of the last `@` inside the authority (text before the first `/`
+// after any scheme), or -1 when there is no userinfo. Passwords may
+// themselves contain `@`, so the userinfo ends at the LAST `@`.
+function userinfoEnd(origin: string): number {
+  const o = origin.trim()
+  const scheme = o.match(ORIGIN_SCHEME_RE)?.[0].length ?? 0
+  const rest = o.slice(scheme)
+  const at = rest.split('/')[0]!.lastIndexOf('@')
+  return at < 0 ? -1 : scheme + at
+}
+
+export function assertOriginNoCredentials(origin: string): void {
+  if (/\s/.test(origin)) {
+    throw new VrtControlError(400, 'origin must be a host:port/db or scheme://host/db URL')
+  }
+  if (userinfoEnd(origin) >= 0) {
+    throw new VrtControlError(
+      400,
+      'origin must not embed credentials — store them with the provider, not the plane'
+    )
+  }
+}
+
+export function maskOrigin<T extends { origin: string }>(row: T): T {
+  const o = row.origin.trim()
+  // Anything carrying whitespace isn't the documented URL shape at all
+  // (e.g. a libpq keyword/value DSN) — don't echo it back at all.
+  if (/\s/.test(o)) return { ...row, origin: '***' }
+  const end = userinfoEnd(o)
+  if (end < 0) return { ...row, origin: o }
+  const scheme = o.match(ORIGIN_SCHEME_RE)?.[0] ?? ''
+  return { ...row, origin: `${scheme}***${o.slice(end)}` }
+}

@@ -222,6 +222,52 @@ maybe('management API edges', () => {
     ).toBe(200)
   })
 
+  it('keeps credentials out of hyperdrive origins, writes and reads', async () => {
+    // An origin with embedded userinfo is rejected at write time — a
+    // password may itself contain `@`, and whitespace isn't a valid URL.
+    for (const origin of [
+      'postgres://user:pass@db.internal:5432/app',
+      'postgres://user:p@ss@db.internal:5432/app',
+      ' postgres://db.internal:5432/app',
+      'host=db password=x dbname=app',
+    ]) {
+      expect(
+        (
+          await call(app, 'POST', `${base}/hyperdrive`, {
+            teamId: team,
+            name: 'creds',
+            origin,
+          })
+        ).status
+      ).toBe(400)
+    }
+    // A clean origin round-trips untouched.
+    const ok = await call(app, 'POST', `${base}/hyperdrive`, {
+      teamId: team,
+      name: 'plain',
+      origin: 'postgres://db.internal:5432/app',
+    })
+    expect(ok.status).toBe(201)
+    expect(ok.body.data.hyperdrive.origin).toBe('postgres://db.internal:5432/app')
+    // A legacy row written before the gate still can't echo its password —
+    // even when the password itself contains `@`.
+    await pool.query(
+      `insert into plane_hyperdrives (hyperdrive_id, team_id, cluster_id, name, origin)
+       values ($1, $2, $3, 'legacy', 'postgres://u:p@ss@h/db')`,
+      [sha256(`legacy-${suffix}`).slice(0, 26), team, cell]
+    )
+    const list = await call(app, 'GET', `${base}/hyperdrive`)
+    const legacy = list.body.data.hyperdrives.find((h: { name: string }) => h.name === 'legacy')
+    expect(legacy.origin).toBe('postgres://***@h/db')
+    expect(legacy.origin).not.toContain('p@ss')
+    // The services catalog must mask it too — it is another read path.
+    const catalog = await call(app, 'GET', `${base}/services`)
+    const entry = catalog.body.data.hyperdrive.find((h: { name: string }) => h.name === 'legacy')
+    expect(entry.origin).toBe('postgres://***@h/db')
+    expect(entry.origin).not.toContain('p@ss')
+    expect((await call(app, 'GET', `${base}/hyperdrive/${'f'.repeat(26)}`)).status).toBe(404)
+  })
+
   it('covers vars/secrets/hostname validation and conflicts', async () => {
     expect(
       (
