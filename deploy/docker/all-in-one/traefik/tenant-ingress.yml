@@ -1,0 +1,19 @@
+# Tenant traffic — every HTTPS request that does not match a more
+# specific Host rule lands on vrt-host's ingress, which routes workers
+# by Host header. certResolver issues one LE cert per SNI at first
+# handshake, so `of`/`/api/v1` hostnames and preview subdomains need no
+# reload. To restrict issuance to your base domain, replace the rule:
+#   rule: "HostSuffix(`.apps.example.com`)"
+http:
+  routers:
+    tenant-ingress:
+      rule: 'PathPrefix(`/`)'
+      entryPoints: [websecure]
+      service: tenant-ingress
+      tls:
+        certResolver: le
+  services:
+    tenant-ingress:
+      loadBalancer:
+        servers:
+          - url: 'http://vrt-host:8080'

@@ -1,0 +1,43 @@
+# vrt-provider — binding-backend sidecar (all-in-one docker variant).
+# NOTE: the provider does NOT honor VRT_CELL_ID — cellId is rendered.
+cellId = "__CELL_ID__"
+listenerDir = "/run/vrt/listeners"
+metricsListen = "0.0.0.0:9493"
+cursorSecretFile = "/run/vrt/secrets/cursor-secret"
+operationTimeoutMs = 30000
+tenantConcurrency = 64
+globalConcurrency = 512
+bodyReadTimeoutMs = 30000
+drainTimeoutMs = 30000
+
+[desired]
+path = "/run/vrt/pod-delivery/envelope.json"
+reloadMs = 1000
+graceVersions = 1
+trustedKeys = [
+  { keyId = "__KEY_ID__", publicKey = "__PUBKEY__" },
+]
+
+# KV: RESP-compatible store in this stack (redis service). The env is
+# set on the provider container; absent => kv capability false.
+[kvrocks]
+urlEnv = "VRT_KVROCKS_URL"
+timeoutMs = 5000
+connectTimeoutMs = 5000
+
+# [s3] intentionally ABSENT — R2 bindings fail closed without an object
+# store. To enable: give this section endpoint/region/bucket + the
+# VRT_R2_* envs, and mirror it in cell-controller.toml [storage_purge.s3].
+
+[vrtSql]
+addr = "http://vrt-sql:8082"
+authSecretFile = "/run/vrt/secrets/vrt-sql-auth-secret"
+
+[assets]
+dir = "/data/assets"
+
+[pg]
+credentialsFile = "/run/vrt/render-inputs/pg-credentials.json"
+
+[pgProxy]
+listen = "127.0.0.1:19543"

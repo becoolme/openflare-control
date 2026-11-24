@@ -1,0 +1,17 @@
+# vrt-sql — D1 data plane (all-in-one docker variant).
+dbRoot = "/data/db"
+listenTcp = "0.0.0.0:8082"
+metricsListen = "0.0.0.0:9492"
+bookmarkSecretFile = "/run/vrt/secrets/vrt-sql-bookmark-secret"
+authSecretFile = "/run/vrt/secrets/vrt-sql-auth-secret"
+globalConcurrency = 64
+operationTimeoutMs = 5000
+drainTimeoutMs = 30000
+bodyMaxBytes = 1048576
+
+[persistence]
+# fs on the volume — durable across recreates but SINGLE COPY (the
+# same dev waiver as the k8s base); production should use backend="s3".
+backend = "fs"
+fs = { root = "/data/persistence" }
+allowSameDeviceDurability = true

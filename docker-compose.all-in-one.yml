@@ -1,0 +1,287 @@
+# All-in-one — the whole platform on one Docker host:
+# control plane (postgres + plane + console) AND one cell
+# (vrt-host + cell-controller + vrt-provider + vrt-sql + redis KV).
+# The management API is literally the control plane's — same code as
+# the k8s layout — so the surface is identical in both deploys.
+#
+#   OPENFLARE_DIR=../openflare PLANE_ADMIN_TOKEN=<64hex> \
+#   PLANE_SIGNING_SECRET=<seed> PLANE_SECRETS_KEY=<key> \
+#   CONSOLE_AUTH_PASSWORD=<pw> docker compose \
+#     -f docker-compose.all-in-one.yml up --build
+#
+# The cell images build from the sibling openflare checkout
+# (OPENFLARE_DIR, the same convention scripts/vrt-build-images.sh uses).
+# `cell-init` provisions the cell, issues its pull token, renders the
+# service configs and seeds the shared secrets — all idempotent.
+#
+# TLS: `--profile tls` adds Traefik on :80/:443 — per-hostname LE certs
+# at first handshake (Dokploy-style; VRT_TLS_EMAIL optional, enables
+# expiry notices). Console on ${CONSOLE_HOST}, every
+# worker hostname + preview subdomain terminates on vrt-host via the
+# catch-all router. Without the profile: console/plane/ingress stay on
+# their loopback ${*_BIND} ports (trusted-network dev mode).
+
+name: openflare-all-in-one
+
+x-vrt-cell: &vrt-cell
+  user: '${VRT_UID:-10001}:${VRT_GID:-10001}'
+  restart: unless-stopped
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: vrt
+      POSTGRES_PASSWORD: vrt
+      POSTGRES_DB: vrt_plane
+    volumes: ['plane-db:/var/lib/postgresql/data']
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U vrt -d vrt_plane']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  plane:
+    image: openflare-plane:local
+    build: { context: ., dockerfile: apps/plane/Dockerfile }
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://vrt:vrt@postgres:5432/vrt_plane
+      PLANE_ADMIN_TOKEN: ${PLANE_ADMIN_TOKEN:?set PLANE_ADMIN_TOKEN}
+      PLANE_SIGNING_SECRET: ${PLANE_SIGNING_SECRET:?set PLANE_SIGNING_SECRET}
+      PLANE_SECRETS_KEY: ${PLANE_SECRETS_KEY:?set PLANE_SECRETS_KEY}
+      PLANE_BUNDLE_DIR: /data/bundles
+      PORT: '8787'
+    ports: ['${PLANE_BIND:-127.0.0.1}:8787:8787']
+    volumes: ['plane-bundles:/data/bundles']
+    healthcheck:
+      # node:slim has no curl — use the runtime itself.
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:8787/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  console:
+    build: { context: ., dockerfile: apps/console/Dockerfile }
+    depends_on: [plane]
+    environment:
+      PLANE_URL: http://plane:8787
+      PLANE_ADMIN_TOKEN: ${PLANE_ADMIN_TOKEN:?set PLANE_ADMIN_TOKEN}
+      CONSOLE_AUTH_PASSWORD: ${CONSOLE_AUTH_PASSWORD:?set CONSOLE_AUTH_PASSWORD}
+      PORT: '8788'
+    ports: ['${CONSOLE_BIND:-127.0.0.1}:8788:8788']
+    labels:
+      # Traefik (tls profile) publishes the management UI here.
+      traefik.enable: 'true'
+      traefik.http.routers.console.rule: Host(`${CONSOLE_HOST:-localhost}`)
+      traefik.http.routers.console.entrypoints: websecure
+      traefik.http.routers.console.tls.certresolver: le
+      traefik.http.services.console.loadbalancer.server.port: '8788'
+
+  # One-shot bootstrap: cell row + pull token + signing key + secrets +
+  # rendered configs. Idempotent — never rotates existing files.
+  cell-init:
+    # Rebuilds the plane Dockerfile rather than reusing the plane service's
+    # image: an image-only service triggers a registry pull before the
+    # build completes; a second build section just hits the layer cache.
+    image: openflare-cell-init:local
+    build: { context: ., dockerfile: apps/plane/Dockerfile }
+    user: '0:0'
+    depends_on:
+      plane:
+        condition: service_healthy
+    environment:
+      PLANE_URL: http://plane:8787
+      PLANE_ADMIN_TOKEN: ${PLANE_ADMIN_TOKEN:?set PLANE_ADMIN_TOKEN}
+      PLANE_SIGNING_SECRET: ${PLANE_SIGNING_SECRET:?set PLANE_SIGNING_SECRET}
+      VRT_CELL_ID: ${VRT_CELL_ID:-local}
+      VRT_TRUSTED_CIDR: ${VRT_TRUSTED_CIDR:-172.31.42.0/24}
+    volumes:
+      - ./deploy/docker/all-in-one:/init:ro
+      - cell-run:/run/vrt
+      - cell-config:/etc/vrt
+    restart: 'no'
+    entrypoint: ['node', '/init/init-cell.mjs']
+
+  # ---- cell stack (same wiring as deploy/k8s/base, one container
+  #      per workload; cell-controller shares vrt-host's netns because
+  #      the FileEnvelopePodChannel contract requires loopback readyz) ----
+  vrt-host:
+    <<: *vrt-cell
+    build:
+      context: ${OPENFLARE_DIR:-../openflare}
+      dockerfile: deploy/docker/Dockerfile.vrt-host
+      args:
+        WORKERD_SOURCE: ${WORKERD_SOURCE:-file}
+        WORKERD_SHA256: ${WORKERD_SHA256:-}
+        VRT_UID: ${VRT_UID:-10001}
+        VRT_GID: ${VRT_GID:-10001}
+    image: openflare-cell-host:local
+    pull_policy: never
+    entrypoint: ['/usr/local/bin/vrt-host', '--config', '/etc/vrt/vrt-host.toml']
+    ports: ['${VRT_BIND:-127.0.0.1}:8080:8080']
+    volumes:
+      - cell-run:/run/vrt
+      - cell-config:/etc/vrt:ro
+      - cell-data:/data
+    depends_on:
+      cell-init:
+        condition: service_completed_successfully
+      vrt-provider:
+        condition: service_started
+      vrt-sql:
+        condition: service_started
+    healthcheck:
+      # NOT a port check: vrt-host binds its control listener only
+      # after the first desired snapshot arrives, which only
+      # cell-controller can deliver — gating on a port deadlocks.
+      # The netns exists once PID 1 exists, which is all the
+      # network_mode:service:vrt-host joiners need.
+      test: ['CMD-SHELL', 'test -d /proc/1']
+      interval: 1s
+      timeout: 3s
+      retries: 30
+
+  cell-controller:
+    <<: *vrt-cell
+    build:
+      context: ${OPENFLARE_DIR:-../openflare}
+      dockerfile: deploy/docker/Dockerfile.cell-controller
+    image: openflare-cell-controller:local
+    pull_policy: never
+    # Shares vrt-host's netns: [[pods]].readyz is loopback-only and the
+    # delivery dir is on the shared cell-run volume.
+    network_mode: 'service:vrt-host'
+    environment:
+      VRT_KVROCKS_URL: ${VRT_KVROCKS_URL:-redis://redis:6379}
+    volumes:
+      - cell-run:/run/vrt
+      - cell-config:/etc/vrt:ro
+      - cell-cc-data:/data
+    depends_on:
+      vrt-host:
+        # Not service_started: attaching a container to another's netns
+        # races the target's exec — the ns only exists once its main
+        # process runs.
+        condition: service_healthy
+      plane-loopback:
+        # control_plane_url is loopback http through this forwarder.
+        condition: service_started
+
+  # Loopback path to the plane for vrt-host: its config fail-closed on
+  # non-loopback http control-plane URLs, and the compose-network
+  # http://plane is neither https nor loopback. socat forwards
+  # 127.0.0.1:8787 (inside vrt-host's netns) to the plane service.
+  plane-loopback:
+    <<: *vrt-cell
+    image: alpine/socat:1.8.0.3
+    network_mode: 'service:vrt-host'
+    depends_on:
+      vrt-host:
+        condition: service_healthy
+    command:
+      - 'tcp-listen:8787,fork,reuseaddr,bind=127.0.0.1'
+      - 'tcp:plane:8787'
+
+  vrt-provider:
+    <<: *vrt-cell
+    build:
+      context: ${OPENFLARE_DIR:-../openflare}
+      dockerfile: deploy/docker/Dockerfile.vrt-provider
+    image: openflare-cell-provider:local
+    pull_policy: never
+    entrypoint: ['/usr/local/bin/vrt-provider', '--config', '/etc/vrt/vrt-provider.toml']
+    environment:
+      VRT_KVROCKS_URL: ${VRT_KVROCKS_URL:-redis://redis:6379}
+    volumes:
+      - cell-run:/run/vrt
+      - cell-config:/etc/vrt:ro
+      - cell-data:/data:ro
+    depends_on:
+      cell-init:
+        condition: service_completed_successfully
+
+  vrt-sql:
+    <<: *vrt-cell
+    build:
+      context: ${OPENFLARE_DIR:-../openflare}
+      dockerfile: deploy/docker/Dockerfile.vrt-sql
+    image: openflare-cell-sql:local
+    pull_policy: never
+    entrypoint: ['/usr/local/bin/vrt-sql', '--config', '/etc/vrt/vrt-sql.toml']
+    volumes:
+      - cell-run:/run/vrt:ro
+      - cell-config:/etc/vrt:ro
+      - cell-sql-data:/data
+    networks:
+      default:
+        aliases: ['vrt-sql.openflare.svc']
+    depends_on:
+      cell-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  redis:
+    # RESP store backing the KV binding + purge ops (kvrocks-shaped).
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes: ['kv-data:/data']
+    command: ['redis-server', '--appendonly', 'yes', '--save', '']
+
+  # ---- public TLS entry (Dokploy-style) ----
+  traefik:
+    profiles: ['tls']
+    image: ${TRAEFIK_IMAGE:-traefik:v3.3}
+    restart: unless-stopped
+    command:
+      - --entrypoints.web.address=:80
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
+      - --entrypoints.websecure.address=:443
+      - --providers.docker=true
+      - --providers.docker.exposedByDefault=false
+      - --providers.file.directory=/dynamic
+      - --providers.file.watch=true
+      - --certificatesresolvers.le.acme.tlschallenge=true
+      - --certificatesresolvers.le.acme.email=${VRT_TLS_EMAIL:-}
+      - --certificatesresolvers.le.acme.storage=/acme/acme.json
+      - --certificatesresolvers.le.acme.caserver=${VRT_TLS_CA:-https://acme-v02.api.letsencrypt.org/directory}
+      - --api=false
+      - --log.level=${TRAEFIK_LOG_LEVEL:-WARN}
+    ports:
+      - '${VRT_TLS_BIND:-0.0.0.0}:80:80'
+      - '${VRT_TLS_BIND:-0.0.0.0}:443:443'
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./deploy/docker/all-in-one/traefik:/dynamic:ro
+      - traefik-acme:/acme
+    depends_on:
+      console:
+        condition: service_started
+      vrt-host:
+        condition: service_started
+
+volumes:
+  plane-db:
+  plane-bundles:
+  cell-run:
+  cell-config:
+  cell-data:
+  cell-cc-data:
+  cell-sql-data:
+  kv-data:
+  traefik-acme:
+
+networks:
+  default:
+    ipam:
+      config:
+        # Pinned so vrt-host's trustedXff CIDR stays valid — the init
+        # renders VRT_TRUSTED_CIDR to this same value.
+        - subnet: ${VRT_NET_SUBNET:-172.31.42.0/24}
