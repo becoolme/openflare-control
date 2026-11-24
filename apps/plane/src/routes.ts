@@ -424,6 +424,12 @@ export function createApp(deps: AppDeps): Hono {
             now: new Date(),
             signing: deps.signing,
           })
+          console.info('[openflare-plane] D1 PROMOTE applied', {
+            databaseId: op.databaseId,
+            epoch: promotion.epoch,
+            lsn: promotion.lsn,
+            revision,
+          })
           return { acked: true, published: true }
         })
         if (outcome.acked) acked++
@@ -495,6 +501,12 @@ export function createApp(deps: AppDeps): Hono {
           publishedById: null,
           now: new Date(),
           signing: deps.signing!,
+        })
+        console.info('[openflare-plane] D1 automatic writer applied', {
+          databaseId,
+          epoch,
+          lsn,
+          revision,
         })
         return { applied: true, published: true, revision }
       })
