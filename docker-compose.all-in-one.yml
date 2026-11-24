@@ -66,6 +66,17 @@ services:
       interval: 5s
       timeout: 3s
       retries: 12
+    labels:
+      # Remote cells pull desired-state/bundles over HTTPS here. Opt-in:
+      # the default `api.invalid` TLD never resolves, so no route exists
+      # until PLANE_API_HOST is set. /api/v1 wants PLANE_ADMIN_TOKEN and
+      # /api/internal wants a per-cell token — bearer auth rides inside
+      # TLS either way.
+      traefik.enable: 'true'
+      traefik.http.routers.plane-api.rule: Host(`${PLANE_API_HOST:-api.invalid}`)
+      traefik.http.routers.plane-api.entrypoints: websecure
+      traefik.http.routers.plane-api.tls.certresolver: le
+      traefik.http.services.plane-api.loadbalancer.server.port: '8787'
 
   console:
     build: { context: ., dockerfile: apps/console/Dockerfile }
