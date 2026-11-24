@@ -22,6 +22,8 @@ export const VRT_CELL_CAPABILITY_KEYS = [
   'workflowsCrossWorker',
   'd1CellOps',
   'storagePurge',
+  /** `[storage_purge.vectorize]` wired: a cell may purge Vectorize index files. */
+  'vectorizePurge',
   /** KV namespaces served (cell reports it only when a KV backend is wired). */
   'kv',
   /** R2 object data ops served (cell reports it only when an R2 backend is wired). */
@@ -47,6 +49,7 @@ export const VRT_CELL_CAPABILITY_KEYS = [
   'email',
   'images',
   'k2',
+  'vectorize',
   'observability',
   /** `{"type":"secretsStore"}` bindings render to the bundled
    * `/workerd/secrets-store.js` worker; the control plane does not emit the
@@ -142,10 +145,13 @@ export function requiredCapabilities(needs: VrtCapabilityNeeds): VrtCellCapabili
     if (t === 'SEND_EMAIL') out.add('email')
     // IMAGES renders a wrapped binding into the images module + facade.
     if (t === 'IMAGES') out.add('images')
+    if (t === 'VECTORIZE') out.add('vectorize')
     // FLAGSHIP reads `tenants[].flagshipApps` + a wrapped internal module.
     if (t === 'FLAGSHIP') out.add('flagship')
     // ANALYTICS_ENGINE renders the dataset external + host ingest socket.
     if (t === 'ANALYTICS_ENGINE') out.add('analyticsEngine')
+    // SECRETS_STORE renders a service binding to the bundled worker.
+    if (t === 'SECRETS_STORE') out.add('secretsStore')
     // UNSAFE_EVAL renders workerd's `unsafeEval` binding.
     if (t === 'UNSAFE_EVAL') out.add('unsafeEval')
     // WORKER_LOADER renders the fork's `maxWorkers` capnp.

@@ -161,6 +161,7 @@ jobs:
       FACADE_DIR: ${{ github.workspace }}/openflare/facade
       VRT_HOST_BIN: ${{ github.workspace }}/openflare/target/debug/vrt-host
       CELL_CONTROLLER_BIN: ${{ github.workspace }}/openflare/target/debug/cell-controller
+      VRT_PROVIDER_BIN: ${{ github.workspace }}/openflare/target/debug/vrt-provider
     steps:
       - uses: actions/checkout@v4
       - id: contract
@@ -183,7 +184,7 @@ jobs:
           workspaces: openflare
       - name: Build the cell controller and runtime host
         working-directory: openflare
-        run: cargo build --locked -p cell-controller -p vrt-host --bins
+        run: cargo build --locked -p cell-controller -p vrt-host -p vrt-provider --bins
       - name: Fetch the pinned workerd binary
         working-directory: openflare
         run: scripts/fetch-workerd.sh --out .ci/workerd --platform linux-x64

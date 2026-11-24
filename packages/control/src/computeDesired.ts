@@ -368,6 +368,42 @@ export function serializeBinding(
         permissions: { read: binding.permissionRead, write: binding.permissionWrite },
       }
     }
+    case 'VECTORIZE': {
+      if (!/^[0-9a-z]{26}$/.test(resourceId)) throw invalid('bindings.vectorize.indexId')
+      if (
+        binding.indexName == null ||
+        binding.indexName.length > 64 ||
+        !/^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/.test(binding.indexName)
+      ) {
+        throw invalid('bindings.vectorize.indexName')
+      }
+      const dims = binding.dimensions
+      if (dims == null || !Number.isInteger(dims) || dims < 1 || dims > 1536) {
+        throw invalid('bindings.vectorize.dimensions')
+      }
+      const metric = binding.metric
+      if (metric !== 'cosine' && metric !== 'euclidean' && metric !== 'dot-product') {
+        throw invalid('bindings.vectorize.metric')
+      }
+      return {
+        type: 'vectorize',
+        name,
+        indexId: resourceId,
+        indexName: binding.indexName,
+        dimensions: dims,
+        metric,
+        permissions: { read: binding.permissionRead, write: binding.permissionWrite },
+      }
+    }
+    case 'SECRETS_STORE': {
+      const storeId = binding.storeId
+      const secretName = binding.secretName
+      if (!storeId || !validVrtIdentifier(storeId)) throw invalid('bindings.storeId')
+      if (!secretName || !validVrtIdentifier(secretName)) throw invalid('bindings.secretName')
+      const secretRef = `secrets-store:${storeId}:${secretName}`
+      if (!validVrtIdentifier(secretRef, VRT_MAX_REF_LEN)) throw invalid('bindings.secretRef')
+      return { type: 'secretsStore', name, storeId, secretName, secretRef }
+    }
     case 'IMAGES':
       // CF Images: pure capability — the transform engine lives in the
       // facade-images system worker, so the wire carries name only.
@@ -403,7 +439,7 @@ export function serializeBinding(
     case 'DO': {
       // P3c-1: resourceId encodes `<declaringWorkerId>:<className>` —
       // minted + ownership-checked at deploy; re-parse fail-closed.
-      const sep = resourceId.indexOf(':')
+      const sep = resourceId.lastIndexOf(':')
       const declaringId = sep === -1 ? '' : resourceId.slice(0, sep)
       const className = sep === -1 ? '' : resourceId.slice(sep + 1)
       if (!validVrtIdentifier(declaringId) || !validDoClassName(className)) {
@@ -480,7 +516,7 @@ export function crossWorkerEdges(workerId: string, refs: CrossWorkerRefs): Cross
 /** Parse a stored DO binding resourceId `<declaringWorkerId>:<className>`
  * into the declaring worker id (null when malformed). */
 export function doBindingDeclaringWorkerId(resourceId: string): string | null {
-  const sep = resourceId.indexOf(':')
+  const sep = resourceId.lastIndexOf(':')
   return sep <= 0 ? null : resourceId.slice(0, sep)
 }
 
@@ -1097,6 +1133,25 @@ export function buildComputeDesiredPayload(input: {
             ) {
               throw invalid('workflows.limitsSteps')
             }
+            for (const [key, value] of [
+              ['successRetentionMs', w.successRetentionMs],
+              ['errorRetentionMs', w.errorRetentionMs],
+            ] as const) {
+              if (
+                value != null &&
+                (!Number.isSafeInteger(value) || value < 0 || value > 30 * 24 * 60 * 60 * 1000)
+              ) {
+                throw invalid(`workflows.${key}`)
+              }
+            }
+            if (
+              w.concurrencyLimit != null &&
+              (!Number.isInteger(w.concurrencyLimit) ||
+                w.concurrencyLimit < 1 ||
+                w.concurrencyLimit > 4_500)
+            ) {
+              throw invalid('workflows.concurrencyLimit')
+            }
             // W7: `serviceWorkerId` (wrangler script_name resolved
             // server-side at deploy) — emitted only when it names a
             // DIFFERENT worker (Rust `skip_serializing_if` parity);
@@ -1113,6 +1168,9 @@ export function buildComputeDesiredPayload(input: {
               // stay identical (emitting `null` would diverge the
               // signed canonical form across implementations).
               ...(w.limitsSteps != null ? { limitsSteps: w.limitsSteps } : {}),
+              ...(w.successRetentionMs != null ? { successRetentionMs: w.successRetentionMs } : {}),
+              ...(w.errorRetentionMs != null ? { errorRetentionMs: w.errorRetentionMs } : {}),
+              ...(w.concurrencyLimit != null ? { concurrencyLimit: w.concurrencyLimit } : {}),
               ...(sw !== null && sw !== worker.workerId ? { serviceWorkerId: sw } : {}),
             }
           })

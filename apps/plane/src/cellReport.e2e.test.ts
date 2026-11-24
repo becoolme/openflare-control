@@ -32,6 +32,7 @@ class NoBundles implements BundleStore {
 
 maybe('cell report e2e', () => {
   let pool: Pool
+  let store: ReturnType<typeof createPlaneStore>
   let app: ReturnType<typeof createApp>
   const suffix = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`
   const cell = `report-${suffix}`
@@ -56,8 +57,9 @@ maybe('cell report e2e', () => {
   beforeAll(async () => {
     pool = new Pool({ connectionString: url })
     await pool.query(await readFile(new URL('./schema.sql', import.meta.url), 'utf8'))
+    store = createPlaneStore(pool)
     app = createApp({
-      store: createPlaneStore(pool),
+      store,
       pool,
       bundleStore: new NoBundles(),
       adminToken: TOKEN,
@@ -192,6 +194,12 @@ maybe('cell report e2e', () => {
         })
       ).status
     ).toBe(202)
+    await store.recordCellCapabilities(cell, {
+      cron: true,
+      assets: true,
+      workflows: true,
+      workflowsCrossWorker: true,
+    })
     const wf = await call('POST', `${base}/teams/${team}/workers/${worker}/workflows`, {
       name: 'OrderWorkflow',
       className: 'OrderWorkflow',
@@ -323,6 +331,13 @@ maybe('cell report e2e', () => {
     })
 
     // DO: declared/bindings + instances/storage real.
+    expect(
+      (
+        await call('POST', `${base}/teams/${team}/workers/${worker}/durable-object-classes`, {
+          className: 'MyDO',
+        })
+      ).status
+    ).toBe(201)
     const doStats = await call('GET', `${base}/durable-objects/MyDO/stats`)
     expect(doStats.body.data).toMatchObject({
       workers: 1,

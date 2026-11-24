@@ -67,6 +67,7 @@ window (set these in the plane's Deployment/env):
 | `PLANE_LOG_RETENTION_DAYS`     | `7`             | ingested worker logs (fallback request/error source)                                                                                    |
 | `PLANE_OPS_RETENTION_DAYS`     | `30`            | terminal D1/cell ops — the source of op stats; unexpired `PENDING` is never deleted; expired `PENDING` is reclaimed after a 1-day grace |
 | `PLANE_METRICS_RETENTION_DAYS` | `14`            | runtime cell reports (metrics + resource snapshot history)                                                                              |
+| `PLANE_ASSET_RETENTION_DAYS`   | `7`             | unreferenced asset manifests/objects (referenced ones are never deleted)                                                                |
 | `PLANE_PUBLICATION_KEEP`       | `20`            | terminal-acked publications per cell                                                                                                    |
 | `PLANE_RETENTION_SWEEP_MS`     | `21600000` (6h) | background sweep interval; `0` disables it                                                                                              |
 

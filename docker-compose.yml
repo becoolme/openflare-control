@@ -31,14 +31,16 @@ services:
       PLANE_SIGNING_SECRET: ${PLANE_SIGNING_SECRET:?set PLANE_SIGNING_SECRET}
       PLANE_SECRETS_KEY: ${PLANE_SECRETS_KEY:?set PLANE_SECRETS_KEY}
       PLANE_BUNDLE_DIR: /data/bundles
+      PLANE_ASSET_DIR: /data/assets
       PLANE_LOG_RETENTION_DAYS: ${PLANE_LOG_RETENTION_DAYS:-7}
       PLANE_OPS_RETENTION_DAYS: ${PLANE_OPS_RETENTION_DAYS:-30}
       PLANE_METRICS_RETENTION_DAYS: ${PLANE_METRICS_RETENTION_DAYS:-14}
+      PLANE_ASSET_RETENTION_DAYS: ${PLANE_ASSET_RETENTION_DAYS:-7}
       PLANE_PUBLICATION_KEEP: ${PLANE_PUBLICATION_KEEP:-20}
       PLANE_RETENTION_SWEEP_MS: ${PLANE_RETENTION_SWEEP_MS:-21600000}
       PORT: '8787'
     ports: ['${PLANE_BIND:-127.0.0.1}:8787:8787']
-    volumes: ['plane-bundles:/data/bundles']
+    volumes: ['plane-bundles:/data/bundles', 'plane-assets:/data/assets']
 
   console:
     build: { context: ., dockerfile: apps/console/Dockerfile }
@@ -56,3 +58,4 @@ services:
 volumes:
   plane-db:
   plane-bundles:
+  plane-assets:
