@@ -43,7 +43,10 @@ first `render-inputs` read.
 
 The key is derived from `PLANE_SIGNING_SECRET` (HKDF → Ed25519). Its
 `keyId`/`publicKey` are printed at startup and must be present in every
-component's `trustedKeys`.
+component's `trustedKeys`. The secret must be at least 32 characters and
+the floor is enforced at boot — an existing deployment upgraded to a
+release with this check refuses to start until the secret is lengthened
+(a new secret produces a new key, so follow the rotation steps below).
 
 Rotation (no downtime):
 
