@@ -76,7 +76,10 @@ maybe('management API edges', () => {
       adminToken: TOKEN,
       secrets: TEST_SECRETS_CIPHER,
     }
-    app = createApp({ ...deps, signing: resolvePlaneSigningKey('edge-signing-secret-1234') })
+    app = createApp({
+      ...deps,
+      signing: resolvePlaneSigningKey('edge-signing-secret-0123456789abcdef'),
+    })
     noSigningApp = createApp(deps)
     await provisionCellToken(cell)
   })

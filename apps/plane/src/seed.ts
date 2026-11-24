@@ -2,8 +2,10 @@
  * Minimal deploy path: create/ensure a worker + version and publish a
  * signed desired snapshot. Usage:
  *   tsx src/seed.ts --cluster <cell> --team <team> --name <worker> \
- *       --version <ver> --digest <sha256> [--var KEY=VALUE]... [--secret KEY=VALUE]...
+ *       --version <ver> --digest <sha256> [--var KEY=VALUE]... [--secret KEY]...
  *       [--hostname h]
+ * Secret values are read from SEED_SECRET_<KEY> so they never touch argv,
+ * `ps` output or shell history.
  */
 import { Pool } from 'pg'
 import { createPlaneStore } from './store.js'
@@ -76,19 +78,27 @@ try {
       [worker!.id, key, rest.join('=')]
     )
   }
-  const secretKvs = all('secret')
-  if (secretKvs.length > 0) {
+  const secretKeys = all('secret')
+  if (secretKeys.length > 0) {
     const secretsKey = process.env.PLANE_SECRETS_KEY
     if (!secretsKey || secretsKey.length < 32) {
       throw new Error('PLANE_SECRETS_KEY must be at least 32 characters when --secret is used')
     }
     const secretsCipher = createSecretsCipher(secretsKey)
-    for (const kv of secretKvs) {
-      const [key, ...rest] = kv.split('=')
+    for (const key of secretKeys) {
+      // KEY=VALUE on argv would leak the value into `ps` and shell history —
+      // the value comes from the environment only.
+      if (key.includes('=')) {
+        throw new Error('--secret takes a KEY only; export SEED_SECRET_<KEY>=<value> instead')
+      }
+      const value = process.env[`SEED_SECRET_${key}`]
+      if (value === undefined) {
+        throw new Error(`SEED_SECRET_${key} is required for --secret ${key}`)
+      }
       await pool.query(
         `insert into plane_secrets (worker_id, key, value) values ($1,$2,$3)
          on conflict (worker_id, key) do update set value=excluded.value`,
-        [worker!.id, key, secretsCipher.encrypt(rest.join('='))]
+        [worker!.id, key, secretsCipher.encrypt(value)]
       )
     }
   }

@@ -104,7 +104,13 @@ export async function recordDesiredAck(
   // F5: the cell's persisted fence is the floor the control plane must
   // not sign under — raise the stored counter toward it inside the
   // per-cell lock (bounded delta; anomalies are warned, not raised).
-  await store.raiseCellRevisionFloor(publication.clusterId, input.fenceRevision)
+  const floor = await store.raiseCellRevisionFloor(publication.clusterId, input.fenceRevision)
+  if (floor === 'rejected') {
+    log.warn(
+      { cellId, revision: input.revision, fenceRevision: input.fenceRevision },
+      '[Workers] cell-reported fenceRevision rejected by the bounded revision floor'
+    )
+  }
   // T21: capability bits ride the same ACK — latest report wins. Only a
   // syntactically-present field writes; old cells keep null.
   if (input.capabilities) {

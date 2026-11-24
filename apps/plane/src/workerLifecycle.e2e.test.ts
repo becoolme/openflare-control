@@ -76,7 +76,7 @@ maybe('worker lifecycle e2e', () => {
       pool,
       bundleStore: new MemoryBundles(),
       adminToken: TOKEN,
-      signing: resolvePlaneSigningKey('worker-lifecycle-signing-secret'),
+      signing: resolvePlaneSigningKey('worker-lifecycle-signing-secret-0123456789abcdef'),
       secrets: createSecretsCipher('worker-lifecycle-secrets-key'),
     })
     await provisionCellToken(cell)
