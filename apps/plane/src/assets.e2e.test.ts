@@ -273,6 +273,22 @@ maybe('assets', () => {
       ).status
     ).toBe(404)
 
+    // A corrupt manifest digest stored inside a publication must skip the
+    // row, not throw a 500 out of assertDigest inside the asset store.
+    await pool.query(
+      `update plane_publications
+          set envelope = jsonb_set(envelope, '{payload,tenants,0,workers,0,bindings,0,manifestDigest}', '"garbage"')
+        where cell_id=$1`,
+      [cell]
+    )
+    expect(
+      (
+        await app.request(`/api/internal/clusters/${cell}/vrt/assets/objects/${objectDigest}`, {
+          headers: auth,
+        })
+      ).status
+    ).toBe(404)
+
     // A version referencing an un-uploaded manifest fails at create.
     expect(
       (
