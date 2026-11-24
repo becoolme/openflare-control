@@ -581,13 +581,7 @@ class PlaneCellTx {
               writer_updated_at=now()
         where cluster_id=$1 and database_id=$5 and writer_epoch < $2
         returning database_id`,
-      [
-        this.clusterId,
-        input.epoch,
-        input.writerAddr ?? null,
-        input.lsn ?? null,
-        input.databaseId,
-      ]
+      [this.clusterId, input.epoch, input.writerAddr ?? null, input.lsn ?? null, input.databaseId]
     )
     return rows.length > 0
   }

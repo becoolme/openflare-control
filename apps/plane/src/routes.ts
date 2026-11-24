@@ -475,7 +475,10 @@ export function createApp(deps: AppDeps): Hono {
           /\s/.test(addr) ||
           !/^https?:\/\//.test(addr)
         ) {
-          throw new VrtControlError(400, 'writerAddr must be an http(s) URL without a trailing slash')
+          throw new VrtControlError(
+            400,
+            'writerAddr must be an http(s) URL without a trailing slash'
+          )
         }
         writerAddr = addr
       }
