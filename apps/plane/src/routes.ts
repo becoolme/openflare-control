@@ -439,6 +439,72 @@ export function createApp(deps: AppDeps): Hono {
     }
   })
 
+  app.post('/api/internal/clusters/:clusterId/vrt/d1-writer', async (c) => {
+    try {
+      const cellId = await auth(c, deps)
+      const body = (await readJson(c, 4096)) as {
+        databaseId?: unknown
+        epoch?: unknown
+        lsn?: unknown
+        writerAddr?: unknown
+        cause?: unknown
+      }
+      const databaseId = body.databaseId
+      if (typeof databaseId !== 'string' || !/^[a-z0-9]{26}$/.test(databaseId)) {
+        throw new VrtControlError(400, 'databaseId must be 26 lowercase alphanumerics')
+      }
+      const epoch = Number(body.epoch)
+      if (!Number.isSafeInteger(epoch) || epoch < 1) {
+        throw new VrtControlError(400, 'epoch must be a positive integer')
+      }
+      let lsn: number | null = null
+      if (body.lsn !== undefined && body.lsn !== null) {
+        lsn = Number(body.lsn)
+        if (!Number.isSafeInteger(lsn) || lsn < 0) {
+          throw new VrtControlError(400, 'lsn must be a non-negative integer')
+        }
+      }
+      let writerAddr: string | null = null
+      if (body.writerAddr !== undefined && body.writerAddr !== null) {
+        const addr = body.writerAddr
+        if (
+          typeof addr !== 'string' ||
+          addr.length === 0 ||
+          addr.length > 256 ||
+          addr.endsWith('/') ||
+          /\s/.test(addr) ||
+          !/^https?:\/\//.test(addr)
+        ) {
+          throw new VrtControlError(400, 'writerAddr must be an http(s) URL without a trailing slash')
+        }
+        writerAddr = addr
+      }
+      if (!deps.signing) throw new VrtControlError(501, 'Signing is not configured')
+      const cause =
+        typeof body.cause === 'string' && body.cause.length > 0 && body.cause.length <= 64
+          ? body.cause
+          : 'D1_AUTO_PROMOTE'
+      const result = await deps.store.runCellTransaction(cellId, async (tx) => {
+        const applied = await tx.applyD1Writer({ databaseId, epoch, writerAddr, lsn })
+        if (!applied) return { applied: false, published: false, revision: null }
+        if (!(await tx.lockCell())) throw new VrtControlError(409, 'Cell has no state row')
+        const revision = await tx.allocateRevision()
+        await signAndRecordCellPublication(tx, {
+          revision,
+          cause,
+          workerId: null,
+          publishedById: null,
+          now: new Date(),
+          signing: deps.signing!,
+        })
+        return { applied: true, published: true, revision }
+      })
+      return c.json({ data: result })
+    } catch (error) {
+      return errorResponse(c, error)
+    }
+  })
+
   app.get('/api/internal/clusters/:clusterId/vrt/cell-ops', async (c) => {
     try {
       const cellId = await auth(c, deps)
