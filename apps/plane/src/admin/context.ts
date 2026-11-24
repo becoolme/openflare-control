@@ -34,6 +34,9 @@ export const workerName = z.string().regex(/^[a-z0-9][a-z0-9-]{0,62}$/)
 export const key = z.string().regex(/^[A-Za-z_$][A-Za-z0-9_$]{0,63}$/)
 export const digest = z.string().regex(/^[0-9a-f]{64}$/)
 export const databaseId = z.string().regex(/^[a-z0-9]{26}$/)
+// Op expiry as epoch seconds. `to_timestamp()` throws out of range on
+// absurd integers — bound at the boundary so bad input is a 400, not a 500.
+export const opExpiresAt = z.number().int().min(0).max(4_102_444_800).optional()
 export const hostname = z
   .string()
   .min(1)

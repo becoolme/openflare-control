@@ -2,7 +2,16 @@ import type { Hono } from 'hono'
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import { VrtControlError } from 'openflare-control'
-import { type AdminDeps, generatedId, mapOp, parse, readJson, rows, teamId } from '../context.js'
+import {
+  type AdminDeps,
+  generatedId,
+  mapOp,
+  opExpiresAt,
+  parse,
+  readJson,
+  rows,
+  teamId,
+} from '../context.js'
 
 const KV_KINDS = [
   'KV_GET',
@@ -76,7 +85,7 @@ export function registerKvService(app: Hono, deps: AdminDeps): void {
         .object({
           kind: z.enum(KV_KINDS),
           payload: z.record(z.unknown()).default({}),
-          expiresAt: z.number().int().optional(),
+          expiresAt: opExpiresAt,
         })
         .strict(),
       await readJson(c)

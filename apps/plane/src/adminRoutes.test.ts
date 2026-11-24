@@ -294,7 +294,13 @@ maybe('management API edges', () => {
     })
     expect(mismatch.status).toBe(400)
     expect((await call(app, 'GET', `${base}/publications/9999`)).status).toBe(404)
+    // Malformed numeric params degrade to 400/default, never to a 500.
+    expect((await call(app, 'GET', `${base}/publications/abc`)).status).toBe(400)
+    expect((await call(app, 'GET', `${base}/publications?limit=abc`)).status).toBe(200)
     expect((await call(app, 'GET', `${base}/publications?limit=0`)).status).toBe(200)
+    // A fractional limit would reach `limit $2` as a non-integer and 500 —
+    // degrade to the default instead.
+    expect((await call(app, 'GET', `${base}/publications?limit=1.5`)).status).toBe(200)
     expect((await call(noSigningApp, 'POST', `${base}/publish`, {})).status).toBe(501)
     expect((await call(app, 'POST', `${base}/publish`, undefined)).status).toBe(201)
     const published = await call(app, 'POST', `${base}/publish`, { cause: 'EDGE' })
@@ -330,6 +336,18 @@ maybe('management API edges', () => {
     })
     expect(db.status).toBe(201)
     const databaseId = db.body.data.database.database_id as string
+    // expiresAt feeds to_timestamp() — absurd values must be a 400 at the
+    // boundary, not a Postgres range-error 500.
+    expect(
+      (
+        await call(app, 'POST', `${base}/d1-ops`, {
+          databaseId: 'a'.repeat(26),
+          kind: 'DROP',
+          payload: {},
+          expiresAt: 1e15,
+        })
+      ).status
+    ).toBe(400)
     expect(
       (
         await call(app, 'POST', `${base}/d1-ops`, {

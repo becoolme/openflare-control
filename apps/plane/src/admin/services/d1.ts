@@ -7,6 +7,7 @@ import {
   databaseId,
   generatedId,
   mapOp,
+  opExpiresAt,
   parse,
   readJson,
   rows,
@@ -75,7 +76,7 @@ export function registerD1Service(app: Hono, deps: AdminDeps): void {
             .min(1)
             .max(100 * 1024),
           params: z.array(z.unknown()).max(100).optional(),
-          expiresAt: z.number().int().optional(),
+          expiresAt: opExpiresAt,
         })
         .strict(),
       await readJson(c)
@@ -106,7 +107,7 @@ export function registerD1Service(app: Hono, deps: AdminDeps): void {
             .array(z.object({ name: z.string().min(1).max(200), sql: z.string().min(1) }))
             .min(1)
             .max(512),
-          expiresAt: z.number().int().optional(),
+          expiresAt: opExpiresAt,
         })
         .strict(),
       await readJson(c)
