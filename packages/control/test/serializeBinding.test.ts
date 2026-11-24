@@ -49,6 +49,26 @@ describe('serializeBinding', () => {
       queueName: 'b'.repeat(26),
     })
     expect(() => binding({ type: 'R2', resourceId: 'UPPER' })).toThrow(/bucket/)
+    expect(
+      binding({
+        type: 'D1',
+        resourceId: 'a'.repeat(26),
+        epoch: 3,
+        writerAddr: 'http://vrt-sql-writer-1:8082',
+      })
+    ).toMatchObject({
+      type: 'd1',
+      epoch: 3,
+      writerAddr: 'http://vrt-sql-writer-1:8082',
+    })
+    expect(() => binding({ type: 'D1', resourceId: 'a'.repeat(26), epoch: 0 })).toThrow(/epoch/)
+    expect(() =>
+      binding({
+        type: 'D1',
+        resourceId: 'a'.repeat(26),
+        writerAddr: 'http://writer/',
+      })
+    ).toThrow(/writerAddr/)
     expect(() => binding({ type: 'D1', resourceId: 'short' })).toThrow(/databaseId/)
     expect(() => binding({ type: 'QUEUE', resourceId: 'short' })).toThrow(/queueId/)
   })
