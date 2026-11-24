@@ -203,7 +203,7 @@ polls `GET /api/v1/cells/{cell}/ops/{opId}?waitMs=`.
 
 | Service   | Resource endpoints                                              | Data/ops                                                                                              |
 | --------- | --------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| D1        | `GET/POST /d1/databases`, `GET/DELETE /d1/databases/{id}`       | `POST .../query {sql,params?}`, `POST .../migrations {migrations}`, `POST .../promote`, `GET .../ops` |
+| D1        | `GET/POST /d1/databases`, `GET/DELETE /d1/databases/{id}`, `GET .../promotions` | `POST .../query {sql,params?}`, `POST .../migrations {migrations}`, `POST .../promote`, `GET .../ops` |
 | R2        | `GET/POST /r2/buckets`, `DELETE /r2/buckets/{name}`             | `POST .../ops {kind,payload}` for `R2_LIST/HEAD/GET/PUT/DELETE`; `GET .../ops`                        |
 | KV        | `GET/POST /kv/namespaces`, `DELETE /kv/namespaces/{id}`         | `POST .../ops {kind,payload}` for `KV_GET/PUT/DELETE/LIST/BULK_PUT/BULK_DELETE`; `GET .../ops`        |
 | Queues    | `GET/POST /queues`, `PATCH/DELETE /queues/{id}`                 | metadata only; producers/consumers are worker bindings (queue send stays on the data plane)           |
@@ -286,6 +286,11 @@ On a `DONE` ACK the plane monotonic-CASes `writer_epoch`/`writer_addr` on
 desired document; the provider switches writes to `writerAddr` on the next
 snapshot pull. `writerAddr` is supplied by the operator (the runtime cannot
 know the serving address).
+
+`GET .../d1/databases/{id}/promotions` returns the current writer tuple
+(`epoch`, `addr`, `lsn`, `updatedAt`) plus the latest 50 `PROMOTE` ops with
+their status/result/error — the read model for a console writer/promotion
+panel.
 
 The cell channel pulls pending ops and ACKs them by `seq`:
 

@@ -125,6 +125,39 @@ export function registerD1Service(app: Hono, deps: AdminDeps): void {
     return c.json({ data: { opId, channel: 'd1' } }, 202)
   })
 
+  app.get('/api/v1/cells/:cellId/d1/databases/:databaseId/promotions', async (c) => {
+    const cell = c.req.param('cellId')
+    const id = c.req.param('databaseId')
+    parse(databaseId, id)
+    await requireDatabase(deps, cell, id)
+    const [database] = await rows(
+      deps,
+      `select database_id, writer_epoch, writer_addr, writer_lsn, writer_updated_at
+         from plane_d1_databases where database_id=$1 and cluster_id=$2`,
+      [id, cell]
+    )
+    if (!database) throw new VrtControlError(404, 'D1 database not found')
+    const promotions = await rows(
+      deps,
+      `select id, seq, database_id, kind, status, result, error, created_at
+         from plane_d1_ops
+        where cell_id=$1 and database_id=$2 and kind='PROMOTE'
+        order by seq desc limit 50`,
+      [cell, id]
+    )
+    return c.json({
+      data: {
+        writer: {
+          epoch: Number(database.writer_epoch ?? 1),
+          addr: database.writer_addr ?? null,
+          lsn: database.writer_lsn == null ? null : Number(database.writer_lsn),
+          updatedAt: database.writer_updated_at ?? null,
+        },
+        promotions: promotions.map(mapOp),
+      },
+    })
+  })
+
   app.post('/api/v1/cells/:cellId/d1/databases/:databaseId/promote', async (c) => {
     const id = c.req.param('databaseId')
     parse(databaseId, id)
