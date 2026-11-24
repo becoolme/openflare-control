@@ -62,7 +62,7 @@ export function registerOps(app: Hono, deps: AdminDeps): void {
       z
         .object({
           databaseId,
-          kind: z.enum(['EXECUTE', 'MIGRATIONS_APPLY', 'DROP']),
+          kind: z.enum(['EXECUTE', 'MIGRATIONS_APPLY', 'DROP', 'PROMOTE']),
           payload: z.record(z.unknown()),
           expiresAt: expires,
         })

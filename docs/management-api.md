@@ -201,14 +201,14 @@ Each service has a resource table plus a data channel. Data operations are
 asynchronous cell-ops, so they return `{opId, channel}` (`202`) and the caller
 polls `GET /api/v1/cells/{cell}/ops/{opId}?waitMs=`.
 
-| Service   | Resource endpoints                                              | Data/ops                                                                                       |
-| --------- | --------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| D1        | `GET/POST /d1/databases`, `GET/DELETE /d1/databases/{id}`       | `POST .../query {sql,params?}`, `POST .../migrations {migrations}`, `GET .../ops`              |
-| R2        | `GET/POST /r2/buckets`, `DELETE /r2/buckets/{name}`             | `POST .../ops {kind,payload}` for `R2_LIST/HEAD/GET/PUT/DELETE`; `GET .../ops`                 |
-| KV        | `GET/POST /kv/namespaces`, `DELETE /kv/namespaces/{id}`         | `POST .../ops {kind,payload}` for `KV_GET/PUT/DELETE/LIST/BULK_PUT/BULK_DELETE`; `GET .../ops` |
-| Queues    | `GET/POST /queues`, `PATCH/DELETE /queues/{id}`                 | metadata only; producers/consumers are worker bindings (queue send stays on the data plane)    |
-| Workflows | `GET/POST/DELETE .../workers/{name}/workflows[/{wf}]`           | `POST .../workflows/{wf}/ops` for `WF_CREATE/GET/ACTION/EVENT/DELETE`; `GET .../ops`           |
-| Vectorize | `GET/POST /vectorize/indexes`, `DELETE /vectorize/indexes/{id}` | `GET .../{id}/binding`; DELETE queues `STORAGE_PURGE` and returns `202 {opId}`                 |
+| Service   | Resource endpoints                                              | Data/ops                                                                                              |
+| --------- | --------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| D1        | `GET/POST /d1/databases`, `GET/DELETE /d1/databases/{id}`       | `POST .../query {sql,params?}`, `POST .../migrations {migrations}`, `POST .../promote`, `GET .../ops` |
+| R2        | `GET/POST /r2/buckets`, `DELETE /r2/buckets/{name}`             | `POST .../ops {kind,payload}` for `R2_LIST/HEAD/GET/PUT/DELETE`; `GET .../ops`                        |
+| KV        | `GET/POST /kv/namespaces`, `DELETE /kv/namespaces/{id}`         | `POST .../ops {kind,payload}` for `KV_GET/PUT/DELETE/LIST/BULK_PUT/BULK_DELETE`; `GET .../ops`        |
+| Queues    | `GET/POST /queues`, `PATCH/DELETE /queues/{id}`                 | metadata only; producers/consumers are worker bindings (queue send stays on the data plane)           |
+| Workflows | `GET/POST/DELETE .../workers/{name}/workflows[/{wf}]`           | `POST .../workflows/{wf}/ops` for `WF_CREATE/GET/ACTION/EVENT/DELETE`; `GET .../ops`                  |
+| Vectorize | `GET/POST /vectorize/indexes`, `DELETE /vectorize/indexes/{id}` | `GET .../{id}/binding`; DELETE queues `STORAGE_PURGE` and returns `202 {opId}`                        |
 
 Vectorize indexes are cell/team-scoped; `GET .../{id}/binding` returns a
 ready binding. `index_id` includes a per-incarnation component, so deleting
@@ -271,16 +271,31 @@ returns `501`.
 
 | Method   | Path                                         | Purpose                                                                                          |
 | -------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| POST/GET | `/api/v1/cells/{cell}/d1-ops[?status=]`      | enqueue/list D1 ops (`EXECUTE`, `MIGRATIONS_APPLY`, `DROP`)                                      |
+| POST/GET | `/api/v1/cells/{cell}/d1-ops[?status=]`      | enqueue/list D1 ops (`EXECUTE`, `MIGRATIONS_APPLY`, `DROP`, `PROMOTE`)                           |
 | POST/GET | `/api/v1/cells/{cell}/cell-ops[?status=]`    | enqueue/list workflow ops (`WF_*`); R2/KV/D1 ops go through the per-resource `.../ops` endpoints |
 | GET      | `/api/v1/cells/{cell}/ops/{opId}?waitMs=`    | unified op lookup/long-poll (D1 or cell channel)                                                 |
 | GET      | `/api/v1/cells/{cell}/logs?workerId=&limit=` | query ingested worker logs                                                                       |
 | POST     | `/api/v1/maintenance/prune`                  | `{keepPerCell}` retention prune                                                                  |
 
+`POST .../d1/databases/{id}/promote` queues a manual writer promotion
+(`{expectedEpoch?, expectedLsn?, generation?, writerAddr?, reason?, expiresAt?}`;
+epoch/lsn must be supplied together). The cell executes it through
+`[d1sql].promoteEndpoint` on the follower and ACKs the promoted epoch/lsn.
+On a `DONE` ACK the plane monotonic-CASes `writer_epoch`/`writer_addr` on
+`plane_d1_databases`, allocates a new revision and republishes the signed
+desired document; the provider switches writes to `writerAddr` on the next
+snapshot pull. `writerAddr` is supplied by the operator (the runtime cannot
+know the serving address).
+
 The cell channel pulls pending ops and ACKs them by `seq`:
 
 - `GET /api/internal/clusters/{cell}/vrt/d1-ops` / `POST .../d1-ops/ack`
-  (`{acks:[{seq,status,result?,error?}]}`);
+  (`{acks:[{seq,status,result?,error?}]}`, status `DONE` / `FAILED` / `EXPIRED`;
+  the response also reports `published` when a PROMOTE caused a new desired
+  revision);
+- `POST /api/internal/clusters/{cell}/vrt/d1-writer` (`{databaseId, epoch,
+lsn?, writerAddr?, cause?}`) — the cell's automatic-failover report; applies
+  the monotonic writer CAS and republishes the signed desired document;
 - `GET /api/internal/clusters/{cell}/vrt/cell-ops` / `POST .../cell-ops/ack`;
 - `POST /api/internal/clusters/{cell}/vrt/logs` dedupes by
   `(workerId,bootId,seq)` and stores the batch for the management log query.
