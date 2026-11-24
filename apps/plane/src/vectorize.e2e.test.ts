@@ -247,7 +247,9 @@ maybe('vectorize', () => {
         })
       ).status
     ).toBe(400)
-    expect((await call('GET', `${base}/vectorize/indexes/missing/binding`)).status).toBe(404)
+    expect(
+      (await call('GET', `${base}/vectorize/indexes/eeeeeeeeeeeeeeeeeeeeeeeeee/binding`)).status
+    ).toBe(404)
 
     // The index is scoped to its owning team.
     const otherTeam = `other-${suffix}`

@@ -99,8 +99,8 @@ maybe('management API stats edges', () => {
     expect(
       (await call('POST', `${base}/hyperdrive`, { teamId: team, name: 'ok', origin: '' })).status
     ).toBe(400)
-    expect((await call('GET', `${base}/hyperdrive/nope`)).status).toBe(404)
-    expect((await call('DELETE', `${base}/hyperdrive/nope`)).status).toBe(404)
+    expect((await call('GET', `${base}/hyperdrive/dddddddddddddddddddddddddd`)).status).toBe(404)
+    expect((await call('DELETE', `${base}/hyperdrive/dddddddddddddddddddddddddd`)).status).toBe(404)
     const hd = await call('POST', `${base}/hyperdrive`, {
       teamId: team,
       name: 'edge',

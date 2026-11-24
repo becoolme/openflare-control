@@ -754,6 +754,7 @@ maybe('service resource API e2e', () => {
 
   it('covers service validation, missing-resource and op-list edges', async () => {
     expect((await call('POST', '/api/v1/cells', { cellId: `${cell}-e` })).status).toBe(201)
+    expect((await call('POST', '/api/v1/teams', { teamId: team, name: 'E2E' })).status).toBe(201)
     const cellE = `${cell}-e`
     const base = `/api/v1/cells/${cellE}`
 
