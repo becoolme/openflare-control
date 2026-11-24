@@ -154,12 +154,31 @@ export function registerTeams(app: Hono, deps: AdminDeps): void {
     const client = await deps.pool.connect()
     try {
       await client.query('begin')
+      // Team-scoped resources carry no cascade FK — leaving them behind
+      // reattaches the dead team's catalog (and quota accounting) when the
+      // team id is reused. Ops referencing those resources resurrect the
+      // same way: ids are generatedId(cell:team:kind:name), so a recreated
+      // same-named resource inherits the dead team's queued/resulted ops.
+      // Delete ops first, while the resource rows they key on still exist.
+      await client.query(
+        `delete from plane_d1_ops
+          where database_id in (select database_id from plane_d1_databases where team_id=$1)`,
+        [id]
+      )
+      await client.query(
+        `delete from plane_cell_ops
+          where resource_key in (
+            select bucket_id from plane_r2_buckets where team_id=$1
+            union all select namespace_id from plane_kv_namespaces where team_id=$1
+            union all select index_id from plane_vectorize_indexes where team_id=$1
+            union all select queue_id from plane_queues where team_id=$1
+            union all select hyperdrive_id from plane_hyperdrives where team_id=$1
+          )`,
+        [id]
+      )
       await client.query('delete from plane_flagship_apps where team_id=$1', [id])
       await client.query('delete from plane_vectorize_indexes where team_id=$1', [id])
       await client.query('delete from plane_secrets_store where team_id=$1', [id])
-      // Team-scoped resources carry no cascade FK — leaving them behind
-      // reattaches the dead team's catalog (and quota accounting) when the
-      // team id is reused.
       await client.query('delete from plane_hyperdrives where team_id=$1', [id])
       await client.query('delete from plane_d1_databases where team_id=$1', [id])
       await client.query('delete from plane_r2_buckets where team_id=$1', [id])

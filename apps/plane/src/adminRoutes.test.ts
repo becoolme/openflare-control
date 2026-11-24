@@ -4,7 +4,7 @@
  * malformed ops/log ACKs, missing signing, and cleanup. The happy-path
  * lifecycle lives in api.e2e.test.ts; this file pins the fail-closed edges.
  */
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { Pool } from 'pg'
@@ -499,9 +499,32 @@ maybe('management API edges', () => {
         })
       ).status
     ).toBe(201)
+    expect(
+      (
+        await call(app, 'POST', `${base}/r2/buckets`, {
+          teamId: team,
+          bucketName: `cb-${suffix}`.slice(0, 63),
+        })
+      ).status
+    ).toBe(201)
+    expect(
+      (
+        await call(app, 'POST', `${base}/hyperdrive`, {
+          teamId: team,
+          name: `ch-${suffix}`.slice(0, 63),
+          origin: 'postgres://db.internal:5432/x',
+        })
+      ).status
+    ).toBe(201)
     await pool.query(
       `insert into plane_cell_metrics (cell_id, sampled_at, window_ms, payload)
        values ($1, now(), 1, '{}'::jsonb)`,
+      [cell]
+    )
+    await pool.query(
+      `insert into plane_cell_resources (cell_id, sampled_at, payload)
+       values ($1, now(), '{}'::jsonb)
+       on conflict (cell_id) do update set sampled_at=excluded.sampled_at`,
       [cell]
     )
 
@@ -555,22 +578,31 @@ maybe('management API edges', () => {
       objectDigest,
       objectBytes.byteLength,
     ])
-    expect(
-      (
-        await call(app, 'POST', `${base}/d1/databases`, {
-          teamId: orphanTeam,
-          name: `doomed-db-${suffix}`.slice(0, 63),
-        })
-      ).status
-    ).toBe(201)
-    expect(
-      (
-        await call(app, 'POST', `${base}/kv/namespaces`, {
-          teamId: orphanTeam,
-          title: `doomed-kv-${suffix}`.slice(0, 63),
-        })
-      ).status
-    ).toBe(201)
+    const doomedDb = await call(app, 'POST', `${base}/d1/databases`, {
+      teamId: orphanTeam,
+      name: `doomed-db-${suffix}`.slice(0, 63),
+    })
+    expect(doomedDb.status).toBe(201)
+    const doomedNs = await call(app, 'POST', `${base}/kv/namespaces`, {
+      teamId: orphanTeam,
+      title: `doomed-kv-${suffix}`.slice(0, 63),
+    })
+    expect(doomedNs.status).toBe(201)
+    // Ops keyed by deterministic resource ids must die with the resource —
+    // a recreated same-named database/namespace would otherwise inherit
+    // the dead team's queued and resulted ops.
+    const doomedDbId = doomedDb.body.data.database.database_id as string
+    const doomedNsId = doomedNs.body.data.namespace.namespace_id as string
+    await pool.query(
+      `insert into plane_d1_ops (id, cell_id, database_id, kind, payload)
+       values ($1,$2,$3,'EXECUTE','{}'::jsonb)`,
+      [randomUUID(), cell, doomedDbId]
+    )
+    await pool.query(
+      `insert into plane_cell_ops (id, cell_id, resource_key, kind, payload)
+       values ($1,$2,$3,'KV_GET','{}'::jsonb)`,
+      [randomUUID(), cell, doomedNsId]
+    )
 
     expect((await call(assetsApp, 'DELETE', `/api/v1/teams/${orphanTeam}`)).status).toBe(200)
     expect(assets.manifests.size).toBe(0)
@@ -583,8 +615,10 @@ maybe('management API edges', () => {
          (select count(*)::int from plane_r2_buckets where team_id=$1) +
          (select count(*)::int from plane_hyperdrives where team_id=$1) +
          (select count(*)::int from plane_asset_manifests where team_id=$1) +
-         (select count(*)::int from plane_asset_objects where team_id=$1) as n`,
-      [orphanTeam]
+         (select count(*)::int from plane_asset_objects where team_id=$1) +
+         (select count(*)::int from plane_d1_ops where database_id=$2) +
+         (select count(*)::int from plane_cell_ops where resource_key=$3) as n`,
+      [orphanTeam, doomedDbId, doomedNsId]
     )
     expect(orphans.rows[0]!.n).toBe(0)
   })
