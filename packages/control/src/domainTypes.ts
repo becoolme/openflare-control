@@ -35,6 +35,11 @@ export interface VrtBindingRecord {
   readonly resourceId: string
   readonly permissionRead: boolean
   readonly permissionWrite: boolean
+  /** D1 only: live writer epoch injected from `plane_d1_databases` during
+   * publication (never trusted from a deploy request). */
+  readonly epoch?: number
+  /** D1 only: live writer endpoint injected from `plane_d1_databases`. */
+  readonly writerAddr?: string
   /** SERVICE only: named `WorkerEntrypoint` export; null/absent = default. */
   readonly entrypoint?: string | null
   /** SERVICE only: canonical JSON **text** for `ctx.props` (the DB column

@@ -485,6 +485,117 @@ maybe('management API edges', () => {
     ).toBe(404)
   })
 
+  it('covers d1 promote ops, writer CAS, and failover reports', async () => {
+    const db = await call(app, 'POST', `${base}/d1/databases`, {
+      teamId: team,
+      name: `ddb-${suffix}`,
+    })
+    expect(db.status).toBe(201)
+    const databaseId = db.body.data.database.database_id as string
+
+    // Promote input validation happens before the op is queued.
+    expect(
+      (await call(app, 'POST', `${base}/d1/databases/${databaseId}/promote`, { expectedEpoch: 2 }))
+        .status
+    ).toBe(400)
+    expect(
+      (
+        await call(app, 'POST', `${base}/d1/databases/${databaseId}/promote`, {
+          writerAddr: 'ftp://x',
+        })
+      ).status
+    ).toBe(400)
+    const promote = await call(app, 'POST', `${base}/d1/databases/${databaseId}/promote`, {
+      expectedEpoch: 2,
+      expectedLsn: 9,
+      writerAddr: 'https://w1.example.com',
+      reason: 'test',
+    })
+    expect(promote.status).toBe(202)
+    // A second promote is refused while one is still pending.
+    expect((await call(app, 'POST', `${base}/d1/databases/${databaseId}/promote`, {})).status).toBe(
+      409
+    )
+
+    const pendingSeq = async () => {
+      const pulled = (await (
+        await app.request(`/api/internal/clusters/${cell}/vrt/d1-ops`, { headers: auth })
+      ).json()) as { data: { ops: { seq: number; kind: string }[] } }
+      return pulled.data.ops.find((o) => o.kind === 'PROMOTE')!.seq
+    }
+    const ackSeq = (seq: number, result: unknown, target = app) =>
+      call(target, 'POST', `/api/internal/clusters/${cell}/vrt/d1-ops/ack`, {
+        acks: [{ seq, status: 'DONE', result }],
+      })
+
+    // A DONE ack without a usable writer result acks the op but republishes
+    // nothing — the cell retried the promote and it did not take.
+    const bad = await ackSeq(await pendingSeq(), { success: false })
+    expect(bad.body.data).toMatchObject({ acked: 1, published: 0 })
+
+    // On a signing-less plane the writer CAS still applies; only the
+    // republish is skipped.
+    await call(app, 'POST', `${base}/d1/databases/${databaseId}/promote`, {})
+    const unsigned = await ackSeq(
+      await pendingSeq(),
+      { epoch: 5, lsn: 11, writerAddr: 'https://w2.example.com' },
+      noSigningApp
+    )
+    expect(unsigned.body.data).toMatchObject({ acked: 1, published: 0 })
+    let writer = (
+      await pool.query(
+        'select writer_epoch, writer_addr, writer_lsn from plane_d1_databases where database_id=$1',
+        [databaseId]
+      )
+    ).rows[0] as { writer_epoch: number; writer_addr: string; writer_lsn: number }
+    expect(writer).toMatchObject({ writer_epoch: 5, writer_addr: 'https://w2.example.com' })
+
+    // A stale epoch report acks the op but loses the monotonic CAS.
+    await call(app, 'POST', `${base}/d1/databases/${databaseId}/promote`, {})
+    const stale = await ackSeq(await pendingSeq(), { epoch: 4 })
+    expect(stale.body.data).toMatchObject({ acked: 1, published: 0 })
+
+    // A well-formed DONE publishes a new desired revision.
+    await call(app, 'POST', `${base}/d1/databases/${databaseId}/promote`, {})
+    const good = await ackSeq(await pendingSeq(), {
+      epoch: 8,
+      writerAddr: 'https://w8.example.com',
+    })
+    expect(good.body.data).toMatchObject({ acked: 1, published: 1 })
+    writer = (
+      await pool.query(
+        'select writer_epoch, writer_addr, writer_lsn from plane_d1_databases where database_id=$1',
+        [databaseId]
+      )
+    ).rows[0] as { writer_epoch: number; writer_addr: string; writer_lsn: number }
+    expect(writer).toMatchObject({ writer_epoch: 8, writer_addr: 'https://w8.example.com' })
+
+    // The cell's automatic-failover report validates its inputs.
+    const writerUrl = `/api/internal/clusters/${cell}/vrt/d1-writer`
+    for (const body of [
+      {},
+      { databaseId: 'short', epoch: 9 },
+      { databaseId, epoch: 0 },
+      { databaseId, epoch: 9, lsn: -1 },
+      { databaseId, epoch: 9, writerAddr: 'no-scheme' },
+      { databaseId, epoch: 9, writerAddr: 'https://trailing.example.com/' },
+    ]) {
+      expect((await call(app, 'POST', writerUrl, body, json)).status).toBe(400)
+    }
+    const auto = await call(
+      app,
+      'POST',
+      writerUrl,
+      { databaseId, epoch: 9, lsn: 3, writerAddr: 'https://w9.example.com' },
+      json
+    )
+    expect(auto.status).toBe(200)
+    expect(auto.body.data).toMatchObject({ applied: true, published: true })
+    // Replaying the same epoch loses the CAS and republishes nothing.
+    const replay = await call(app, 'POST', writerUrl, { databaseId, epoch: 8 }, json)
+    expect(replay.body.data).toMatchObject({ applied: false, published: false })
+  })
+
   it('deletes the cell and reports missing deletes', async () => {
     expect((await call(app, 'DELETE', `${base}/teams/${team}/workers/missing`)).status).toBe(404)
     expect((await call(app, 'DELETE', `/api/v1/cells/${cell}`)).status).toBe(200)
