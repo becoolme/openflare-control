@@ -269,13 +269,13 @@ returns `501`.
 
 ### Operations
 
-| Method   | Path                                         | Purpose                                                                |
-| -------- | -------------------------------------------- | ---------------------------------------------------------------------- |
-| POST/GET | `/api/v1/cells/{cell}/d1-ops[?status=]`      | enqueue/list D1 ops (`EXECUTE`, `MIGRATIONS_APPLY`, `DROP`, `PROMOTE`) |
-| POST/GET | `/api/v1/cells/{cell}/cell-ops[?status=]`    | enqueue/list generic cell ops (workflows, KV, R2, ...)                 |
-| GET      | `/api/v1/cells/{cell}/ops/{opId}?waitMs=`    | unified op lookup/long-poll (D1 or cell channel)                       |
-| GET      | `/api/v1/cells/{cell}/logs?workerId=&limit=` | query ingested worker logs                                             |
-| POST     | `/api/v1/maintenance/prune`                  | `{keepPerCell}` retention prune                                        |
+| Method   | Path                                         | Purpose                                                                                          |
+| -------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| POST/GET | `/api/v1/cells/{cell}/d1-ops[?status=]`      | enqueue/list D1 ops (`EXECUTE`, `MIGRATIONS_APPLY`, `DROP`, `PROMOTE`)                           |
+| POST/GET | `/api/v1/cells/{cell}/cell-ops[?status=]`    | enqueue/list workflow ops (`WF_*`); R2/KV/D1 ops go through the per-resource `.../ops` endpoints |
+| GET      | `/api/v1/cells/{cell}/ops/{opId}?waitMs=`    | unified op lookup/long-poll (D1 or cell channel)                                                 |
+| GET      | `/api/v1/cells/{cell}/logs?workerId=&limit=` | query ingested worker logs                                                                       |
+| POST     | `/api/v1/maintenance/prune`                  | `{keepPerCell}` retention prune                                                                  |
 
 `POST .../d1/databases/{id}/promote` queues a manual writer promotion
 (`{expectedEpoch?, expectedLsn?, generation?, writerAddr?, reason?, expiresAt?}`;

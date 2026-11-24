@@ -1,6 +1,6 @@
 import type { Hono } from 'hono'
 import { z } from 'zod'
-import { type AdminDeps, mapLog, parse, readJson, rows } from './context.js'
+import { type AdminDeps, mapLog, parse, readJsonOrEmpty, rows } from './context.js'
 import { pruneRetention, retentionFromEnv } from '../retention.js'
 
 export function registerLogs(app: Hono, deps: AdminDeps): void {
@@ -27,7 +27,7 @@ export function registerLogs(app: Hono, deps: AdminDeps): void {
           metricsRetentionDays: z.number().int().min(0).max(365).optional(),
         })
         .strict(),
-      (await c.req.text()) ? await readJson(c) : {}
+      await readJsonOrEmpty(c)
     )
     const base = deps.retention ?? retentionFromEnv()
     const result = await pruneRetention(
