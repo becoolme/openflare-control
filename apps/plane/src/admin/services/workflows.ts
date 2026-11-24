@@ -22,6 +22,43 @@ import {
 } from '../context.js'
 
 const WF_KINDS = ['WF_CREATE', 'WF_GET', 'WF_ACTION', 'WF_EVENT', 'WF_DELETE'] as const
+const MAX_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
+const RETENTION_UNITS: Record<string, number> = {
+  ms: 1,
+  millisecond: 1,
+  milliseconds: 1,
+  s: 1_000,
+  second: 1_000,
+  seconds: 1_000,
+  m: 60_000,
+  minute: 60_000,
+  minutes: 60_000,
+  h: 3_600_000,
+  hour: 3_600_000,
+  hours: 3_600_000,
+  d: 86_400_000,
+  day: 86_400_000,
+  days: 86_400_000,
+  w: 604_800_000,
+  week: 604_800_000,
+  weeks: 604_800_000,
+}
+
+function retentionMs(value: unknown, field: string): number | undefined {
+  if (value === undefined) return undefined
+  let ms: number
+  if (typeof value === 'number') ms = value
+  else if (typeof value === 'string') {
+    const m = /^(\d{1,9})\s*([a-z]+)$/i.exec(value.trim())
+    const unit = m ? RETENTION_UNITS[m[2]!.toLowerCase()] : undefined
+    if (!m || unit === undefined) throw new VrtControlError(400, `Invalid ${field}`)
+    ms = Number(m[1]) * unit
+  } else throw new VrtControlError(400, `Invalid ${field}`)
+  if (!Number.isSafeInteger(ms) || ms < 0 || ms > MAX_RETENTION_MS) {
+    throw new VrtControlError(400, `Invalid ${field}`)
+  }
+  return ms
+}
 
 export function registerWorkflowService(app: Hono, deps: AdminDeps): void {
   const base = '/api/v1/cells/:cellId/teams/:teamId/workers/:name/workflows'
@@ -30,7 +67,8 @@ export function registerWorkflowService(app: Hono, deps: AdminDeps): void {
     const list = await rows(
       deps,
       `select workflow_id, worker_id, team_id, cluster_id, name, class_name, binding,
-              unique_key, limits_steps, service_worker_id, created_at
+              unique_key, limits_steps, service_worker_id, success_retention_ms,
+              error_retention_ms, concurrency_limit, created_at
          from plane_workflows where worker_id=$1 order by name`,
       [workerId(c.req.param('teamId'), c.req.param('name'))]
     )
@@ -59,9 +97,28 @@ export function registerWorkflowService(app: Hono, deps: AdminDeps): void {
             .string()
             .regex(/^[a-z0-9][a-z0-9-]{0,62}$/)
             .optional(),
+          defaultRetention: z
+            .object({
+              successRetention: z.union([z.number(), z.string()]).optional(),
+              errorRetention: z.union([z.number(), z.string()]).optional(),
+            })
+            .strict()
+            .optional(),
+          concurrencyLimit: z.number().int().min(1).max(4_500).optional(),
         })
         .strict(),
       await readJson(c)
+    )
+    if (body.scriptName && body.defaultRetention) {
+      throw new VrtControlError(400, 'defaultRetention cannot be combined with scriptName')
+    }
+    const successRetentionMs = retentionMs(
+      body.defaultRetention?.successRetention,
+      'defaultRetention.successRetention'
+    )
+    const errorRetentionMs = retentionMs(
+      body.defaultRetention?.errorRetention,
+      'defaultRetention.errorRetention'
     )
     const binding = body.binding ?? body.name
     if (!WORKFLOW_IDENT_RE.test(binding)) {
@@ -192,14 +249,18 @@ export function registerWorkflowService(app: Hono, deps: AdminDeps): void {
     await deps.pool.query(
       `insert into plane_workflows
          (workflow_id, worker_id, team_id, cluster_id, name, class_name, binding,
-          unique_key, limits_steps, service_worker_id)
-       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+          unique_key, limits_steps, service_worker_id, success_retention_ms,
+          error_retention_ms, concurrency_limit)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
        on conflict (worker_id, name) do update set
          class_name=excluded.class_name,
          binding=excluded.binding,
          unique_key=excluded.unique_key,
          limits_steps=excluded.limits_steps,
-         service_worker_id=excluded.service_worker_id`,
+         service_worker_id=excluded.service_worker_id,
+         success_retention_ms=excluded.success_retention_ms,
+         error_retention_ms=excluded.error_retention_ms,
+         concurrency_limit=excluded.concurrency_limit`,
       [
         workflowId,
         id,
@@ -211,6 +272,9 @@ export function registerWorkflowService(app: Hono, deps: AdminDeps): void {
         uniqueKey,
         body.limitsSteps ?? null,
         serviceWorkerId,
+        successRetentionMs ?? null,
+        errorRetentionMs ?? null,
+        body.concurrencyLimit ?? null,
       ]
     )
     const [workflow] = await rows(

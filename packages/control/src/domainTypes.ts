@@ -116,6 +116,9 @@ export interface VrtWorkflowView {
   readonly className: string
   readonly uniqueKey: string
   readonly limitsSteps: number | null
+  readonly successRetentionMs?: number | null
+  readonly errorRetentionMs?: number | null
+  readonly concurrencyLimit?: number | null
   /** Emitted only when the workflow is defined by another worker —
    * `WorkerDesired.serviceWorkerId` (absent ⇒ same-worker, keeps
    * pre-W7 snapshots byte-identical). */
@@ -177,6 +180,9 @@ export interface VrtWorkflowInput {
   readonly binding: string
   readonly className: string
   readonly limitsSteps?: number
+  readonly successRetentionMs?: number
+  readonly errorRetentionMs?: number
+  readonly concurrencyLimit?: number
   /** W7 wrangler `script_name` — a worker NAME resolved server-side
    * (never a client-supplied id). */
   readonly scriptName?: string
@@ -189,6 +195,9 @@ export interface VrtWorkflowRow {
   readonly className: string
   readonly uniqueKey: string
   readonly limitsSteps: number | null
+  readonly successRetentionMs: number | null
+  readonly errorRetentionMs: number | null
+  readonly concurrencyLimit: number | null
   /** Resolved defining-worker id (`script_name`); null = own worker. */
   readonly serviceWorkerId: string | null
 }

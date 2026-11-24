@@ -244,6 +244,9 @@ create table if not exists plane_workflows (
   unique_key text,
   limits_steps integer,
   service_worker_id text,
+  success_retention_ms bigint,
+  error_retention_ms bigint,
+  concurrency_limit integer,
   created_at timestamptz not null default now(),
   unique (worker_id, name)
 );
@@ -253,6 +256,9 @@ alter table plane_workflows add column if not exists binding text;
 alter table plane_workflows add column if not exists unique_key text;
 alter table plane_workflows add column if not exists limits_steps integer;
 alter table plane_workflows add column if not exists service_worker_id text;
+alter table plane_workflows add column if not exists success_retention_ms bigint;
+alter table plane_workflows add column if not exists error_retention_ms bigint;
+alter table plane_workflows add column if not exists concurrency_limit integer;
 create unique index if not exists plane_workflows_worker_binding
   on plane_workflows (worker_id, binding) where binding is not null;
 create unique index if not exists plane_workflows_target_name

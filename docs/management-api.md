@@ -230,15 +230,22 @@ portable store contract supports version-scoped application
 as Vibeploy; the minimal reference plane intentionally keeps them worker-level.
 
 Workflow declarations are worker-scoped in the reference plane: POST accepts
-`{name, className, binding?, limitsSteps?, scriptName?}`. A POST is a full
-replacement: omitted `binding` resets to `name` (which must itself be a valid
-JS identifier, so hyphenated names need an explicit binding), and omitted
-`scriptName` makes the declaration same-worker. `scriptName` must name an
-active same-team/cell VRT worker. Declarations are published in the next
+`{name, className, binding?, limitsSteps?, scriptName?, defaultRetention?, concurrencyLimit?}`.
+A POST is a full replacement: omitted `binding` resets to `name` (which must
+itself be a valid JS identifier, so hyphenated names need an explicit binding),
+and omitted `scriptName` makes the declaration same-worker. `scriptName` must
+name an active same-team/cell VRT worker. Declarations are published in the next
 `compute.desired`; activating an older version does not roll the declaration
 rowset back. The cell must advertise `workflows` (and `workflowsCrossWorker`
 for cross-worker declarations); the write is rejected with
 `409 VRT_CELL_CAPABILITY_MISSING` otherwise.
+
+`defaultRetention` accepts `{successRetention?, errorRetention?}` as whole
+milliseconds or duration strings such as `"3 days"` (max 30 days) and cannot be
+combined with `scriptName`. `concurrencyLimit` lowers the per-Workflow active
+instance cap (1–4,500; default 4,500). Both are emitted into the signed
+workflow declaration; older cells reject unknown fields, so only target cells
+with matching runtime support.
 
 `GET /api/v1/cells/{cell}/services` returns every resource with a ready-to-paste
 canonical `VrtBindingRecord` (uppercase `type`, `resourceId`, permissions), plus
