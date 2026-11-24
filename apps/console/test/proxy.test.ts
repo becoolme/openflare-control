@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { createServer, request } from 'node:http'
+import type { IncomingMessage, ServerResponse } from 'node:http'
 import { describe, expect, it } from 'vitest'
 // @ts-expect-error — plain .mjs modules, no types
 import { createProxy } from '../server/proxy.mjs'
@@ -31,10 +32,10 @@ async function fakeUpstream(echoStatus = 200, echoBody = 'upstream-body') {
 /** Drive `proxy` with a synthetic req/res pair against the real
  * http machinery: a client-facing server plus a raw request. */
 async function callProxy(
-  proxy: (req: any, res: any, target: string) => Promise<void>,
+  proxy: (req: IncomingMessage, res: ServerResponse, target: string) => Promise<void>,
   { method = 'GET', target = '/api/v1/x', headers = {}, body = null as Buffer | null }
 ) {
-  const result = { status: 0, headers: {} as any, body: Buffer.alloc(0) }
+  const result = { status: 0, headers: {} as IncomingMessage['headers'], body: Buffer.alloc(0) }
   const front = createServer((req, res) => {
     void proxy(req, res, target).catch((e) => {
       if (!res.headersSent) res.writeHead(500).end(String(e))
