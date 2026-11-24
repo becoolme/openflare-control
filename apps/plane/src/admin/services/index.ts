@@ -86,6 +86,10 @@ export function registerServices(app: Hono, deps: AdminDeps): void {
           name: r.name,
           className: r.class_name,
           teamId: r.team_id,
+          successRetentionMs:
+            r.success_retention_ms == null ? null : Number(r.success_retention_ms),
+          errorRetentionMs: r.error_retention_ms == null ? null : Number(r.error_retention_ms),
+          concurrencyLimit: r.concurrency_limit == null ? null : Number(r.concurrency_limit),
         })),
         vectorize: vectorize.map((r) => ({
           indexId: r.index_id,

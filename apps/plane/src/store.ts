@@ -834,7 +834,8 @@ class PlaneCellTx {
         [r.id as string]
       )
       const workflows = await this.rows(
-        `select name, binding, class_name, unique_key, limits_steps, service_worker_id
+        `select name, binding, class_name, unique_key, limits_steps, service_worker_id,
+                success_retention_ms, error_retention_ms, concurrency_limit
            from plane_workflows
           where worker_id=$1 and binding is not null and unique_key is not null
           order by name`,
@@ -864,6 +865,10 @@ class PlaneCellTx {
           className: String(w.class_name),
           uniqueKey: String(w.unique_key),
           limitsSteps: w.limits_steps == null ? null : Number(w.limits_steps),
+          successRetentionMs:
+            w.success_retention_ms == null ? null : Number(w.success_retention_ms),
+          errorRetentionMs: w.error_retention_ms == null ? null : Number(w.error_retention_ms),
+          concurrencyLimit: w.concurrency_limit == null ? null : Number(w.concurrency_limit),
           serviceWorkerId: (w.service_worker_id as string | null) ?? null,
         })),
         durableObjectClasses: doClasses.map((c) => ({

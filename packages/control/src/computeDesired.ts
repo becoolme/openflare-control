@@ -1133,6 +1133,25 @@ export function buildComputeDesiredPayload(input: {
             ) {
               throw invalid('workflows.limitsSteps')
             }
+            for (const [key, value] of [
+              ['successRetentionMs', w.successRetentionMs],
+              ['errorRetentionMs', w.errorRetentionMs],
+            ] as const) {
+              if (
+                value != null &&
+                (!Number.isSafeInteger(value) || value < 0 || value > 30 * 24 * 60 * 60 * 1000)
+              ) {
+                throw invalid(`workflows.${key}`)
+              }
+            }
+            if (
+              w.concurrencyLimit != null &&
+              (!Number.isInteger(w.concurrencyLimit) ||
+                w.concurrencyLimit < 1 ||
+                w.concurrencyLimit > 4_500)
+            ) {
+              throw invalid('workflows.concurrencyLimit')
+            }
             // W7: `serviceWorkerId` (wrangler script_name resolved
             // server-side at deploy) — emitted only when it names a
             // DIFFERENT worker (Rust `skip_serializing_if` parity);
@@ -1149,6 +1168,9 @@ export function buildComputeDesiredPayload(input: {
               // stay identical (emitting `null` would diverge the
               // signed canonical form across implementations).
               ...(w.limitsSteps != null ? { limitsSteps: w.limitsSteps } : {}),
+              ...(w.successRetentionMs != null ? { successRetentionMs: w.successRetentionMs } : {}),
+              ...(w.errorRetentionMs != null ? { errorRetentionMs: w.errorRetentionMs } : {}),
+              ...(w.concurrencyLimit != null ? { concurrencyLimit: w.concurrencyLimit } : {}),
               ...(sw !== null && sw !== worker.workerId ? { serviceWorkerId: sw } : {}),
             }
           })

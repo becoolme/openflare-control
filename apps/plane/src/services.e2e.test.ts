@@ -558,9 +558,33 @@ maybe('service resource API e2e', () => {
     const wf = await call(
       'POST',
       `/api/v1/cells/${cell}/teams/${team}/workers/${worker}/workflows`,
-      { name: 'OrderWorkflow', className: 'OrderWorkflow' }
+      {
+        name: 'OrderWorkflow',
+        className: 'OrderWorkflow',
+        defaultRetention: { successRetention: '3 days', errorRetention: 86_400_000 },
+        concurrencyLimit: 100,
+      }
     )
     expect(wf.status).toBe(201)
+    expect(
+      (
+        await call('POST', `/api/v1/cells/${cell}/teams/${team}/workers/${worker}/workflows`, {
+          name: 'BadRetention',
+          className: 'BadRetention',
+          defaultRetention: { successRetention: '31 days' },
+        })
+      ).status
+    ).toBe(400)
+    expect(
+      (
+        await call('POST', `/api/v1/cells/${cell}/teams/${team}/workers/${worker}/workflows`, {
+          name: 'BadRetentionScript',
+          className: 'BadRetentionScript',
+          scriptName: 'missing',
+          defaultRetention: { successRetention: '1 day' },
+        })
+      ).status
+    ).toBe(400)
     expect(
       (
         await call(
@@ -601,6 +625,9 @@ maybe('service resource API e2e', () => {
         binding: 'OrderWorkflow',
         className: 'OrderWorkflow',
         uniqueKey: expect.stringMatching(/^[0-9a-f]{64}$/),
+        successRetentionMs: 259_200_000,
+        errorRetentionMs: 86_400_000,
+        concurrencyLimit: 100,
       }),
     ])
     expect(
@@ -646,6 +673,9 @@ maybe('service resource API e2e', () => {
     expect(services.body.data.workflows[0]).toMatchObject({
       workerId,
       name: 'OrderWorkflow',
+      successRetentionMs: 259_200_000,
+      errorRetentionMs: 86_400_000,
+      concurrencyLimit: 100,
     })
 
     // Op polling by id exposes the generic channel to management clients.
