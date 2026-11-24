@@ -14,6 +14,7 @@ import { cellReportSchema } from './cellReport.js'
 import type { Pool } from 'pg'
 import type { SnapshotSigningContext } from 'openflare-control'
 import { createAdminApp } from './admin/index.js'
+import { readBody } from './admin/context.js'
 
 export interface AppDeps {
   store: VrtControlStore
@@ -77,14 +78,9 @@ function errorResponse(c: Context, error: unknown): Response {
 }
 
 async function readJson(c: Context, maxBytes: number): Promise<unknown> {
-  const declared = Number(c.req.header('content-length') ?? '0')
-  if (Number.isFinite(declared) && declared > maxBytes) {
-    throw new VrtControlError(413, 'Payload too large')
-  }
-  const raw = await c.req.text()
-  if (Buffer.byteLength(raw, 'utf8') > maxBytes) throw new VrtControlError(400, 'Payload too large')
+  const raw = await readBody(c, maxBytes)
   try {
-    return JSON.parse(raw)
+    return JSON.parse(raw.toString('utf8'))
   } catch {
     throw new VrtControlError(400, 'Invalid JSON')
   }

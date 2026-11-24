@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import type { Hono } from 'hono'
 import { z } from 'zod'
 import { VrtControlError } from 'openflare-control'
-import { type AdminDeps, parse, teamId } from './context.js'
+import { type AdminDeps, parse, readBody, teamId } from './context.js'
 
 const digest = z.string().regex(/^[0-9a-f]{64}$/)
 const OBJECT_MAX = 8 * 1024 * 1024
@@ -78,12 +78,7 @@ export function registerAssets(app: Hono, deps: AdminDeps): void {
     if (!store) throw new VrtControlError(501, 'Asset store is not configured')
     const d = parse(digest, c.req.param('digest'))
     const max = OBJECT_MAX
-    const declared = Number(c.req.header('content-length') ?? '0')
-    if (Number.isFinite(declared) && declared > max) {
-      throw new VrtControlError(413, 'Asset object too large')
-    }
-    const bytes = new Uint8Array(await c.req.arrayBuffer())
-    if (bytes.byteLength > max) throw new VrtControlError(413, 'Asset object too large')
+    const bytes = new Uint8Array(await readBody(c, max))
     if (sha(bytes) !== d) throw new VrtControlError(400, 'Object digest mismatch')
     const client = await deps.pool.connect()
     try {
@@ -119,12 +114,7 @@ export function registerAssets(app: Hono, deps: AdminDeps): void {
     if (!store) throw new VrtControlError(501, 'Asset store is not configured')
     const d = parse(digest, c.req.param('digest'))
     const max = 1024 * 1024
-    const declared = Number(c.req.header('content-length') ?? '0')
-    if (Number.isFinite(declared) && declared > max) {
-      throw new VrtControlError(413, 'Asset manifest too large')
-    }
-    const bytes = new Uint8Array(await c.req.arrayBuffer())
-    if (bytes.byteLength > max) throw new VrtControlError(413, 'Asset manifest too large')
+    const bytes = new Uint8Array(await readBody(c, max))
     if (sha(bytes) !== d) throw new VrtControlError(400, 'Manifest digest mismatch')
     let parsed: unknown
     try {
