@@ -6,34 +6,22 @@ import { type AdminDeps, databaseId, mapOp, parse, readJson, rows } from './cont
 
 const expires = z.number().int().min(0).max(4_102_444_800).optional()
 
-// Kinds a cell understands. Anything else would sit PENDING forever — fail
-// at the boundary instead of enqueueing an op nothing can ack.
-const CELL_OP_KINDS = [
-  'WF_CREATE',
-  'WF_GET',
-  'WF_ACTION',
-  'WF_EVENT',
-  'WF_DELETE',
-  'KV_GET',
-  'KV_PUT',
-  'KV_DELETE',
-  'KV_LIST',
-  'KV_BULK_PUT',
-  'KV_BULK_DELETE',
-  'R2_LIST',
-  'R2_HEAD',
-  'R2_GET',
-  'R2_PUT',
-  'R2_DELETE',
-  'STORAGE_PURGE',
-] as const
+// Kinds the generic endpoint accepts. Resource-scoped kinds (R2_*, KV_*,
+// STORAGE_PURGE, D1) carry server-injected scope — tenantId/bucketId/
+// namespaceId/databaseId and a resource_key pointing at the target — so
+// they can only be minted by the dedicated per-resource endpoints, which
+// verify the row exists on this cell first. Accepting them here with a
+// caller-supplied resourceKey would let ops target another team's
+// resources. Anything else would sit PENDING forever — fail at the
+// boundary instead of enqueueing an op nothing can ack.
+const CELL_OP_KINDS = ['WF_CREATE', 'WF_GET', 'WF_ACTION', 'WF_EVENT', 'WF_DELETE'] as const
 
 // The cell trusts op payloads as control-plane-attested scope. The dedicated
-// per-resource endpoints inject `tenantId`/`namespaceId`/`storageId`/…
+// per-resource endpoints inject `tenantId`/`namespaceId`/`bucketId`/…
 // server-side from verified rows; this generic endpoint must never let a
 // caller write those fields itself (it would mint ops against resources on
-// another tenant). Ops that need resource scope go through their scoped
-// endpoints — this one exists for worker/workflow-scoped kinds only.
+// another tenant). Keep in sync with the scope keys each scoped endpoint
+// injects — an omitted key is a bypass.
 const SCOPE_PAYLOAD_KEYS = [
   'tenantId',
   'namespaceId',
@@ -43,6 +31,7 @@ const SCOPE_PAYLOAD_KEYS = [
   'databaseId',
   'queueId',
   'bucketName',
+  'bucketId',
   'indexId',
   'hyperdriveId',
   'accountId',

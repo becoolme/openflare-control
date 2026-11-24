@@ -1,0 +1,439 @@
+diff --git a/apps/plane/src/admin/config.ts b/apps/plane/src/admin/config.ts
+index 6d078db..74e00a8 100644
+--- a/apps/plane/src/admin/config.ts
++++ b/apps/plane/src/admin/config.ts
+@@ -57,7 +57,22 @@ export function registerConfig(app: Hono, deps: AdminDeps): void {
+     return workerId(team, name)
+   }
+ 
++  // The worker id is `team:name` — globally unique — so a lookup that skips
++  // `cluster_id` resolves the same row through any cell's path. Every
++  // vars/secrets/hostname route must pin the worker to `:cellId` or a write
++  // issued under the wrong cell silently mutates the real worker.
++  const assertWorkerOnCell = async (c: {
++    req: { param: (k: string) => string }
++  }): Promise<void> => {
++    const [row] = await rows(deps, 'select 1 from plane_workers where id=$1 and cluster_id=$2', [
++      worker(c),
++      c.req.param('cellId'),
++    ])
++    if (!row) throw new VrtControlError(404, 'Worker not found')
++  }
++
+   app.get('/api/v1/cells/:cellId/teams/:teamId/workers/:name/vars', async (c) => {
++    await assertWorkerOnCell(c)
+     const list = await rows(
+       deps,
+       'select key, value from plane_vars where worker_id=$1 order by key',
+@@ -67,6 +82,7 @@ export function registerConfig(app: Hono, deps: AdminDeps): void {
+   })
+ 
+   app.put('/api/v1/cells/:cellId/teams/:teamId/workers/:name/vars/:key', async (c) => {
++    await assertWorkerOnCell(c)
+     const k = c.req.param('key')
+     parse(key, k)
+     const body = parse(z.object({ value: z.string() }).strict(), await readJson(c))
+@@ -80,6 +96,7 @@ export function registerConfig(app: Hono, deps: AdminDeps): void {
+   })
+ 
+   app.delete('/api/v1/cells/:cellId/teams/:teamId/workers/:name/vars/:key', async (c) => {
++    await assertWorkerOnCell(c)
+     await deps.pool.query('delete from plane_vars where worker_id=$1 and key=$2', [
+       worker(c),
+       c.req.param('key'),
+@@ -88,6 +105,7 @@ export function registerConfig(app: Hono, deps: AdminDeps): void {
+   })
+ 
+   app.get('/api/v1/cells/:cellId/teams/:teamId/workers/:name/secrets', async (c) => {
++    await assertWorkerOnCell(c)
+     const list = await rows(deps, 'select key from plane_secrets where worker_id=$1 order by key', [
+       worker(c),
+     ])
+@@ -95,6 +113,7 @@ export function registerConfig(app: Hono, deps: AdminDeps): void {
+   })
+ 
+   app.put('/api/v1/cells/:cellId/teams/:teamId/workers/:name/secrets/:key', async (c) => {
++    await assertWorkerOnCell(c)
+     const k = c.req.param('key')
+     parse(key, k)
+     const body = parse(z.object({ value: z.string() }).strict(), await readJson(c))
+@@ -108,6 +127,7 @@ export function registerConfig(app: Hono, deps: AdminDeps): void {
+   })
+ 
+   app.delete('/api/v1/cells/:cellId/teams/:teamId/workers/:name/secrets/:key', async (c) => {
++    await assertWorkerOnCell(c)
+     await deps.pool.query('delete from plane_secrets where worker_id=$1 and key=$2', [
+       worker(c),
+       c.req.param('key'),
+@@ -136,6 +156,7 @@ export function registerConfig(app: Hono, deps: AdminDeps): void {
+   })
+ 
+   app.delete('/api/v1/cells/:cellId/teams/:teamId/workers/:name/hostnames/:hostname', async (c) => {
++    await assertWorkerOnCell(c)
+     const deleted = await deps.pool.query(
+       'delete from plane_hostnames where worker_id=$1 and hostname=$2',
+       [worker(c), c.req.param('hostname')]
+diff --git a/apps/plane/src/admin/ops.ts b/apps/plane/src/admin/ops.ts
+index bd1bd32..988facb 100644
+--- a/apps/plane/src/admin/ops.ts
++++ b/apps/plane/src/admin/ops.ts
+@@ -4,7 +4,49 @@ import { z } from 'zod'
+ import { VrtControlError } from 'openflare-control'
+ import { type AdminDeps, databaseId, mapOp, parse, readJson, rows } from './context.js'
+ 
+-const expires = z.number().int().optional()
++const expires = z.number().int().min(0).max(4_102_444_800).optional()
++
++// Kinds a cell understands. Anything else would sit PENDING forever — fail
++// at the boundary instead of enqueueing an op nothing can ack.
++const CELL_OP_KINDS = [
++  'WF_CREATE',
++  'WF_GET',
++  'WF_ACTION',
++  'WF_EVENT',
++  'WF_DELETE',
++  'KV_GET',
++  'KV_PUT',
++  'KV_DELETE',
++  'KV_LIST',
++  'KV_BULK_PUT',
++  'KV_BULK_DELETE',
++  'R2_LIST',
++  'R2_HEAD',
++  'R2_GET',
++  'R2_PUT',
++  'R2_DELETE',
++  'STORAGE_PURGE',
++] as const
++
++// The cell trusts op payloads as control-plane-attested scope. The dedicated
++// per-resource endpoints inject `tenantId`/`namespaceId`/`storageId`/…
++// server-side from verified rows; this generic endpoint must never let a
++// caller write those fields itself (it would mint ops against resources on
++// another tenant). Ops that need resource scope go through their scoped
++// endpoints — this one exists for worker/workflow-scoped kinds only.
++const SCOPE_PAYLOAD_KEYS = [
++  'tenantId',
++  'namespaceId',
++  'physicalId',
++  'storageId',
++  'storage',
++  'databaseId',
++  'queueId',
++  'bucketName',
++  'indexId',
++  'hyperdriveId',
++  'accountId',
++] as const
+ 
+ async function findOp(deps: AdminDeps, cell: string, id: string) {
+   const [d1] = await rows(
+@@ -38,6 +80,12 @@ export function registerOps(app: Hono, deps: AdminDeps): void {
+         .strict(),
+       await readJson(c)
+     )
++    const [db] = await rows(
++      deps,
++      'select 1 from plane_d1_databases where database_id=$1 and cluster_id=$2',
++      [body.databaseId, cell]
++    )
++    if (!db) throw new VrtControlError(404, 'D1 database not found')
+     const id = randomUUID()
+     await deps.pool.query(
+       `insert into plane_d1_ops (id, cell_id, database_id, kind, payload, expires_at)
+@@ -65,8 +113,8 @@ export function registerOps(app: Hono, deps: AdminDeps): void {
+     const body = parse(
+       z
+         .object({
+-          kind: z.string().min(1).max(64),
+-          workerId: z.string().optional(),
++          kind: z.enum(CELL_OP_KINDS),
++          workerId: z.string().min(1).max(128).optional(),
+           resourceKey: z.string().max(128).optional(),
+           payload: z.record(z.unknown()),
+           expiresAt: expires,
+@@ -74,6 +122,19 @@ export function registerOps(app: Hono, deps: AdminDeps): void {
+         .strict(),
+       await readJson(c)
+     )
++    for (const key of SCOPE_PAYLOAD_KEYS) {
++      if (key in body.payload) {
++        throw new VrtControlError(400, `payload.${key} is server-managed — use the scoped endpoint`)
++      }
++    }
++    if (body.workerId !== undefined) {
++      const [worker] = await rows(
++        deps,
++        'select 1 from plane_workers where id=$1 and cluster_id=$2',
++        [body.workerId, cell]
++      )
++      if (!worker) throw new VrtControlError(404, 'Worker not found')
++    }
+     const id = randomUUID()
+     await deps.pool.query(
+       `insert into plane_cell_ops (id, cell_id, worker_id, resource_key, kind, payload, expires_at)
+diff --git a/apps/plane/src/admin/services/workflows.ts b/apps/plane/src/admin/services/workflows.ts
+index 013f2b6..c9b91eb 100644
+--- a/apps/plane/src/admin/services/workflows.ts
++++ b/apps/plane/src/admin/services/workflows.ts
+@@ -69,8 +69,8 @@ export function registerWorkflowService(app: Hono, deps: AdminDeps): void {
+       `select workflow_id, worker_id, team_id, cluster_id, name, class_name, binding,
+               unique_key, limits_steps, service_worker_id, success_retention_ms,
+               error_retention_ms, concurrency_limit, created_at
+-         from plane_workflows where worker_id=$1 order by name`,
+-      [workerId(c.req.param('teamId'), c.req.param('name'))]
++         from plane_workflows where worker_id=$1 and cluster_id=$2 order by name`,
++      [workerId(c.req.param('teamId'), c.req.param('name')), c.req.param('cellId')]
+     )
+     return c.json({ data: { workflows: list } })
+   })
+@@ -287,8 +287,12 @@ export function registerWorkflowService(app: Hono, deps: AdminDeps): void {
+ 
+   app.delete(`${base}/:workflowName`, async (c) => {
+     const deleted = await deps.pool.query(
+-      'delete from plane_workflows where worker_id=$1 and name=$2',
+-      [workerId(c.req.param('teamId'), c.req.param('name')), c.req.param('workflowName')]
++      'delete from plane_workflows where worker_id=$1 and name=$2 and cluster_id=$3',
++      [
++        workerId(c.req.param('teamId'), c.req.param('name')),
++        c.req.param('workflowName'),
++        c.req.param('cellId'),
++      ]
+     )
+     if (deleted.rowCount === 0) throw new VrtControlError(404, 'Workflow not found')
+     return c.json({ data: { deleted: true } })
+@@ -300,8 +304,8 @@ export function registerWorkflowService(app: Hono, deps: AdminDeps): void {
+     const workflowName = c.req.param('workflowName')
+     const [workflow] = await rows(
+       deps,
+-      'select 1 from plane_workflows where worker_id=$1 and name=$2',
+-      [id, workflowName]
++      'select 1 from plane_workflows where worker_id=$1 and name=$2 and cluster_id=$3',
++      [id, workflowName, cell]
+     )
+     if (!workflow) throw new VrtControlError(404, 'Workflow not found')
+     const body = parse(
+diff --git a/apps/plane/src/admin/stats.ts b/apps/plane/src/admin/stats.ts
+index 49e5207..af14423 100644
+--- a/apps/plane/src/admin/stats.ts
++++ b/apps/plane/src/admin/stats.ts
+@@ -369,8 +369,8 @@ export function registerStats(app: Hono, deps: AdminDeps): void {
+       const workflowName = c.req.param('workflowName')
+       const [workflow] = await rows(
+         deps,
+-        'select * from plane_workflows where worker_id=$1 and name=$2',
+-        [id, workflowName]
++        'select * from plane_workflows where worker_id=$1 and name=$2 and cluster_id=$3',
++        [id, workflowName, cell]
+       )
+       if (!workflow) throw new VrtControlError(404, 'Workflow not found')
+       const [ops] = await rows(
+diff --git a/apps/plane/src/adminRoutes.test.ts b/apps/plane/src/adminRoutes.test.ts
+index 861092c..84f35b1 100644
+--- a/apps/plane/src/adminRoutes.test.ts
++++ b/apps/plane/src/adminRoutes.test.ts
+@@ -322,8 +322,25 @@ maybe('management API edges', () => {
+         })
+       ).status
+     ).toBe(400)
++    // Ops can only target a database that exists on this cell — the
++    // dedicated endpoints enforce the same scope check.
++    const db = await call(app, 'POST', `${base}/d1/databases`, {
++      teamId: team,
++      name: `edge-db-${suffix}`.slice(0, 63),
++    })
++    expect(db.status).toBe(201)
++    const databaseId = db.body.data.database.database_id as string
++    expect(
++      (
++        await call(app, 'POST', `${base}/d1-ops`, {
++          databaseId: 'a'.repeat(26),
++          kind: 'DROP',
++          payload: {},
++        })
++      ).status
++    ).toBe(404)
+     const op = await call(app, 'POST', `${base}/d1-ops`, {
+-      databaseId: 'a'.repeat(26),
++      databaseId,
+       kind: 'DROP',
+       payload: {},
+     })
+@@ -467,6 +484,96 @@ maybe('management API edges', () => {
+     ).toBe(404)
+   })
+ 
++  it('pins worker-scoped routes to the :cellId in the path', async () => {
++    // The worker id (`team:name`) is globally unique, so every route must
++    // also pin `cluster_id` — otherwise any other cell's path resolves the
++    // same worker and mutations land through the wrong cell.
++    const other = `other-${suffix}`
++    await provisionCellToken(other)
++    const otherBase = `/api/v1/cells/${other}/teams/${team}/workers/${worker}`
++
++    expect((await call(app, 'GET', `${otherBase}/vars`)).status).toBe(404)
++    expect((await call(app, 'PUT', `${otherBase}/vars/K`, { value: 'x' })).status).toBe(404)
++    expect((await call(app, 'DELETE', `${otherBase}/vars/K`)).status).toBe(404)
++    expect((await call(app, 'GET', `${otherBase}/secrets`)).status).toBe(404)
++    expect((await call(app, 'PUT', `${otherBase}/secrets/K`, { value: 'x' })).status).toBe(404)
++    expect((await call(app, 'DELETE', `${otherBase}/secrets/K`)).status).toBe(404)
++    expect((await call(app, 'DELETE', `${otherBase}/hostnames/${hostname}`)).status).toBe(404)
++
++    // The same worker stays reachable through its own cell.
++    expect((await call(app, 'GET', `${base}/teams/${team}/workers/${worker}/vars`)).status).toBe(
++      200
++    )
++
++    // Workflows get the same treatment (inserted directly — capability
++    // gating is covered in cellReport.e2e).
++    await pool.query(
++      `insert into plane_workflows (workflow_id, worker_id, team_id, cluster_id, name, class_name)
++       values ($1,$2,$3,$4,$5,$6)`,
++      [`wf-${suffix}`, `${team}:${worker}`, team, cell, 'wf-scope', 'WfScope']
++    )
++    const wf = `teams/${team}/workers/${worker}/workflows`
++    const otherWf = `/api/v1/cells/${other}/${wf}`
++    expect((await call(app, 'GET', otherWf)).body.data.workflows).toHaveLength(0)
++    expect((await call(app, 'DELETE', `${otherWf}/wf-scope`)).status).toBe(404)
++    expect((await call(app, 'POST', `${otherWf}/wf-scope/ops`, { kind: 'WF_GET' })).status).toBe(
++      404
++    )
++    expect((await call(app, 'GET', `${otherWf}/wf-scope/stats`)).status).toBe(404)
++    expect((await call(app, 'DELETE', `${base}/${wf}/wf-scope`)).status).toBe(200)
++  })
++
++  it('constrains generic cell-ops payloads at the boundary', async () => {
++    // Unknown kinds would sit PENDING forever — reject at the boundary.
++    expect(
++      (await call(app, 'POST', `${base}/cell-ops`, { kind: 'NOPE_KIND', payload: {} })).status
++    ).toBe(400)
++    // Scope fields are server-managed: the dedicated per-resource endpoints
++    // inject tenantId/namespaceId/storageId from verified rows, so a caller
++    // must not write them itself.
++    for (const key of ['tenantId', 'storageId', 'namespaceId', 'bucketName']) {
++      expect(
++        (
++          await call(app, 'POST', `${base}/cell-ops`, {
++            kind: 'STORAGE_PURGE',
++            payload: { [key]: 'x' },
++          })
++        ).status
++      ).toBe(400)
++    }
++    // workerId, when present, must exist on this cell.
++    expect(
++      (
++        await call(app, 'POST', `${base}/cell-ops`, {
++          kind: 'WF_GET',
++          workerId: 'other-team:ghost',
++          payload: {},
++        })
++      ).status
++    ).toBe(404)
++    const other = `other-${suffix}`
++    expect(
++      (
++        await call(app, 'POST', `/api/v1/cells/${other}/cell-ops`, {
++          kind: 'WF_GET',
++          workerId: `${team}:${worker}`,
++          payload: {},
++        })
++      ).status
++    ).toBe(404)
++    // A scope-free workflow op still enqueues.
++    expect(
++      (
++        await call(app, 'POST', `${base}/cell-ops`, {
++          kind: 'WF_GET',
++          workerId: `${team}:${worker}`,
++          resourceKey: 'wf-scope',
++          payload: { workflow: 'wf-scope', instanceId: 'i-2' },
++        })
++      ).status
++    ).toBe(201)
++  })
++
+   it('deletes the cell and reports missing deletes', async () => {
+     expect((await call(app, 'DELETE', `${base}/teams/${team}/workers/missing`)).status).toBe(404)
+     expect((await call(app, 'DELETE', `/api/v1/cells/${cell}`)).status).toBe(200)
+diff --git a/apps/plane/src/api.e2e.test.ts b/apps/plane/src/api.e2e.test.ts
+index f19ead3..54753aa 100644
+--- a/apps/plane/src/api.e2e.test.ts
++++ b/apps/plane/src/api.e2e.test.ts
+@@ -64,7 +64,6 @@ maybe('management API e2e', () => {
+   const worker = 'hello'
+   const versionId = `v-${suffix}`
+   const hostname = `hello-${suffix}.example.test`
+-  const databaseId = 'a'.repeat(26)
+   const auth = { authorization: `Bearer ${TOKEN}` }
+   const json = { ...auth, 'content-type': 'application/json' }
+   const base = `/api/v1/cells/${cell}`
+@@ -248,7 +247,14 @@ maybe('management API e2e', () => {
+     expect(publications.status).toBe(200)
+     expect(publications.body.data.publications[0].revision).toBe(revision)
+ 
+-    // d1 + cell ops: enqueue over management, pull/ack over the cell channel
++    // d1 + cell ops: enqueue over management, pull/ack over the cell channel.
++    // The op can only target a database that exists on this cell.
++    const db = await call('POST', `${base}/d1/databases`, {
++      teamId: team,
++      name: `e2e-db-${suffix}`.slice(0, 63),
++    })
++    expect(db.status).toBe(201)
++    const databaseId = db.body.data.database.database_id as string
+     const d1 = await call('POST', `${base}/d1-ops`, {
+       databaseId,
+       kind: 'EXECUTE',
+diff --git a/apps/plane/src/retention.e2e.test.ts b/apps/plane/src/retention.e2e.test.ts
+index 079f34b..c812493 100644
+--- a/apps/plane/src/retention.e2e.test.ts
++++ b/apps/plane/src/retention.e2e.test.ts
+@@ -81,10 +81,16 @@ maybe('retention e2e', () => {
+         ],
+       })
+     }
+-    // D1 ops: one terminal/old, one pending/old, one fresh.
++    // D1 ops: one terminal/old, one pending/old, one fresh. Ops can only
++    // target a database that exists on this cell.
++    const db = await call('POST', `/api/v1/cells/${cell}/d1/databases`, {
++      teamId: team,
++      name: `ret-db-${suffix}`.slice(0, 63),
++    })
++    const databaseId = db.body.data.database.database_id as string
+     for (const kind of ['EXECUTE', 'DROP', 'EXECUTE']) {
+       await call('POST', `/api/v1/cells/${cell}/d1-ops`, {
+-        databaseId: 'a'.repeat(26),
++        databaseId,
+         kind,
+         payload: { sql: 'select 1' },
+       })
+@@ -111,7 +117,7 @@ maybe('retention e2e', () => {
+     // One expired PENDING D1 op and one expired PENDING cell op: they can
+     // never be dispatched, so the sweep reclaims them (one-day grace).
+     await call('POST', `/api/v1/cells/${cell}/d1-ops`, {
+-      databaseId: 'a'.repeat(26),
++      databaseId,
+       kind: 'EXECUTE',
+       payload: { sql: 'select 2' },
+     })
+diff --git a/scripts/e2e-docker.mjs b/scripts/e2e-docker.mjs
+index c72be40..51c4f5f 100644
+--- a/scripts/e2e-docker.mjs
++++ b/scripts/e2e-docker.mjs
+@@ -149,8 +149,15 @@ async function main() {
+   assert.equal(r.status, 200, JSON.stringify(r.body))
+   assert.equal(r.body.data.ackStatus, 'APPLIED')
+ 
++  // Ops only target databases that exist on this cell — create one first.
++  r = await request('POST', `/api/v1/cells/${cell}/d1/databases`, {
++    teamId: team,
++    name: 'ops-db',
++  })
++  assert.equal(r.status, 201, JSON.stringify(r.body))
++  const opsDbId = r.body.data.database.database_id
+   r = await request('POST', `/api/v1/cells/${cell}/d1-ops`, {
+-    databaseId: 'a'.repeat(26),
++    databaseId: opsDbId,
+     kind: 'EXECUTE',
+     payload: { sql: 'select 1' },
+   })

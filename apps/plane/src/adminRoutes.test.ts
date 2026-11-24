@@ -528,14 +528,28 @@ maybe('management API edges', () => {
     expect(
       (await call(app, 'POST', `${base}/cell-ops`, { kind: 'NOPE_KIND', payload: {} })).status
     ).toBe(400)
-    // Scope fields are server-managed: the dedicated per-resource endpoints
-    // inject tenantId/namespaceId/storageId from verified rows, so a caller
-    // must not write them itself.
-    for (const key of ['tenantId', 'storageId', 'namespaceId', 'bucketName']) {
+    // Resource-scoped kinds are minted only by the dedicated per-resource
+    // endpoints, which inject tenantId/bucketId/… and resource_key from
+    // verified rows — the generic endpoint must not accept them at all.
+    for (const kind of ['R2_GET', 'KV_GET', 'STORAGE_PURGE']) {
       expect(
         (
           await call(app, 'POST', `${base}/cell-ops`, {
-            kind: 'STORAGE_PURGE',
+            kind,
+            resourceKey: 'foreign-resource',
+            payload: {},
+          })
+        ).status
+      ).toBe(400)
+    }
+    // Scope fields are server-managed: the dedicated per-resource endpoints
+    // inject tenantId/namespaceId/bucketId from verified rows, so a caller
+    // must not write them itself.
+    for (const key of ['tenantId', 'storageId', 'namespaceId', 'bucketName', 'bucketId']) {
+      expect(
+        (
+          await call(app, 'POST', `${base}/cell-ops`, {
+            kind: 'WF_CREATE',
             payload: { [key]: 'x' },
           })
         ).status

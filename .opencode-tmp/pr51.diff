@@ -1,0 +1,365 @@
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index f20f3d5..cdd0910 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -23,7 +23,7 @@ jobs:
+       - run: pnpm run typecheck
+       - run: pnpm run check:package
+       - run: pnpm run check:sanitized
+-      - run: PLANE_ADMIN_TOKEN=y PLANE_SIGNING_SECRET=z PLANE_SECRETS_KEY=k CONSOLE_AUTH_PASSWORD=c docker compose config -q
++      - run: PLANE_ADMIN_TOKEN=y PLANE_SIGNING_SECRET=zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz PLANE_SECRETS_KEY=k CONSOLE_AUTH_PASSWORD=c docker compose config -q
+ 
+   control:
+     runs-on: ubuntu-24.04
+@@ -97,7 +97,7 @@ jobs:
+     runs-on: ubuntu-24.04
+     env:
+       PLANE_ADMIN_TOKEN: docker-e2e-admin-token-0123456789ab
+-      PLANE_SIGNING_SECRET: docker-e2e-signing-secret
++      PLANE_SIGNING_SECRET: docker-e2e-signing-secret-0123456789
+       PLANE_SECRETS_KEY: docker-e2e-secrets-key-0123456789
+       CONSOLE_AUTH_PASSWORD: docker-e2e-console-password
+     steps:
+@@ -116,7 +116,7 @@ jobs:
+     timeout-minutes: 20
+     env:
+       PLANE_ADMIN_TOKEN: kind-e2e-admin-token-0123456789abcd
+-      PLANE_SIGNING_SECRET: kind-e2e-signing-secret
++      PLANE_SIGNING_SECRET: kind-e2e-signing-secret-0123456789
+       PLANE_SECRETS_KEY: kind-e2e-secrets-key-0123456789ab
+       CONSOLE_AUTH_PASSWORD: kind-e2e-console-password
+       KIND_CLUSTER: openflare-e2e
+@@ -154,7 +154,7 @@ jobs:
+     env:
+       DATABASE_URL: postgresql://vrt:vrt@127.0.0.1:5432/openflare_plane_test
+       PLANE_ADMIN_TOKEN: fullstack-admin-token-0123456789abcdef
+-      PLANE_SIGNING_SECRET: fullstack-signing-secret-1234
++      PLANE_SIGNING_SECRET: fullstack-signing-secret-0123456789abcdef
+       PLANE_SECRETS_KEY: fullstack-secrets-key-0123456789abcdef
+       RUNTIME_DIR: ${{ github.workspace }}/openflare
+       WORKERD_BIN: ${{ github.workspace }}/openflare/.ci/workerd/workerd
+@@ -201,7 +201,7 @@ jobs:
+     timeout-minutes: 45
+     env:
+       PLANE_ADMIN_TOKEN: aio-e2e-admin-token-0123456789abcdef
+-      PLANE_SIGNING_SECRET: aio-e2e-signing-secret-01234
++      PLANE_SIGNING_SECRET: aio-e2e-signing-secret-0123456789
+       PLANE_SECRETS_KEY: aio-e2e-secrets-key-0123456789abcdef
+       CONSOLE_AUTH_PASSWORD: aio-e2e-console-password
+       OPENFLARE_DIR: ${{ github.workspace }}/openflare
+diff --git a/apps/plane/src/adminRoutes.test.ts b/apps/plane/src/adminRoutes.test.ts
+index 861092c..973fddd 100644
+--- a/apps/plane/src/adminRoutes.test.ts
++++ b/apps/plane/src/adminRoutes.test.ts
+@@ -76,7 +76,10 @@ maybe('management API edges', () => {
+       adminToken: TOKEN,
+       secrets: TEST_SECRETS_CIPHER,
+     }
+-    app = createApp({ ...deps, signing: resolvePlaneSigningKey('edge-signing-secret-1234') })
++    app = createApp({
++      ...deps,
++      signing: resolvePlaneSigningKey('edge-signing-secret-0123456789abcdef'),
++    })
+     noSigningApp = createApp(deps)
+     await provisionCellToken(cell)
+   })
+diff --git a/apps/plane/src/api.e2e.test.ts b/apps/plane/src/api.e2e.test.ts
+index f19ead3..017f7d6 100644
+--- a/apps/plane/src/api.e2e.test.ts
++++ b/apps/plane/src/api.e2e.test.ts
+@@ -78,7 +78,7 @@ maybe('management API e2e', () => {
+       bundleStore: new MemoryBundles(),
+       adminToken: TOKEN,
+       secrets: TEST_SECRETS_CIPHER,
+-      signing: resolvePlaneSigningKey('e2e-signing-secret-1234'),
++      signing: resolvePlaneSigningKey('e2e-signing-secret-0123456789abcdef'),
+     })
+     await provisionCellToken(cell)
+   })
+diff --git a/apps/plane/src/assets.e2e.test.ts b/apps/plane/src/assets.e2e.test.ts
+index 99e5921..5c832a6 100644
+--- a/apps/plane/src/assets.e2e.test.ts
++++ b/apps/plane/src/assets.e2e.test.ts
+@@ -74,7 +74,7 @@ maybe('assets', () => {
+       pool,
+       bundleStore: new MemoryBundles(),
+       adminToken: TOKEN,
+-      signing: resolvePlaneSigningKey('assets-signing-secret-1234'),
++      signing: resolvePlaneSigningKey('assets-signing-secret-0123456789abcdef'),
+       secrets: createSecretsCipher('assets-secrets-key'),
+       assetStore: assets,
+     })
+diff --git a/apps/plane/src/cellReport.e2e.test.ts b/apps/plane/src/cellReport.e2e.test.ts
+index 8e424d3..957ec6e 100644
+--- a/apps/plane/src/cellReport.e2e.test.ts
++++ b/apps/plane/src/cellReport.e2e.test.ts
+@@ -64,7 +64,7 @@ maybe('cell report e2e', () => {
+       bundleStore: new NoBundles(),
+       adminToken: TOKEN,
+       secrets: TEST_SECRETS_CIPHER,
+-      signing: resolvePlaneSigningKey('cell-report-signing-secret-1234'),
++      signing: resolvePlaneSigningKey('cell-report-signing-secret-0123456789abcdef'),
+     })
+     await provisionCellToken(cell)
+   })
+diff --git a/apps/plane/src/publish.test.ts b/apps/plane/src/publish.test.ts
+index 24f2b42..220b2b5 100644
+--- a/apps/plane/src/publish.test.ts
++++ b/apps/plane/src/publish.test.ts
+@@ -50,7 +50,7 @@ maybe('publishCell', () => {
+   })
+ 
+   it('increments the revision and records a verifiable signed envelope', async () => {
+-    const signing = resolvePlaneSigningKey('publish-test-secret-1234')
++    const signing = resolvePlaneSigningKey('publish-test-secret-0123456789abcdef')
+     const first = await publishCell(store, { cellId: cluster, signing })
+     const second = await publishCell(store, {
+       cellId: cluster,
+@@ -76,7 +76,7 @@ maybe('publishCell', () => {
+   })
+ 
+   it('serializes concurrent publishes on the cell row', async () => {
+-    const signing = resolvePlaneSigningKey('publish-test-secret-1234')
++    const signing = resolvePlaneSigningKey('publish-test-secret-0123456789abcdef')
+     const revisions = await Promise.all(
+       Array.from({ length: 4 }, () => publishCell(store, { cellId: cluster, signing }))
+     )
+diff --git a/apps/plane/src/retention.e2e.test.ts b/apps/plane/src/retention.e2e.test.ts
+index 079f34b..5a97b9c 100644
+--- a/apps/plane/src/retention.e2e.test.ts
++++ b/apps/plane/src/retention.e2e.test.ts
+@@ -51,7 +51,7 @@ maybe('retention e2e', () => {
+       bundleStore: new NoBundles(),
+       adminToken: TOKEN,
+       secrets: TEST_SECRETS_CIPHER,
+-      signing: resolvePlaneSigningKey('retention-signing-secret'),
++      signing: resolvePlaneSigningKey('retention-signing-secret-0123456789abcdef'),
+     })
+     await provisionCellToken(cell)
+   })
+diff --git a/apps/plane/src/routes.test.ts b/apps/plane/src/routes.test.ts
+index 2e05591..d56a809 100644
+--- a/apps/plane/src/routes.test.ts
++++ b/apps/plane/src/routes.test.ts
+@@ -70,7 +70,7 @@ maybe('reference plane routes', () => {
+     pool = new Pool({ connectionString: url })
+     await pool.query(await readFile(new URL('./schema.sql', import.meta.url), 'utf8'))
+     store = createPlaneStore(pool)
+-    signing = resolvePlaneSigningKey('routes-test-secret-1234')
++    signing = resolvePlaneSigningKey('routes-test-secret-0123456789abcdef')
+     bundles = new MemoryBundles()
+     app = createApp({ store, pool, bundleStore: bundles, secrets: TEST_SECRETS_CIPHER })
+     await provisionCellToken(cluster)
+diff --git a/apps/plane/src/seed.ts b/apps/plane/src/seed.ts
+index 34b56a8..5682d12 100644
+--- a/apps/plane/src/seed.ts
++++ b/apps/plane/src/seed.ts
+@@ -2,8 +2,10 @@
+  * Minimal deploy path: create/ensure a worker + version and publish a
+  * signed desired snapshot. Usage:
+  *   tsx src/seed.ts --cluster <cell> --team <team> --name <worker> \
+- *       --version <ver> --digest <sha256> [--var KEY=VALUE]... [--secret KEY=VALUE]...
++ *       --version <ver> --digest <sha256> [--var KEY=VALUE]... [--secret KEY]...
+  *       [--hostname h]
++ * Secret values are read from SEED_SECRET_<KEY> so they never touch argv,
++ * `ps` output or shell history.
+  */
+ import { Pool } from 'pg'
+ import { createPlaneStore } from './store.js'
+@@ -76,19 +78,27 @@ try {
+       [worker!.id, key, rest.join('=')]
+     )
+   }
+-  const secretKvs = all('secret')
+-  if (secretKvs.length > 0) {
++  const secretKeys = all('secret')
++  if (secretKeys.length > 0) {
+     const secretsKey = process.env.PLANE_SECRETS_KEY
+     if (!secretsKey || secretsKey.length < 32) {
+       throw new Error('PLANE_SECRETS_KEY must be at least 32 characters when --secret is used')
+     }
+     const secretsCipher = createSecretsCipher(secretsKey)
+-    for (const kv of secretKvs) {
+-      const [key, ...rest] = kv.split('=')
++    for (const key of secretKeys) {
++      // KEY=VALUE on argv would leak the value into `ps` and shell history —
++      // the value comes from the environment only.
++      if (key.includes('=')) {
++        throw new Error('--secret takes a KEY only; export SEED_SECRET_<KEY>=<value> instead')
++      }
++      const value = process.env[`SEED_SECRET_${key}`]
++      if (value === undefined) {
++        throw new Error(`SEED_SECRET_${key} is required for --secret ${key}`)
++      }
+       await pool.query(
+         `insert into plane_secrets (worker_id, key, value) values ($1,$2,$3)
+          on conflict (worker_id, key) do update set value=excluded.value`,
+-        [worker!.id, key, secretsCipher.encrypt(rest.join('='))]
++        [worker!.id, key, secretsCipher.encrypt(value)]
+       )
+     }
+   }
+diff --git a/apps/plane/src/services.e2e.test.ts b/apps/plane/src/services.e2e.test.ts
+index cfdca53..22fc8a6 100644
+--- a/apps/plane/src/services.e2e.test.ts
++++ b/apps/plane/src/services.e2e.test.ts
+@@ -59,7 +59,7 @@ maybe('service resource API e2e', () => {
+       bundleStore: new NoBundles(),
+       adminToken: TOKEN,
+       secrets: TEST_SECRETS_CIPHER,
+-      signing: resolvePlaneSigningKey('services-signing-secret-1234'),
++      signing: resolvePlaneSigningKey('services-signing-secret-0123456789abcdef'),
+     })
+     await provisionCellToken(cell)
+   })
+diff --git a/apps/plane/src/signing.test.ts b/apps/plane/src/signing.test.ts
+index bb08afe..5719f10 100644
+--- a/apps/plane/src/signing.test.ts
++++ b/apps/plane/src/signing.test.ts
+@@ -5,26 +5,28 @@ import { resolvePlaneSigningKey } from './signing.js'
+ 
+ describe('plane signing key', () => {
+   it('derives a stable Ed25519 context from the secret', () => {
+-    const a = resolvePlaneSigningKey('unit-test-secret-1234')
+-    const b = resolvePlaneSigningKey('unit-test-secret-1234')
++    const a = resolvePlaneSigningKey('unit-test-secret-0123456789abcdef')
++    const b = resolvePlaneSigningKey('unit-test-secret-0123456789abcdef')
+     expect(a.keyId).toBe(b.keyId)
+     expect(a.publicKey).toBe(b.publicKey)
+     expect(a.keyId).toMatch(/^[0-9a-f]{24}$/)
+   })
+ 
+   it('derives a different key for a different secret', () => {
+-    expect(resolvePlaneSigningKey('unit-test-secret-1234').keyId).not.toBe(
+-      resolvePlaneSigningKey('unit-test-secret-5678').keyId
++    expect(resolvePlaneSigningKey('unit-test-secret-0123456789abcdef').keyId).not.toBe(
++      resolvePlaneSigningKey('unit-test-secret-5678-0123456789abcdef').keyId
+     )
+   })
+ 
+   it('rejects a short or missing secret', () => {
+     expect(() => resolvePlaneSigningKey('short')).toThrow(/PLANE_SIGNING_SECRET/)
++    expect(() => resolvePlaneSigningKey('x'.repeat(31))).toThrow(/PLANE_SIGNING_SECRET/)
++    expect(resolvePlaneSigningKey('x'.repeat(32)).keyId).toMatch(/^[0-9a-f]{24}$/)
+     expect(() => resolvePlaneSigningKey(undefined)).toThrow(/PLANE_SIGNING_SECRET/)
+   })
+ 
+   it('produces envelopes a cell can verify with the printed public key', () => {
+-    const signing = resolvePlaneSigningKey('unit-test-secret-1234')
++    const signing = resolvePlaneSigningKey('unit-test-secret-0123456789abcdef')
+     const signed = signSnapshotProtocolEnvelope({
+       kind: 'compute.desired',
+       scope: 'cell:c1',
+diff --git a/apps/plane/src/signing.ts b/apps/plane/src/signing.ts
+index 51069ef..f25314f 100644
+--- a/apps/plane/src/signing.ts
++++ b/apps/plane/src/signing.ts
+@@ -10,8 +10,8 @@ import type { SnapshotSigningContext } from 'openflare-control'
+ export function resolvePlaneSigningKey(
+   secret = process.env.PLANE_SIGNING_SECRET
+ ): SnapshotSigningContext {
+-  if (!secret || secret.length < 16) {
+-    throw new Error('PLANE_SIGNING_SECRET must be at least 16 characters')
++  if (!secret || secret.length < 32) {
++    throw new Error('PLANE_SIGNING_SECRET must be at least 32 characters')
+   }
+   const seed = Buffer.from(
+     hkdfSync(
+diff --git a/apps/plane/src/stats.e2e.test.ts b/apps/plane/src/stats.e2e.test.ts
+index ea590d0..08bde32 100644
+--- a/apps/plane/src/stats.e2e.test.ts
++++ b/apps/plane/src/stats.e2e.test.ts
+@@ -55,7 +55,7 @@ maybe('management API stats edges', () => {
+       bundleStore: new NoBundles(),
+       adminToken: TOKEN,
+       secrets: TEST_SECRETS_CIPHER,
+-      signing: resolvePlaneSigningKey('stats-signing-secret-1234'),
++      signing: resolvePlaneSigningKey('stats-signing-secret-0123456789abcdef'),
+     })
+     await provisionCellToken(cell)
+   })
+diff --git a/apps/plane/src/vectorize.e2e.test.ts b/apps/plane/src/vectorize.e2e.test.ts
+index 073b5dd..e9af449 100644
+--- a/apps/plane/src/vectorize.e2e.test.ts
++++ b/apps/plane/src/vectorize.e2e.test.ts
+@@ -71,7 +71,7 @@ maybe('vectorize', () => {
+       pool,
+       bundleStore: new MemoryBundles(),
+       adminToken: TOKEN,
+-      signing: resolvePlaneSigningKey('vectorize-signing-secret-1234'),
++      signing: resolvePlaneSigningKey('vectorize-signing-secret-0123456789abcdef'),
+       secrets: createSecretsCipher('vectorize-secrets-key'),
+     })
+     await provisionCellToken(cell)
+diff --git a/apps/plane/src/versionFields.e2e.test.ts b/apps/plane/src/versionFields.e2e.test.ts
+index fc82a3e..d114572 100644
+--- a/apps/plane/src/versionFields.e2e.test.ts
++++ b/apps/plane/src/versionFields.e2e.test.ts
+@@ -82,7 +82,7 @@ maybe('version-scoped fields', () => {
+       pool,
+       bundleStore: new MemoryBundles(),
+       adminToken: TOKEN,
+-      signing: resolvePlaneSigningKey('version-fields-signing-secret'),
++      signing: resolvePlaneSigningKey('version-fields-signing-secret-0123456789abcdef'),
+       secrets: SECRETS,
+     })
+     await provisionCellToken(cell)
+diff --git a/apps/plane/src/workerLifecycle.e2e.test.ts b/apps/plane/src/workerLifecycle.e2e.test.ts
+index e5420ed..3385c5b 100644
+--- a/apps/plane/src/workerLifecycle.e2e.test.ts
++++ b/apps/plane/src/workerLifecycle.e2e.test.ts
+@@ -76,7 +76,7 @@ maybe('worker lifecycle e2e', () => {
+       pool,
+       bundleStore: new MemoryBundles(),
+       adminToken: TOKEN,
+-      signing: resolvePlaneSigningKey('worker-lifecycle-signing-secret'),
++      signing: resolvePlaneSigningKey('worker-lifecycle-signing-secret-0123456789abcdef'),
+       secrets: createSecretsCipher('worker-lifecycle-secrets-key'),
+     })
+     await provisionCellToken(cell)
+diff --git a/docs/fullstack-e2e.md b/docs/fullstack-e2e.md
+index 35f9192..c608257 100644
+--- a/docs/fullstack-e2e.md
++++ b/docs/fullstack-e2e.md
+@@ -42,7 +42,7 @@ cargo build --locked -p cell-controller -p vrt-host --bins   # in ../openflare
+ DATABASE_URL=postgresql://postgres@127.0.0.1:5432/openflare_fullstack \
+ RUNTIME_DIR=../openflare \
+ WORKERD_BIN=../openflare/.ci/workerd/workerd \
+-PLANE_SIGNING_SECRET=fullstack-signing-secret-1234 \
++PLANE_SIGNING_SECRET=fullstack-signing-secret-0123456789abcdef \
+ PLANE_SECRETS_KEY=fullstack-secrets-key-0123456789abcdef \
+ PLANE_ADMIN_TOKEN=fullstack-admin-token-0123456789abcdef \
+ node scripts/e2e-fullstack.mjs
+diff --git a/packages/control/src/cellSync.ts b/packages/control/src/cellSync.ts
+index 223d9ad..e048b5b 100644
+--- a/packages/control/src/cellSync.ts
++++ b/packages/control/src/cellSync.ts
+@@ -104,7 +104,13 @@ export async function recordDesiredAck(
+   // F5: the cell's persisted fence is the floor the control plane must
+   // not sign under — raise the stored counter toward it inside the
+   // per-cell lock (bounded delta; anomalies are warned, not raised).
+-  await store.raiseCellRevisionFloor(publication.clusterId, input.fenceRevision)
++  const floor = await store.raiseCellRevisionFloor(publication.clusterId, input.fenceRevision)
++  if (floor === 'rejected') {
++    log.warn(
++      { cellId, revision: input.revision, fenceRevision: input.fenceRevision },
++      '[Workers] cell-reported fenceRevision rejected by the bounded revision floor'
++    )
++  }
+   // T21: capability bits ride the same ACK — latest report wins. Only a
+   // syntactically-present field writes; old cells keep null.
+   if (input.capabilities) {
+diff --git a/scripts/e2e-fullstack.mjs b/scripts/e2e-fullstack.mjs
+index 2b7559a..8f0753d 100644
+--- a/scripts/e2e-fullstack.mjs
++++ b/scripts/e2e-fullstack.mjs
+@@ -37,7 +37,8 @@ const PLANE_URL = `http://127.0.0.1:${PLANE_PORT}`
+ const STUB = process.env.FULLSTACK_STUB === '1'
+ const KEEP = process.env.FULLSTACK_KEEP === '1'
+ const ADMIN_TOKEN = process.env.PLANE_ADMIN_TOKEN ?? 'fullstack-admin-token-0123456789abcdef'
+-const SIGNING_SECRET = process.env.PLANE_SIGNING_SECRET ?? 'fullstack-signing-secret-1234'
++const SIGNING_SECRET =
++  process.env.PLANE_SIGNING_SECRET ?? 'fullstack-signing-secret-0123456789abcdef'
+ const SECRETS_KEY = process.env.PLANE_SECRETS_KEY ?? 'fullstack-secrets-key-0123456789abcdef'
+ const DATABASE_URL = process.env.DATABASE_URL
+ if (!DATABASE_URL) throw new Error('DATABASE_URL is required')

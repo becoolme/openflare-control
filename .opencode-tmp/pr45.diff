@@ -1,0 +1,83 @@
+diff --git a/apps/plane/src/renderInputs.ts b/apps/plane/src/renderInputs.ts
+index bade155..8ee418f 100644
+--- a/apps/plane/src/renderInputs.ts
++++ b/apps/plane/src/renderInputs.ts
+@@ -56,25 +56,35 @@ export async function collectRenderInputs(
+     const secretRows = await pool.query('select key, value from plane_secrets where worker_id=$1', [
+       worker.id,
+     ])
+-    let storeSecrets = storeSecretsByTeam.get(worker.team_id)
+-    if (!storeSecrets) {
+-      storeSecrets = {}
+-      const storeRows = await pool.query(
+-        'select store_id, secret_name, value from plane_secrets_store where team_id=$1',
+-        [worker.team_id]
+-      )
+-      for (const row of storeRows.rows as {
+-        store_id: string
+-        secret_name: string
+-        value: string
+-      }[]) {
+-        storeSecrets[`secrets-store:${row.store_id}:${row.secret_name}`] = secrets.decrypt(
+-          row.value
++    // Ship only the secrets-store values an active version actually binds —
++    // the rest of the team's store rows must not leave the plane just because
++    // a worker on the same team is deployed here.
++    const boundRefs = storeRefsByTeam.get(worker.team_id)
++    if (boundRefs && boundRefs.size > 0) {
++      let storeSecrets = storeSecretsByTeam.get(worker.team_id)
++      if (!storeSecrets) {
++        storeSecrets = {}
++        const storeRows = await pool.query(
++          'select store_id, secret_name, value from plane_secrets_store where team_id=$1',
++          [worker.team_id]
+         )
++        for (const row of storeRows.rows as {
++          store_id: string
++          secret_name: string
++          value: string
++        }[]) {
++          storeSecrets[`secrets-store:${row.store_id}:${row.secret_name}`] = secrets.decrypt(
++            row.value
++          )
++        }
++        storeSecretsByTeam.set(worker.team_id, storeSecrets)
++      }
++      for (const ref of boundRefs) {
++        const key = `secrets-store:${ref}`
++        const value = storeSecrets[key]
++        if (value !== undefined) tenant.secrets[key] = value
+       }
+-      storeSecretsByTeam.set(worker.team_id, storeSecrets)
+     }
+-    Object.assign(tenant.secrets, storeSecrets)
+     for (const row of secretRows.rows as { key: string; value: string }[]) {
+       const plaintext = secrets.decrypt(row.value)
+       tenant.secrets[row.key] = plaintext
+diff --git a/apps/plane/src/services.e2e.test.ts b/apps/plane/src/services.e2e.test.ts
+index cfdca53..7a57fbb 100644
+--- a/apps/plane/src/services.e2e.test.ts
++++ b/apps/plane/src/services.e2e.test.ts
+@@ -509,6 +509,22 @@ maybe('service resource API e2e', () => {
+     })
+     const secretBody = (await secretInputs.json()) as any
+     expect(secretBody.tenants[team].secrets['secrets-store:default:API_KEY']).toBe('store-secret')
++
++    // A secrets-store value no active binding references must NOT ship to
++    // the cell — disclosure is scoped to what deployments actually bind.
++    expect(
++      (
++        await call('PUT', `/api/v1/cells/${cell}/teams/${team}/secrets-store/default/UNBOUND`, {
++          value: 'never-ship',
++        })
++      ).status
++    ).toBe(200)
++    const reboundInputs = await app.request(`/api/internal/clusters/${cell}/vrt/render-inputs`, {
++      headers: auth,
++    })
++    const reboundBody = (await reboundInputs.json()) as any
++    expect(reboundBody.tenants[team].secrets['secrets-store:default:UNBOUND']).toBeUndefined()
++    expect(reboundBody.tenants[team].secrets['secrets-store:default:API_KEY']).toBe('store-secret')
+     const secretsDesired = await app.request(`/api/internal/clusters/${cell}/vrt/desired`, {
+       headers: auth,
+     })

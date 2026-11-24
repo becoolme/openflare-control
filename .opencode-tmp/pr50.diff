@@ -1,0 +1,168 @@
+diff --git a/apps/plane/src/assetRetention.test.ts b/apps/plane/src/assetRetention.test.ts
+index 17067ae..46ed707 100644
+--- a/apps/plane/src/assetRetention.test.ts
++++ b/apps/plane/src/assetRetention.test.ts
+@@ -109,4 +109,38 @@ maybe('asset retention', () => {
+       ).rowCount
+     ).toBe(0)
+   })
++
++  it('reclaims rows with corrupt stored digests instead of aborting the sweep', async () => {
++    // A malformed digest can't name a file: assertDigest would throw and
++    // wedge every future sweep behind the same poisoned row. The sweep must
++    // drop the row and carry on.
++    await pool.query(
++      `insert into plane_asset_manifests (team_id, digest, total_bytes, objects, created_at)
++       values ($1,'not-a-digest',1,'[]',now() - interval '30 days')`,
++      [team]
++    )
++    await pool.query(
++      `insert into plane_asset_objects (team_id, digest, bytes, created_at)
++       values ($1,'also-bad',1,now() - interval '30 days')`,
++      [team]
++    )
++    const store = new MemoryAssetStore()
++    const report = await pruneAssets(pool, store, 7)
++    expect(report.manifestsDeleted).toBeGreaterThanOrEqual(1)
++    expect(report.objectsDeleted).toBeGreaterThanOrEqual(1)
++    expect(
++      (
++        await pool.query(
++          "select count(*)::int as n from plane_asset_manifests where digest='not-a-digest'"
++        )
++      ).rows[0]!.n
++    ).toBe(0)
++    expect(
++      (
++        await pool.query(
++          "select count(*)::int as n from plane_asset_objects where digest='also-bad'"
++        )
++      ).rows[0]!.n
++    ).toBe(0)
++  })
+ })
+diff --git a/apps/plane/src/assetRetention.ts b/apps/plane/src/assetRetention.ts
+index 202cbc3..624ae81 100644
+--- a/apps/plane/src/assetRetention.ts
++++ b/apps/plane/src/assetRetention.ts
+@@ -64,7 +64,11 @@ export async function pruneAssets(
+     )
+     if (expired.length === 0) break
+     for (const row of expired) {
+-      await assets.deleteManifest(row.team_id, row.digest)
++      // A corrupt stored digest can't name a file — drop only the row, and
++      // never let assertDigest abort the whole sweep.
++      if (/^[0-9a-f]{64}$/.test(row.digest)) {
++        await assets.deleteManifest(row.team_id, row.digest)
++      }
+       await pool.query('delete from plane_asset_manifests where team_id=$1 and digest=$2', [
+         row.team_id,
+         row.digest,
+@@ -88,7 +92,9 @@ export async function pruneAssets(
+     )
+     if (expired.length === 0) break
+     for (const row of expired) {
+-      await assets.deleteObject(row.team_id, row.digest)
++      if (/^[0-9a-f]{64}$/.test(row.digest)) {
++        await assets.deleteObject(row.team_id, row.digest)
++      }
+       await pool.query('delete from plane_asset_objects where team_id=$1 and digest=$2', [
+         row.team_id,
+         row.digest,
+diff --git a/apps/plane/src/assets.e2e.test.ts b/apps/plane/src/assets.e2e.test.ts
+index 99e5921..4e067f5 100644
+--- a/apps/plane/src/assets.e2e.test.ts
++++ b/apps/plane/src/assets.e2e.test.ts
+@@ -273,6 +273,22 @@ maybe('assets', () => {
+       ).status
+     ).toBe(404)
+ 
++    // A corrupt manifest digest stored inside a publication must skip the
++    // row, not throw a 500 out of assertDigest inside the asset store.
++    await pool.query(
++      `update plane_publications
++          set envelope = jsonb_set(envelope, '{payload,tenants,0,workers,0,bindings,0,manifestDigest}', '"garbage"')
++        where cell_id=$1`,
++      [cell]
++    )
++    expect(
++      (
++        await app.request(`/api/internal/clusters/${cell}/vrt/assets/objects/${objectDigest}`, {
++          headers: auth,
++        })
++      ).status
++    ).toBe(404)
++
+     // A version referencing an un-uploaded manifest fails at create.
+     expect(
+       (
+diff --git a/apps/plane/src/bundleStore.test.ts b/apps/plane/src/bundleStore.test.ts
+index 0b83592..5e89de4 100644
+--- a/apps/plane/src/bundleStore.test.ts
++++ b/apps/plane/src/bundleStore.test.ts
+@@ -1,4 +1,4 @@
+-import { mkdtempSync, rmSync } from 'node:fs'
++import { mkdtempSync, readdirSync, rmSync } from 'node:fs'
+ import { tmpdir } from 'node:os'
+ import { join } from 'node:path'
+ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+@@ -36,4 +36,19 @@ describe('filesystem bundle store', () => {
+     expect(await store.get('../../etc/passwd')).toBeNull()
+     expect(await store.get('workers/v1/bundles/not-a-digest')).toBeNull()
+   })
++
++  it('leaves only the digest file — no partial writes at the content address', async () => {
++    const digest = '2'.repeat(64)
++    await store.put(bundleKeyFor(digest), new TextEncoder().encode('v1'))
++    await store.put(bundleKeyFor(digest), new TextEncoder().encode('v2'))
++    // tmp+rename: the directory holds only finished, digest-named objects —
++    // never a stranded .tmp — and a repeat put replaces it atomically.
++    const files = readdirSync(dir)
++    expect(files).toContain(digest)
++    expect(files.every((f) => /^[0-9a-f]{64}$/.test(f))).toBe(true)
++    const object = await store.get(bundleKeyFor(digest))
++    expect(new Uint8Array(await new Response(object!.stream).arrayBuffer())).toEqual(
++      new TextEncoder().encode('v2')
++    )
++  })
+ })
+diff --git a/apps/plane/src/bundleStore.ts b/apps/plane/src/bundleStore.ts
+index 8f3c4b9..133add2 100644
+--- a/apps/plane/src/bundleStore.ts
++++ b/apps/plane/src/bundleStore.ts
+@@ -1,6 +1,7 @@
+ /** Filesystem BundleStore for the reference plane (`PLANE_BUNDLE_DIR`). */
+-import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
++import { mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises'
+ import { join } from 'node:path'
++import { randomUUID } from 'node:crypto'
+ import type { BundleStore } from 'openflare-control'
+ 
+ export class DirBundleStore implements BundleStore {
+@@ -14,7 +15,11 @@ export class DirBundleStore implements BundleStore {
+     const digest = key.split('/').pop() ?? ''
+     if (!/^[0-9a-f]{64}$/.test(digest)) throw new Error('bundle key must end in a 64-hex digest')
+     await mkdir(this.dir, { recursive: true })
+-    await writeFile(join(this.dir, digest), body)
++    // Crash mid-write must never leave a partial bundle at the digest path —
++    // readers treat the file as the content-addressed truth.
++    const tmp = join(this.dir, `${digest}.${randomUUID()}.tmp`)
++    await writeFile(tmp, body)
++    await rename(tmp, join(this.dir, digest))
+     return { key, sha256: digest }
+   }
+ 
+diff --git a/apps/plane/src/routes.ts b/apps/plane/src/routes.ts
+index 1a88f29..54647c8 100644
+--- a/apps/plane/src/routes.ts
++++ b/apps/plane/src/routes.ts
+@@ -283,6 +283,9 @@ export function createApp(deps: AppDeps): Hono {
+       )
+       for (const row of rows as { team_id?: string; manifest?: string }[]) {
+         if (!row.team_id || !row.manifest) continue
++        // A corrupt stored digest must skip the row, not throw a 500 out of
++        // assertDigest inside the store.
++        if (!/^[0-9a-f]{64}$/.test(row.manifest)) continue
+         const manifest = await store.getManifest(row.team_id, row.manifest)
+         if (!manifest) continue
+         let parsed: { files?: { sha256?: unknown }[] }
