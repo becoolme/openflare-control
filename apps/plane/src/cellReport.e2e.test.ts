@@ -64,7 +64,7 @@ maybe('cell report e2e', () => {
       bundleStore: new NoBundles(),
       adminToken: TOKEN,
       secrets: TEST_SECRETS_CIPHER,
-      signing: resolvePlaneSigningKey('cell-report-signing-secret-1234'),
+      signing: resolvePlaneSigningKey('cell-report-signing-secret-0123456789abcdef'),
     })
     await provisionCellToken(cell)
   })

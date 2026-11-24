@@ -82,7 +82,7 @@ maybe('version-scoped fields', () => {
       pool,
       bundleStore: new MemoryBundles(),
       adminToken: TOKEN,
-      signing: resolvePlaneSigningKey('version-fields-signing-secret'),
+      signing: resolvePlaneSigningKey('version-fields-signing-secret-0123456789abcdef'),
       secrets: SECRETS,
     })
     await provisionCellToken(cell)

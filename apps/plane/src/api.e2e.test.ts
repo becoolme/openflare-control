@@ -78,7 +78,7 @@ maybe('management API e2e', () => {
       bundleStore: new MemoryBundles(),
       adminToken: TOKEN,
       secrets: TEST_SECRETS_CIPHER,
-      signing: resolvePlaneSigningKey('e2e-signing-secret-1234'),
+      signing: resolvePlaneSigningKey('e2e-signing-secret-0123456789abcdef'),
     })
     await provisionCellToken(cell)
   })

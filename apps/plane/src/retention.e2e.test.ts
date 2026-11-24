@@ -51,7 +51,7 @@ maybe('retention e2e', () => {
       bundleStore: new NoBundles(),
       adminToken: TOKEN,
       secrets: TEST_SECRETS_CIPHER,
-      signing: resolvePlaneSigningKey('retention-signing-secret'),
+      signing: resolvePlaneSigningKey('retention-signing-secret-0123456789abcdef'),
     })
     await provisionCellToken(cell)
   })

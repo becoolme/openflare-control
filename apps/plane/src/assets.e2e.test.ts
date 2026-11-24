@@ -74,7 +74,7 @@ maybe('assets', () => {
       pool,
       bundleStore: new MemoryBundles(),
       adminToken: TOKEN,
-      signing: resolvePlaneSigningKey('assets-signing-secret-1234'),
+      signing: resolvePlaneSigningKey('assets-signing-secret-0123456789abcdef'),
       secrets: createSecretsCipher('assets-secrets-key'),
       assetStore: assets,
     })
