@@ -221,6 +221,11 @@ export class PlaneStore {
       varValues: input.varValues,
       bindings: input.bindings,
       queueConsumers: input.queueConsumers ?? [],
+      tailConsumers: input.tailConsumers ?? null,
+      streamingTailConsumers: input.streamingTailConsumers ?? null,
+      versionMetadata: input.versionMetadata ?? null,
+      observability: input.observability ?? null,
+      jsonVars: input.jsonVars ?? null,
       bindingsFingerprint: input.bindingsFingerprint,
       runtimeConfigDigest: input.runtimeConfigDigest,
       assetsRouting: input.assetsRouting ?? null,
@@ -371,11 +376,58 @@ export class PlaneStore {
   async countWfDependents(): Promise<number> {
     return 0
   }
-  async claimAssetsManifest(): Promise<void> {
-    throw new VrtControlError(501, 'assets manifests are not implemented by the reference plane')
+  async claimAssetsManifest(input: {
+    digest: string
+    teamId: string
+    workerId: string
+    objects?: readonly { digest: string; bytes: number }[]
+    totalBytes?: number
+    quotaBytes?: number
+    legacyManifestBytes?: number
+  }): Promise<void> {
+    const total =
+      input.totalBytes ??
+      input.objects?.reduce((sum, object) => sum + object.bytes, 0) ??
+      input.legacyManifestBytes ??
+      0
+    const client = await this.pool.connect()
+    try {
+      await client.query('begin')
+      await client.query('select pg_advisory_xact_lock(hashtext($1))', [
+        `plane-assets:${input.teamId}`,
+      ])
+      const used = await client.query(
+        `select coalesce(sum(total_bytes),0)::bigint as n
+           from plane_asset_manifests where team_id=$1 and digest<>$2`,
+        [input.teamId, input.digest]
+      )
+      if (
+        input.quotaBytes !== undefined &&
+        Number(used.rows[0]?.n ?? 0) + total > input.quotaBytes
+      ) {
+        throw new VrtControlError(409, 'Asset quota exceeded')
+      }
+      await client.query(
+        `insert into plane_asset_manifests (team_id, digest, total_bytes, objects)
+         values ($1,$2,$3,$4)
+         on conflict (team_id, digest) do update set
+           total_bytes=excluded.total_bytes, objects=excluded.objects`,
+        [input.teamId, input.digest, total, JSON.stringify(input.objects ?? [])]
+      )
+      await client.query('commit')
+    } catch (error) {
+      await client.query('rollback')
+      throw error
+    } finally {
+      client.release()
+    }
   }
-  async isAssetsManifestClaimed(): Promise<boolean> {
-    return false
+  async isAssetsManifestClaimed(digest: string, teamId: string): Promise<boolean> {
+    const rows = await this.rows(
+      'select 1 from plane_asset_manifests where team_id=$1 and digest=$2 limit 1',
+      [teamId, digest]
+    )
+    return rows.length > 0
   }
   async latestPublicationForVersion(): Promise<null> {
     return null
@@ -495,8 +547,22 @@ class PlaneCellTx {
   }
 
   async flagshipApps(): Promise<readonly { tenantId: string; appId: string; config: string }[]> {
-    // The reference plane does not store CF Flagship apps yet.
-    return []
+    return (
+      await this.rows(
+        `select a.team_id, a.app_id, a.config
+         from plane_flagship_apps a
+        where a.team_id in (
+          select distinct team_id from plane_workers
+           where cluster_id=$1 and runtime='VRT'
+        )
+        order by a.team_id, a.app_id`,
+        [this.clusterId]
+      )
+    ).map((row) => ({
+      tenantId: String(row.team_id),
+      appId: String(row.app_id),
+      config: String(row.config),
+    }))
   }
 
   async activateVersion(workerId: string, versionId: string): Promise<void> {
@@ -508,6 +574,131 @@ class PlaneCellTx {
       `update plane_versions set status='ACTIVE' where worker_id=$1 and version_id=$2`,
       [workerId, versionId]
     )
+  }
+
+  /** Reference-plane-only: revalidate queue/tail references against the
+   * current rows while holding share locks, so a concurrent delete/suspend
+   * cannot race activation. Kept off VrtCellTx (reference-only hardening). */
+  async assertVersionReferences(
+    teamId: string,
+    workerIdToActivate: string,
+    version: {
+      readonly bindings?: readonly {
+        readonly name?: string
+        readonly type?: string
+        readonly resourceId?: string
+      }[]
+      readonly varValues?: Readonly<Record<string, string>>
+      readonly jsonVars?: Readonly<Record<string, unknown>> | null
+      readonly versionMetadata?: string | null
+      readonly queueConsumers?:
+        | readonly {
+            readonly queueId: string
+            readonly queueName: string
+            readonly deadLetterQueueId: string | null
+          }[]
+        | null
+      readonly tailConsumers?: readonly string[] | null
+      readonly streamingTailConsumers?: readonly string[] | null
+    }
+  ): Promise<void> {
+    for (const consumer of version.queueConsumers ?? []) {
+      const [queue] = await this.rows(
+        `select name from plane_queues
+          where queue_id=$1 and team_id=$2 and cluster_id=$3 for share`,
+        [consumer.queueId, teamId, this.clusterId]
+      )
+      if (!queue) throw new VrtControlError(409, 'Queue consumer target not found')
+      if (String(queue.name) !== consumer.queueName) {
+        throw new VrtControlError(409, 'Queue consumer name does not match the target queue')
+      }
+      if (consumer.deadLetterQueueId !== null) {
+        const [dlq] = await this.rows(
+          `select 1 from plane_queues
+            where queue_id=$1 and team_id=$2 and cluster_id=$3 for share`,
+          [consumer.deadLetterQueueId, teamId, this.clusterId]
+        )
+        if (!dlq) throw new VrtControlError(409, 'Dead-letter queue not found')
+      }
+    }
+    const versionNames = new Set<string>()
+    for (const binding of version.bindings ?? []) {
+      if (typeof binding.name === 'string') versionNames.add(binding.name)
+    }
+    for (const name of Object.keys(version.jsonVars ?? {})) versionNames.add(name)
+    for (const name of Object.keys(version.varValues ?? {})) versionNames.add(name)
+    if (version.versionMetadata) versionNames.add(version.versionMetadata)
+    const workflows = await this.rows(
+      `select binding from plane_workflows where worker_id=$1 and binding is not null`,
+      [workerIdToActivate]
+    )
+    for (const workflow of workflows) {
+      if (versionNames.has(String(workflow.binding))) {
+        throw new VrtControlError(
+          409,
+          `Workflow binding "${String(workflow.binding)}" collides with the activated version`
+        )
+      }
+    }
+
+    for (const binding of version.bindings ?? []) {
+      if (binding.type === 'FLAGSHIP' && typeof binding.resourceId === 'string') {
+        const [app] = await this.rows(
+          `select 1 from plane_flagship_apps
+            where team_id=$1 and app_id=$2 for share`,
+          [teamId, binding.resourceId]
+        )
+        if (!app) throw new VrtControlError(409, 'Flagship app is no longer declared')
+        continue
+      }
+      if (binding.type !== 'DO' || typeof binding.resourceId !== 'string') continue
+      const sep = binding.resourceId.lastIndexOf(':')
+      const declaringId = sep === -1 ? '' : binding.resourceId.slice(0, sep)
+      const className = sep === -1 ? '' : binding.resourceId.slice(sep + 1)
+      const [declaringWorker] = await this.rows(
+        `select id from plane_workers
+          where id=$1 and team_id=$2 and cluster_id=$3 for share`,
+        [declaringId, teamId, this.clusterId]
+      )
+      if (!declaringWorker) {
+        throw new VrtControlError(409, 'DO binding declaring worker is not in this team/cell')
+      }
+      const [declared] = await this.rows(
+        `select 1 from plane_do_classes
+          where worker_id=$1 and class_name=$2 for share`,
+        [declaringId, className]
+      )
+      if (!declared) {
+        throw new VrtControlError(409, `Durable Object class is not declared: ${className}`)
+      }
+    }
+
+    const tailIds = [...(version.tailConsumers ?? []), ...(version.streamingTailConsumers ?? [])]
+    if (tailIds.length === 0) return
+    const found = await this.rows(
+      `select id from plane_workers
+        where id = any($1::text[]) and team_id=$2 and cluster_id=$3
+          and runtime='VRT' and status='ACTIVE' and active_version_id is not null
+        for share`,
+      [tailIds, teamId, this.clusterId]
+    )
+    if (found.length !== tailIds.length) {
+      throw new VrtControlError(409, 'Tail consumer target is not an active worker')
+    }
+  }
+
+  /** Reference-plane-only: replace the worker's render-input vars with the
+   * activated version's values inside the same cell transaction. Kept off
+   * VrtCellTx so other store implementations are not forced to grow it. */
+  async applyVersionVars(workerId: string, vars: Readonly<Record<string, string>>): Promise<void> {
+    await this.client.query('delete from plane_vars where worker_id=$1', [workerId])
+    for (const [key, value] of Object.entries(vars)) {
+      await this.client.query(
+        `insert into plane_vars (worker_id, key, value) values ($1,$2,$3)
+         on conflict (worker_id, key) do update set value=excluded.value`,
+        [workerId, key, value]
+      )
+    }
   }
 
   async applyDoClasses(): Promise<readonly never[]> {
@@ -642,6 +833,20 @@ class PlaneCellTx {
         `select hostname from plane_hostnames where worker_id=$1 and status='VERIFIED'`,
         [r.id as string]
       )
+      const workflows = await this.rows(
+        `select name, binding, class_name, unique_key, limits_steps, service_worker_id,
+                success_retention_ms, error_retention_ms, concurrency_limit
+           from plane_workflows
+          where worker_id=$1 and binding is not null and unique_key is not null
+          order by name`,
+        [r.id as string]
+      )
+      const doClasses = await this.rows(
+        `select class_name, unique_key, enable_sql, transfer_from_worker_id
+           from plane_do_classes
+          where worker_id=$1 order by class_name`,
+        [r.id as string]
+      )
       out.push({
         workerId: r.id as string,
         teamId: r.team_id as string,
@@ -653,8 +858,37 @@ class PlaneCellTx {
         bindings: version.bindings,
         hostnames: hostnames.map((h) => h.hostname as string),
         crons: version.crons,
+        queueConsumers: version.queueConsumers ?? [],
+        workflows: workflows.map((w) => ({
+          name: String(w.name),
+          binding: String(w.binding),
+          className: String(w.class_name),
+          uniqueKey: String(w.unique_key),
+          limitsSteps: w.limits_steps == null ? null : Number(w.limits_steps),
+          successRetentionMs:
+            w.success_retention_ms == null ? null : Number(w.success_retention_ms),
+          errorRetentionMs: w.error_retention_ms == null ? null : Number(w.error_retention_ms),
+          concurrencyLimit: w.concurrency_limit == null ? null : Number(w.concurrency_limit),
+          serviceWorkerId: (w.service_worker_id as string | null) ?? null,
+        })),
+        durableObjectClasses: doClasses.map((c) => ({
+          className: String(c.class_name),
+          uniqueKey: String(c.unique_key),
+          enableSql: c.enable_sql === true,
+          ...(c.transfer_from_worker_id
+            ? { transferFromWorkerId: String(c.transfer_from_worker_id) }
+            : {}),
+        })),
+        tailConsumers: version.tailConsumers ?? [],
+        streamingTailConsumers: version.streamingTailConsumers ?? [],
+        versionMetadata: version.versionMetadata ?? null,
+        observability: version.observability ?? null,
+        jsonVars: version.jsonVars ?? null,
         quotas: version.quotas,
-        changedAt: version.createdAt,
+        assetsRouting: version.assetsRouting ?? null,
+        assetsRunWorkerFirst: version.assetsRunWorkerFirst ?? [],
+        changedAt:
+          version.createdAt instanceof Date ? version.createdAt : new Date(version.createdAt),
       } as VrtCellWorkerView)
     }
     return out

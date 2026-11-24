@@ -30,13 +30,18 @@ export function registerLogs(app: Hono, deps: AdminDeps): void {
       (await c.req.text()) ? await readJson(c) : {}
     )
     const base = deps.retention ?? retentionFromEnv()
-    const result = await pruneRetention(deps.pool, deps.store, {
-      ...base,
-      keepPerCell: body.keepPerCell ?? base.keepPerCell,
-      logRetentionDays: body.logRetentionDays ?? base.logRetentionDays,
-      opsRetentionDays: body.opsRetentionDays ?? base.opsRetentionDays,
-      metricsRetentionDays: body.metricsRetentionDays ?? base.metricsRetentionDays,
-    })
+    const result = await pruneRetention(
+      deps.pool,
+      deps.store,
+      {
+        ...base,
+        keepPerCell: body.keepPerCell ?? base.keepPerCell,
+        logRetentionDays: body.logRetentionDays ?? base.logRetentionDays,
+        opsRetentionDays: body.opsRetentionDays ?? base.opsRetentionDays,
+        metricsRetentionDays: body.metricsRetentionDays ?? base.metricsRetentionDays,
+      },
+      deps.assetStore
+    )
     return c.json({ data: result })
   })
 }

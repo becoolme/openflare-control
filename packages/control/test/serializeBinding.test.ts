@@ -142,6 +142,12 @@ describe('serializeBinding', () => {
   })
 
   it('DO names the declaring worker only for cross-worker classes', () => {
+    expect(binding({ type: 'DO', resourceId: 'team-a:w2:Klass' })).toEqual({
+      type: 'durableObject',
+      name: 'B',
+      className: 'Klass',
+      serviceWorkerId: 'team-a:w2',
+    })
     expect(binding({ type: 'DO', resourceId: 'w2:Klass' })).toEqual({
       type: 'durableObject',
       name: 'B',
@@ -154,6 +160,55 @@ describe('serializeBinding', () => {
       className: 'Klass',
     })
     expect(() => binding({ type: 'DO', resourceId: 'no-colon' })).toThrow(/durableObject/)
+  })
+
+  it('SECRETS_STORE carries the store/secret ref', () => {
+    expect(
+      binding({
+        type: 'SECRETS_STORE',
+        resourceId: 'ignored',
+        storeId: 'default',
+        secretName: 'API_KEY',
+      })
+    ).toEqual({
+      type: 'secretsStore',
+      name: 'B',
+      storeId: 'default',
+      secretName: 'API_KEY',
+      secretRef: 'secrets-store:default:API_KEY',
+    })
+    expect(() => binding({ type: 'SECRETS_STORE', resourceId: 'ignored' })).toThrow(
+      /bindings.storeId/
+    )
+  })
+
+  it('VECTORIZE carries the signed index spec', () => {
+    expect(
+      binding({
+        type: 'VECTORIZE',
+        resourceId: 'a'.repeat(26),
+        indexName: 'docs-index',
+        dimensions: 768,
+        metric: 'cosine',
+      })
+    ).toEqual({
+      type: 'vectorize',
+      name: 'B',
+      indexId: 'a'.repeat(26),
+      indexName: 'docs-index',
+      dimensions: 768,
+      metric: 'cosine',
+      permissions: { read: true, write: false },
+    })
+    expect(() =>
+      binding({
+        type: 'VECTORIZE',
+        resourceId: 'a'.repeat(26),
+        indexName: 'docs-index',
+        dimensions: 1537,
+        metric: 'cosine',
+      })
+    ).toThrow(/vectorize/)
   })
 
   it('ASSETS carries the manifest digest and the version routing mode', () => {

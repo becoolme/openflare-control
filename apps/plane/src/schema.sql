@@ -116,11 +116,56 @@ create table if not exists plane_hostnames (
   unique (hostname, worker_id)
 );
 
+create table if not exists plane_asset_objects (
+  team_id text not null,
+  digest text not null,
+  bytes bigint not null check (bytes >= 0),
+  created_at timestamptz not null default now(),
+  primary key (team_id, digest)
+);
+
+create table if not exists plane_asset_manifests (
+  team_id text not null,
+  digest text not null,
+  total_bytes bigint not null default 0,
+  objects jsonb not null default '[]'::jsonb,
+  created_at timestamptz not null default now(),
+  primary key (team_id, digest)
+);
+
 create table if not exists plane_bundle_objects (
   digest text primary key,
   bytes bigint not null,
   created_at timestamptz not null default now(),
   last_referenced_at timestamptz not null default now()
+);
+
+create table if not exists plane_vectorize_indexes (
+  index_id text primary key,
+  team_id text not null,
+  cluster_id text not null,
+  name text not null,
+  dimensions integer not null check (dimensions between 1 and 1536),
+  metric text not null check (metric in ('cosine','euclidean','dot-product')),
+  created_at timestamptz not null default now(),
+  unique (team_id, cluster_id, name)
+);
+
+create table if not exists plane_secrets_store (
+  team_id text not null,
+  store_id text not null,
+  secret_name text not null,
+  value text not null,
+  updated_at timestamptz not null default now(),
+  primary key (team_id, store_id, secret_name)
+);
+
+create table if not exists plane_flagship_apps (
+  team_id text not null,
+  app_id text not null,
+  config text not null,
+  updated_at timestamptz not null default now(),
+  primary key (team_id, app_id)
 );
 
 create table if not exists plane_cell_ops (
@@ -176,6 +221,18 @@ create table if not exists plane_queues (
   unique (team_id, cluster_id, name)
 );
 
+create table if not exists plane_do_classes (
+  worker_id text not null references plane_workers(id) on delete cascade,
+  class_name text not null,
+  unique_key text not null,
+  enable_sql boolean not null default true,
+  transfer_from_worker_id text,
+  created_at timestamptz not null default now(),
+  primary key (worker_id, class_name)
+);
+create unique index if not exists plane_do_classes_unique_key
+  on plane_do_classes (unique_key);
+
 create table if not exists plane_workflows (
   workflow_id text primary key,
   worker_id text not null references plane_workers(id) on delete cascade,
@@ -183,9 +240,29 @@ create table if not exists plane_workflows (
   cluster_id text not null,
   name text not null,
   class_name text not null,
+  binding text,
+  unique_key text,
+  limits_steps integer,
+  service_worker_id text,
+  success_retention_ms bigint,
+  error_retention_ms bigint,
+  concurrency_limit integer,
   created_at timestamptz not null default now(),
   unique (worker_id, name)
 );
+-- Upgrade rows created before workflow declarations were wired. Nullable
+-- columns keep old rows readable; cellView ignores incomplete declarations.
+alter table plane_workflows add column if not exists binding text;
+alter table plane_workflows add column if not exists unique_key text;
+alter table plane_workflows add column if not exists limits_steps integer;
+alter table plane_workflows add column if not exists service_worker_id text;
+alter table plane_workflows add column if not exists success_retention_ms bigint;
+alter table plane_workflows add column if not exists error_retention_ms bigint;
+alter table plane_workflows add column if not exists concurrency_limit integer;
+create unique index if not exists plane_workflows_worker_binding
+  on plane_workflows (worker_id, binding) where binding is not null;
+create unique index if not exists plane_workflows_target_name
+  on plane_workflows (coalesce(service_worker_id, worker_id), name);
 
 create table if not exists plane_logs (
   id bigserial primary key,

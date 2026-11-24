@@ -54,9 +54,32 @@ export function registerQueueService(app: Hono, deps: AdminDeps): void {
   })
 
   app.delete('/api/v1/cells/:cellId/queues/:queueId', async (c) => {
+    const cell = c.req.param('cellId')
+    const queueId = c.req.param('queueId')
+    const [referenced] = await rows(
+      deps,
+      `select 1
+         from plane_workers w
+         join plane_versions v on v.worker_id=w.id and v.version_id=w.active_version_id
+        where w.cluster_id=$1
+          and exists (
+            select 1
+              from jsonb_array_elements(
+                case when jsonb_typeof(v.row->'queueConsumers')='array'
+                  then v.row->'queueConsumers'
+                  else '[]'::jsonb end
+              ) consumer
+             where consumer->>'queueId'=$2 or consumer->>'deadLetterQueueId'=$2
+          )
+        limit 1`,
+      [cell, queueId]
+    )
+    if (referenced) {
+      throw new VrtControlError(409, 'Queue is consumed by an active worker')
+    }
     const deleted = await deps.pool.query(
       'delete from plane_queues where queue_id=$1 and cluster_id=$2',
-      [c.req.param('queueId'), c.req.param('cellId')]
+      [queueId, cell]
     )
     if (deleted.rowCount === 0) throw new VrtControlError(404, 'Queue not found')
     return c.json({ data: { deleted: true } })
