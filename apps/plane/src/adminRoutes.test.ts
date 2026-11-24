@@ -244,8 +244,8 @@ maybe('management API edges', () => {
     // A legacy row written before the gate still can't echo its password.
     await pool.query(
       `insert into plane_hyperdrives (hyperdrive_id, team_id, cluster_id, name, origin)
-       values ('h'.repeat(26), $1, $2, 'legacy', 'postgres://u:s3cret@h/db')`,
-      [team, cell]
+       values ($1, $2, $3, 'legacy', 'postgres://u:s3cret@h/db')`,
+      ['h'.repeat(26), team, cell]
     )
     const list = await call(app, 'GET', `${base}/hyperdrive`)
     const legacy = list.body.data.hyperdrives.find((h: { name: string }) => h.name === 'legacy')
