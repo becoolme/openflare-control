@@ -120,6 +120,58 @@ export function registerD1Service(app: Hono, deps: AdminDeps): void {
     return c.json({ data: { opId, channel: 'd1' } }, 202)
   })
 
+  app.post('/api/v1/cells/:cellId/d1/databases/:databaseId/promote', async (c) => {
+    const id = c.req.param('databaseId')
+    parse(databaseId, id)
+    await requireDatabase(deps, c.req.param('cellId'), id)
+    const body = parse(
+      z
+        .object({
+          expectedEpoch: z.number().int().min(1).optional(),
+          expectedLsn: z.number().int().min(1).optional(),
+          generation: z
+            .string()
+            .regex(/^gen-[0-9a-f]{16}-[0-9a-f]{16}\.sqlite$/)
+            .optional(),
+          writerAddr: z
+            .string()
+            .min(1)
+            .max(256)
+            .refine((v) => /^https?:\/\//.test(v) && !v.endsWith('/') && !/\s/.test(v), {
+              message: 'writerAddr must be an http(s) URL without a trailing slash',
+            })
+            .optional(),
+          reason: z.string().min(1).max(200).optional(),
+          expiresAt: z.number().int().optional(),
+        })
+        .strict(),
+      await readJson(c)
+    )
+    if ((body.expectedEpoch === undefined) !== (body.expectedLsn === undefined)) {
+      throw new VrtControlError(400, 'expectedEpoch and expectedLsn must be supplied together')
+    }
+    const [pending] = await rows(
+      deps,
+      `select id from plane_d1_ops
+        where cell_id=$1 and database_id=$2 and status='PENDING' limit 1`,
+      [c.req.param('cellId'), id]
+    )
+    if (pending) throw new VrtControlError(409, 'VRT_D1_OPS_PENDING')
+    const opId = randomUUID()
+    const payload: Record<string, unknown> = {}
+    if (body.expectedEpoch !== undefined) payload.expectedEpoch = body.expectedEpoch
+    if (body.expectedLsn !== undefined) payload.expectedLsn = body.expectedLsn
+    if (body.generation !== undefined) payload.generation = body.generation
+    if (body.writerAddr !== undefined) payload.writerAddr = body.writerAddr
+    if (body.reason !== undefined) payload.reason = body.reason
+    await deps.pool.query(
+      `insert into plane_d1_ops (id, cell_id, database_id, kind, payload, expires_at)
+       values ($1,$2,$3,'PROMOTE',$4,to_timestamp($5::double precision))`,
+      [opId, c.req.param('cellId'), id, payload, body.expiresAt ?? null]
+    )
+    return c.json({ data: { opId, channel: 'd1' } }, 202)
+  })
+
   app.get('/api/v1/cells/:cellId/d1/databases/:databaseId/ops', async (c) => {
     const list = await rows(
       deps,
