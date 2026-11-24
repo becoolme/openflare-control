@@ -10,6 +10,7 @@ import { randomBytes } from 'node:crypto'
 const PLANE_URL = process.env.PLANE_URL ?? 'http://plane:8787'
 const ADMIN = process.env.PLANE_ADMIN_TOKEN
 const CELL = process.env.VRT_CELL_ID ?? 'local'
+const R2_BUCKET = process.env.VRT_R2_BUCKET ?? 'vrt-r2'
 const CIDR = process.env.VRT_TRUSTED_CIDR ?? '172.31.42.0/24'
 const VRT_UID = 10001
 const VRT_GID = 10001
@@ -67,6 +68,7 @@ for (const name of ['vrt-host', 'vrt-provider', 'vrt-sql', 'cell-controller']) {
     .replaceAll('__KEY_ID__', key.keyId)
     .replaceAll('__PUBKEY__', key.publicKey)
     .replaceAll('__TRUSTED_CIDR__', CIDR)
+    .replaceAll('__R2_BUCKET__', R2_BUCKET)
   await writeFile(`${CONF_OUT}/${name}.toml`, t, { mode: 0o644 })
 }
 

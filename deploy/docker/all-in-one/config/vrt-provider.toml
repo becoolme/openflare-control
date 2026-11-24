@@ -25,9 +25,18 @@ urlEnv = "VRT_KVROCKS_URL"
 timeoutMs = 5000
 connectTimeoutMs = 5000
 
-# [s3] intentionally ABSENT — R2 bindings fail closed without an object
-# store. To enable: give this section endpoint/region/bucket + the
-# VRT_R2_* envs, and mirror it in cell-controller.toml [storage_purge.s3].
+# R2: bundled Silo — the .svc alias makes plain http legal
+# (cluster-internal rule); for a real S3 swap endpoint/region and the
+# VRT_R2_* envs, and keep cell-controller.toml [storage_purge.s3]
+# in lockstep (purge ops + capability are derived from it).
+[s3]
+endpoint = "http://silo.openflare.svc:9000"
+region = "us-east-1"
+bucket = "__R2_BUCKET__"
+accessKeyEnv = "VRT_R2_BINDING_ACCESS_KEY"
+secretKeyEnv = "VRT_R2_BINDING_SECRET_KEY"
+multipartTtlMs = 604800000
+conditionalWrites = true
 
 [vrtSql]
 addr = "http://vrt-sql:8082"

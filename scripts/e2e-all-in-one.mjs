@@ -113,28 +113,34 @@ r = await api(
 )
 assert.equal(r.status, 201, `bundle upload: ${JSON.stringify(r.body)}`)
 
-const deploy = async (versionId, vars) => {
+const deploy = async (versionId, vars, opts = {}) => {
+  const bundle = opts.bundle ?? bundleValue
   const res = await api('POST', `/api/v1/cells/${CELL}/teams/${team}/workers/${worker}/deploy`, {
     versionId,
-    bundleSha256: bundleValue.digest,
-    bundleBytes: bundleValue.bytes.byteLength,
+    bundleSha256: bundle.digest,
+    bundleBytes: bundle.bytes.byteLength,
     mainModule: 'main.js',
     modules: [],
     compatibilityFlags: [],
     compatibilityDate: '2024-09-25',
     crons: [],
     vars,
-    // vars is the value store keyed by varRef; env names are bound
-    // separately — env.E2E_VAR needs BOTH sides. bindings[] takes the
-    // VrtBindingRecord form (uppercase type + resourceId); the plane
-    // serializes it to {"type":"var","varRef":…} for the cell.
-    bindings: Object.keys(vars).map((k) => ({
-      name: k,
-      type: 'VAR',
-      resourceId: k,
-      permissionRead: true,
-      permissionWrite: true,
-    })),
+    // vars is the render-inputs value store keyed by varRef; a VAR
+    // binding maps an env name onto that ref. The deploy boundary
+    // claims ONE env-name namespace across vars keys and binding
+    // names, so a store key and its env name must differ —
+    // `opts.envNames[varRef]` supplies the env name (defaults to the
+    // varRef itself only where no collision exists).
+    bindings: [
+      ...Object.keys(vars).map((k) => ({
+        name: opts.envNames?.[k] ?? k,
+        type: 'VAR',
+        resourceId: k,
+        permissionRead: true,
+        permissionWrite: true,
+      })),
+      ...(opts.extraBindings ?? []),
+    ],
     queueConsumers: [],
     exportedClassNames: [],
     assetsRouting: null,
@@ -162,7 +168,11 @@ const deploy = async (versionId, vars) => {
 // against the by-then-populated render-inputs, exercising both the
 // vars path and a rolling upgrade.
 await deploy(`v1-${suffix}`, {})
-await deploy(`v2-${suffix}`, { E2E_VAR: 'all-in-one-var' })
+await deploy(
+  `v2-${suffix}`,
+  { E2E_STORE: 'all-in-one-var' },
+  { envNames: { E2E_STORE: 'E2E_VAR' } }
+)
 
 // Diagnostics for the vars channel: whether the plane serves them and
 // what the cell-controller wrote — KEYS ONLY, values may be secrets.
@@ -218,16 +228,69 @@ const ingress = () =>
   })
 
 let lastIngress = 'none'
-await waitFor(
-  async () => {
-    const res = await ingress()
-    lastIngress = `${res.status} ${res.body?.slice(0, 120)}`
-    return res.status === 200 && res.body === 'aio:all-in-one-var'
-  },
-  `ingress ${hostname}`,
-  120_000
-).catch((e) => {
-  throw new Error(`${e.message} (last: ${lastIngress})`)
-})
+const expectIngress = async (want, label) =>
+  waitFor(
+    async () => {
+      const res = await ingress()
+      lastIngress = `${res.status} ${res.body?.slice(0, 120)}`
+      return res.status === 200 && res.body === want
+    },
+    `ingress ${label}`,
+    120_000
+  ).catch((e) => {
+    throw new Error(`${e.message} (last: ${lastIngress})`)
+  })
 
-console.log('all-in-one e2e: plane + console auth + cell pull + ingress OK')
+await expectIngress('aio:all-in-one-var', hostname)
+
+// ---- R2 data path: logical bucket → binding → facade → provider →
+// bundled Silo → read-back through ingress.
+const r2Bucket = `e2e-${suffix}`
+r = await api('POST', `/api/v1/cells/${CELL}/r2/buckets`, {
+  teamId: team,
+  bucketName: r2Bucket,
+})
+assert.equal(r.status, 201, `r2 bucket create: ${JSON.stringify(r.body)}`)
+
+const r2Bundle = buildRuntimeBundle({
+  mainModule: 'main.js',
+  modules: [
+    {
+      type: 'esModule',
+      name: 'main.js',
+      text:
+        'export default { async fetch(req, env) {' +
+        " await env.BUCKET.put('k', 'r2-ok');" +
+        " const o = await env.BUCKET.get('k');" +
+        ' return new Response(`aio-r2:${o ? await o.text() : "missing"}`) } }\n',
+    },
+  ],
+  compatibilityDate: '2024-09-25',
+})
+r = await api(
+  'PUT',
+  `/api/v1/cells/${CELL}/bundles/${r2Bundle.digest}`,
+  Buffer.from(r2Bundle.bytes),
+  true
+)
+assert.equal(r.status, 201, `r2 bundle upload: ${JSON.stringify(r.body)}`)
+
+await deploy(
+  `v3-${suffix}`,
+  {},
+  {
+    bundle: r2Bundle,
+    extraBindings: [
+      {
+        name: 'BUCKET',
+        type: 'R2',
+        resourceId: r2Bucket,
+        permissionRead: true,
+        permissionWrite: true,
+      },
+    ],
+  }
+)
+await expectIngress('aio-r2:r2-ok', `${hostname} (r2)`)
+
+console.log('all-in-one e2e: plane + console auth + cell pull + ingress + r2 OK')
