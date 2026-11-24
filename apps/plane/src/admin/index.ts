@@ -11,6 +11,7 @@ import { registerLogs } from './logs.js'
 import { registerOps } from './ops.js'
 import { registerPublications } from './publications.js'
 import { registerServices } from './services/index.js'
+import { registerDoAlarmService } from './doAlarms.js'
 import { registerStats } from './stats.js'
 import { registerTeams } from './teams.js'
 import { registerWorkers } from './workers.js'
@@ -44,6 +45,7 @@ export function createAdminApp(deps: AdminDeps): Hono {
   registerSecretsStore(app, deps)
   registerPublications(app, deps)
   registerServices(app, deps)
+  registerDoAlarmService(app, deps)
   registerStats(app, deps)
   registerOps(app, deps)
   registerLogs(app, deps)

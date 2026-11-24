@@ -444,6 +444,35 @@ export function createApp(deps: AppDeps): Hono {
     }
   })
 
+  app.post('/api/internal/clusters/:clusterId/vrt/alarms', async (c) => {
+    try {
+      const cellId = await auth(c, deps)
+      const body = (await readJson(c, 2 * 1024 * 1024)) as Record<string, unknown>
+      const entries = Array.isArray(body.entries) ? body.entries : null
+      const unknown = Array.isArray(body.unknown) ? body.unknown : []
+      const truncated = Array.isArray(body.truncated) ? body.truncated : []
+      const observed = Array.isArray(body.observed) ? body.observed : []
+      if (
+        !entries ||
+        entries.length > 10_000 ||
+        unknown.length > 10_000 ||
+        truncated.length > 10_000 ||
+        observed.length > 10_000
+      ) {
+        throw new VrtControlError(400, 'alarm snapshot is not a bounded array shape')
+      }
+      await deps.pool.query(
+        `insert into plane_cell_alarm_snapshots (cell_id, updated_at, payload)
+         values ($1, now(), $2::jsonb)
+         on conflict (cell_id) do update set updated_at=now(), payload=excluded.payload`,
+        [cellId, body]
+      )
+      return c.json({ data: { accepted: true } })
+    } catch (error) {
+      return errorResponse(c, error)
+    }
+  })
+
   app.post('/api/internal/clusters/:clusterId/vrt/d1-writer', async (c) => {
     try {
       const cellId = await auth(c, deps)

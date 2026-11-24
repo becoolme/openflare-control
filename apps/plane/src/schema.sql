@@ -202,6 +202,13 @@ alter table plane_d1_databases
 alter table plane_d1_databases
   add column if not exists writer_updated_at timestamptz;
 
+-- Latest cell-reported DO alarm index snapshot (console visibility).
+create table if not exists plane_cell_alarm_snapshots (
+  cell_id text primary key,
+  updated_at timestamptz not null default now(),
+  payload jsonb not null
+);
+
 create table if not exists plane_r2_buckets (
   bucket_name text primary key,
   bucket_id text not null unique,
