@@ -192,6 +192,15 @@ create table if not exists plane_d1_databases (
   created_at timestamptz not null default now(),
   unique (team_id, cluster_id, name)
 );
+-- D1 failover: live writer state hydrated into the signed desired binding.
+alter table plane_d1_databases
+  add column if not exists writer_epoch integer not null default 1;
+alter table plane_d1_databases
+  add column if not exists writer_addr text;
+alter table plane_d1_databases
+  add column if not exists writer_lsn bigint;
+alter table plane_d1_databases
+  add column if not exists writer_updated_at timestamptz;
 
 create table if not exists plane_r2_buckets (
   bucket_name text primary key,
