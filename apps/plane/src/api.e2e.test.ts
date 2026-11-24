@@ -104,7 +104,7 @@ maybe('management API e2e', () => {
   it('runs the full resource lifecycle over HTTP', async () => {
     // cell + worker
     expect((await call('POST', '/api/v1/cells', { cellId: cell })).status).toBe(201)
-    expect((await call('POST', '/api/v1/teams', { teamId: team })).status).toBe(201)
+    expect((await call('POST', '/api/v1/teams', { teamId: team, name: 'E2E' })).status).toBe(201)
     expect(
       (
         await call('POST', `${base}/workers`, {

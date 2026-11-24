@@ -345,7 +345,7 @@ async function main() {
   assert.ok(issued.body?.data?.token)
   await writeFile(cellTokenFile, `${issued.body.data.token}\n`, { mode: 0o600 })
   await chmod(cellTokenFile, 0o600)
-  assert.equal((await api('POST', '/api/v1/teams', { teamId: team })).status, 201)
+  assert.equal((await api('POST', '/api/v1/teams', { teamId: team, name: 'E2E' })).status, 201)
   assert.equal(
     (await api('POST', `/api/v1/cells/${cell}/workers`, { teamId: team, name: worker })).status,
     201

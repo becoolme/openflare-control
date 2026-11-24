@@ -140,7 +140,9 @@ maybe('management API edges', () => {
 
   it('creates the fixture cell and covers worker/version edges', async () => {
     expect((await call(app, 'POST', '/api/v1/cells', { cellId: cell })).status).toBe(201)
-    expect((await call(app, 'POST', '/api/v1/teams', { teamId: team })).status).toBe(201)
+    expect((await call(app, 'POST', '/api/v1/teams', { teamId: team, name: 'E2E' })).status).toBe(
+      201
+    )
     expect(
       (await call(app, 'POST', `/api/v1/cells/${cell}/workers`, { teamId: 'BAD', name: worker }))
         .status
