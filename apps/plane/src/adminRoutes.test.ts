@@ -4,13 +4,14 @@
  * malformed ops/log ACKs, missing signing, and cleanup. The happy-path
  * lifecycle lives in api.e2e.test.ts; this file pins the fail-closed edges.
  */
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { Pool } from 'pg'
 import { bundleKeyFor, type BundleStore } from 'openflare-control'
 import { createApp } from './routes.js'
 import { createPlaneStore } from './store.js'
+import { MemoryAssetStore } from './assetStore.js'
 import { resolvePlaneSigningKey } from './signing.js'
 import { createSecretsCipher } from './secretsCipher.js'
 
@@ -46,6 +47,8 @@ maybe('management API edges', () => {
   let pool: Pool
   let app: ReturnType<typeof createApp>
   let noSigningApp: ReturnType<typeof createApp>
+  let assets: MemoryAssetStore
+  let assetsApp: ReturnType<typeof createApp>
   const suffix = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`
   const cell = `edge-${suffix}`
   const provisionCellToken = async (cellId: string) => {
@@ -81,6 +84,8 @@ maybe('management API edges', () => {
       signing: resolvePlaneSigningKey('edge-signing-secret-0123456789abcdef'),
     })
     noSigningApp = createApp(deps)
+    assets = new MemoryAssetStore()
+    assetsApp = createApp({ ...deps, assetStore: assets })
     await provisionCellToken(cell)
   })
   afterAll(async () => {
@@ -551,7 +556,98 @@ maybe('management API edges', () => {
     ).toBe(404)
   })
 
+  it('deletes the cell and its cluster-scoped resources', async () => {
+    // Seed one of every resource family the cell delete must take with it —
+    // re-created cell ids must not resurrect the old catalog.
+    expect(
+      (
+        await call(app, 'POST', `${base}/d1/databases`, {
+          teamId: team,
+          name: `cascade-db-${suffix}`.slice(0, 63),
+        })
+      ).status
+    ).toBe(201)
+    expect(
+      (
+        await call(app, 'POST', `${base}/kv/namespaces`, {
+          teamId: team,
+          title: `cascade-kv-${suffix}`.slice(0, 63),
+        })
+      ).status
+    ).toBe(201)
+    expect(
+      (
+        await call(app, 'POST', `${base}/queues`, {
+          teamId: team,
+          name: `cascade-q-${suffix}`.slice(0, 63),
+        })
+      ).status
+    ).toBe(201)
+    expect(
+      (
+        await call(app, 'POST', `${base}/r2/buckets`, {
+          teamId: team,
+          bucketName: `cb-${suffix}`.slice(0, 63),
+        })
+      ).status
+    ).toBe(201)
+    expect(
+      (
+        await call(app, 'POST', `${base}/hyperdrive`, {
+          teamId: team,
+          name: `ch-${suffix}`.slice(0, 63),
+          origin: 'postgres://db.internal:5432/x',
+        })
+      ).status
+    ).toBe(201)
+    await pool.query(
+      `insert into plane_cell_metrics (cell_id, sampled_at, window_ms, payload)
+       values ($1, now(), 1, '{}'::jsonb)`,
+      [cell]
+    )
+    await pool.query(
+      `insert into plane_cell_resources (cell_id, sampled_at, payload)
+       values ($1, now(), '{}'::jsonb)
+       on conflict (cell_id) do update set sampled_at=excluded.sampled_at`,
+      [cell]
+    )
+
+    expect((await call(app, 'DELETE', `${base}/teams/${team}/workers/missing`)).status).toBe(404)
+    expect((await call(app, 'DELETE', `/api/v1/cells/${cell}`)).status).toBe(200)
+    expect((await call(app, 'DELETE', `/api/v1/cells/${cell}`)).status).toBe(404)
+
+    const orphans = await pool.query(
+      `select
+         (select count(*)::int from plane_d1_databases where cluster_id=$1) +
+         (select count(*)::int from plane_kv_namespaces where cluster_id=$1) +
+         (select count(*)::int from plane_queues where cluster_id=$1) +
+         (select count(*)::int from plane_r2_buckets where cluster_id=$1) +
+         (select count(*)::int from plane_hyperdrives where cluster_id=$1) +
+         (select count(*)::int from plane_cell_metrics where cell_id=$1) +
+         (select count(*)::int from plane_cell_resources where cell_id=$1) as n`,
+      [cell]
+    )
+    expect(orphans.rows[0]!.n).toBe(0)
+
+    // Re-creating the same cell id starts with an empty catalog.
+    expect((await call(app, 'POST', '/api/v1/cells', { cellId: cell })).status).toBe(201)
+    const list = await call(app, 'GET', `${base}/d1/databases`)
+    expect(list.body.data.databases).toHaveLength(0)
+    // The cell detail endpoint aggregates counts plus the latest publication.
+    const detail = await call(app, 'GET', `/api/v1/cells/${cell}`)
+    expect(detail.status).toBe(200)
+    expect(detail.body.data.latestPublication).toBeNull()
+    const cells = await call(app, 'GET', '/api/v1/cells')
+    expect(cells.body.data.cells.some((row: { cellId: string }) => row.cellId === cell)).toBe(true)
+  })
+
   it('pins worker-scoped routes to the :cellId in the path', async () => {
+    // The cascade test deleted this cell's workers along with the cell —
+    // recreate the team + worker so the scope assertions have a target.
+    await call(app, 'POST', '/api/v1/teams', { teamId: team, name: 'scope' })
+    expect(
+      (await call(app, 'POST', `${base}/workers`, { teamId: team, name: worker })).status
+    ).toBe(201)
     // The worker id (`team:name`) is globally unique, so every route must
     // also pin `cluster_id` — otherwise any other cell's path resolves the
     // same worker and mutations land through the wrong cell.
@@ -656,6 +752,9 @@ maybe('management API edges', () => {
   })
 
   it('covers d1 promote ops, writer CAS, and failover reports', async () => {
+    // The preceding cascade test deletes and recreates this cell — make the
+    // channel credential valid again regardless of suite ordering.
+    await provisionCellToken(cell)
     const db = await call(app, 'POST', `${base}/d1/databases`, {
       teamId: team,
       name: `ddb-${suffix}`,
@@ -766,9 +865,123 @@ maybe('management API edges', () => {
     expect(replay.body.data).toMatchObject({ applied: false, published: false })
   })
 
-  it('deletes the cell and reports missing deletes', async () => {
-    expect((await call(app, 'DELETE', `${base}/teams/${team}/workers/missing`)).status).toBe(404)
-    expect((await call(app, 'DELETE', `/api/v1/cells/${cell}`)).status).toBe(200)
-    expect((await call(app, 'DELETE', `/api/v1/cells/${cell}`)).status).toBe(404)
+  it('deletes the team and its team-scoped resources', async () => {
+    const orphanTeam = `del-${suffix}`
+    expect(
+      (await call(app, 'POST', '/api/v1/teams', { teamId: orphanTeam, name: 'doomed' })).status
+    ).toBe(201)
+    // Asset rows + live fs payloads: deleting the team must remove both.
+    const manifestBytes = new TextEncoder().encode('{"m":1}')
+    const objectBytes = new TextEncoder().encode('payload')
+    const manifestDigest = sha256(manifestBytes)
+    const objectDigest = sha256(objectBytes)
+    await assets.putManifest(orphanTeam, manifestDigest, manifestBytes)
+    await assets.putObject(orphanTeam, objectDigest, objectBytes)
+    await pool.query(
+      `insert into plane_asset_manifests (team_id, digest, total_bytes) values ($1,$2,$3)`,
+      [orphanTeam, manifestDigest, manifestBytes.byteLength]
+    )
+    await pool.query(`insert into plane_asset_objects (team_id, digest, bytes) values ($1,$2,$3)`, [
+      orphanTeam,
+      objectDigest,
+      objectBytes.byteLength,
+    ])
+    const doomedDb = await call(app, 'POST', `${base}/d1/databases`, {
+      teamId: orphanTeam,
+      name: `doomed-db-${suffix}`.slice(0, 63),
+    })
+    expect(doomedDb.status).toBe(201)
+    const doomedNs = await call(app, 'POST', `${base}/kv/namespaces`, {
+      teamId: orphanTeam,
+      title: `doomed-kv-${suffix}`.slice(0, 63),
+    })
+    expect(doomedNs.status).toBe(201)
+    // Ops keyed by deterministic resource ids must die with the resource —
+    // a recreated same-named database/namespace would otherwise inherit
+    // the dead team's queued and resulted ops.
+    const doomedDbId = doomedDb.body.data.database.database_id as string
+    // KV ops key on physical_id (`vrtkv_…`), not namespace_id.
+    const doomedPhysical = doomedNs.body.data.namespace.physical_id as string
+    await pool.query(
+      `insert into plane_d1_ops (id, cell_id, database_id, kind, payload)
+       values ($1,$2,$3,'EXECUTE','{}'::jsonb)`,
+      [randomUUID(), cell, doomedDbId]
+    )
+    await pool.query(
+      `insert into plane_cell_ops (id, cell_id, resource_key, kind, payload)
+       values ($1,$2,$3,'KV_GET','{}'::jsonb)`,
+      [randomUUID(), cell, doomedPhysical]
+    )
+    // Worker-scoped ops key on worker_id=`team:name` — the deterministic
+    // composite resurrects under a same-named worker after team re-create.
+    await pool.query(
+      `insert into plane_cell_ops (id, cell_id, worker_id, resource_key, kind, payload)
+       values ($1,$2,$3,'wf-name','WF_GET','{}'::jsonb)`,
+      [randomUUID(), cell, `${orphanTeam}:ghost`]
+    )
+
+    expect((await call(assetsApp, 'DELETE', `/api/v1/teams/${orphanTeam}`)).status).toBe(200)
+    expect(assets.manifests.size).toBe(0)
+    expect(assets.objects.size).toBe(0)
+    const orphans = await pool.query(
+      `select
+         (select count(*)::int from plane_d1_databases where team_id=$1) +
+         (select count(*)::int from plane_kv_namespaces where team_id=$1) +
+         (select count(*)::int from plane_queues where team_id=$1) +
+         (select count(*)::int from plane_r2_buckets where team_id=$1) +
+         (select count(*)::int from plane_hyperdrives where team_id=$1) +
+         (select count(*)::int from plane_asset_manifests where team_id=$1) +
+         (select count(*)::int from plane_asset_objects where team_id=$1) +
+         (select count(*)::int from plane_d1_ops where database_id=$2) +
+         (select count(*)::int from plane_cell_ops where resource_key=$3) +
+         (select count(*)::int from plane_cell_ops where worker_id like $1 || ':%') as n`,
+      [orphanTeam, doomedDbId, doomedPhysical]
+    )
+    expect(orphans.rows[0]!.n).toBe(0)
+  })
+
+  it('rejects team deletes that are unsafe or unknown', async () => {
+    expect((await call(app, 'DELETE', `/api/v1/teams/ghost-${suffix}`)).status).toBe(404)
+    // A team that still owns workers refuses to delete.
+    const busy = `busy-${suffix}`
+    expect((await call(app, 'POST', '/api/v1/teams', { teamId: busy, name: 'b' })).status).toBe(201)
+    expect((await call(app, 'POST', `${base}/workers`, { teamId: busy, name: 'w2' })).status).toBe(
+      201
+    )
+    expect((await call(app, 'DELETE', `/api/v1/teams/${busy}`)).status).toBe(409)
+  })
+
+  it('still deletes the team when asset fs cleanup fails', async () => {
+    // Store deletes are best-effort — rows must go even if the fs throws.
+    class FailingAssets extends MemoryAssetStore {
+      override async deleteManifest(): Promise<void> {
+        throw new Error('fs gone')
+      }
+      override async deleteObject(): Promise<void> {
+        throw new Error('fs gone')
+      }
+    }
+    const failApp = createApp({
+      store: createPlaneStore(pool),
+      pool,
+      bundleStore: new MemoryBundles(),
+      adminToken: TOKEN,
+      secrets: TEST_SECRETS_CIPHER,
+      assetStore: new FailingAssets(),
+    })
+    const doomed = `fs-${suffix}`
+    expect((await call(app, 'POST', '/api/v1/teams', { teamId: doomed, name: 'f' })).status).toBe(
+      201
+    )
+    const digest = sha256('x')
+    await pool.query(`insert into plane_asset_objects (team_id, digest, bytes) values ($1,$2,1)`, [
+      doomed,
+      digest,
+    ])
+    await pool.query(
+      `insert into plane_asset_manifests (team_id, digest, total_bytes) values ($1,$2,1)`,
+      [doomed, digest]
+    )
+    expect((await call(failApp, 'DELETE', `/api/v1/teams/${doomed}`)).status).toBe(200)
   })
 })

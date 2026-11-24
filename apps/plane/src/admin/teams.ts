@@ -139,12 +139,60 @@ export function registerTeams(app: Hono, deps: AdminDeps): void {
     if (Number(count!.n) > 0) {
       throw new VrtControlError(409, 'Team still has workers', 'VRT_TEAM_NOT_EMPTY')
     }
+    // Asset rows are team-scoped across cells; their fs payloads are removed
+    // through the store after commit so an abort can't orphan row state.
+    const assetRows = deps.assetStore
+      ? {
+          manifests: (
+            await deps.pool.query('select digest from plane_asset_manifests where team_id=$1', [id])
+          ).rows as { digest: string }[],
+          objects: (
+            await deps.pool.query('select digest from plane_asset_objects where team_id=$1', [id])
+          ).rows as { digest: string }[],
+        }
+      : null
     const client = await deps.pool.connect()
     try {
       await client.query('begin')
+      // Team-scoped resources carry no cascade FK — leaving them behind
+      // reattaches the dead team's catalog (and quota accounting) when the
+      // team id is reused. Ops referencing those resources resurrect the
+      // same way: ids are generatedId(cell:team:kind:name), so a recreated
+      // same-named resource inherits the dead team's queued/resulted ops.
+      // Delete ops first, while the resource rows they key on still exist.
+      await client.query(
+        `delete from plane_d1_ops
+          where database_id in (select database_id from plane_d1_databases where team_id=$1)`,
+        [id]
+      )
+      // Worker-scoped ops (WF_* carry worker_id=`team:name`, resource_key=
+      // workflow name) resurrect the same way through the deterministic
+      // worker id; team ids can't contain LIKE metacharacters. The union is
+      // kind-filtered so another team's workflow that happens to be named
+      // like a resource id keeps its ops.
+      await client.query(
+        `delete from plane_cell_ops
+          where worker_id like $1 || ':%'
+             or (kind not like 'WF\\_%'
+                 and resource_key in (
+                   select bucket_id from plane_r2_buckets where team_id=$1
+                   union all select physical_id from plane_kv_namespaces where team_id=$1
+                   union all select index_id from plane_vectorize_indexes where team_id=$1
+                   union all select queue_id from plane_queues where team_id=$1
+                   union all select hyperdrive_id from plane_hyperdrives where team_id=$1
+                 ))`,
+        [id]
+      )
       await client.query('delete from plane_flagship_apps where team_id=$1', [id])
       await client.query('delete from plane_vectorize_indexes where team_id=$1', [id])
       await client.query('delete from plane_secrets_store where team_id=$1', [id])
+      await client.query('delete from plane_hyperdrives where team_id=$1', [id])
+      await client.query('delete from plane_d1_databases where team_id=$1', [id])
+      await client.query('delete from plane_r2_buckets where team_id=$1', [id])
+      await client.query('delete from plane_kv_namespaces where team_id=$1', [id])
+      await client.query('delete from plane_queues where team_id=$1', [id])
+      await client.query('delete from plane_asset_manifests where team_id=$1', [id])
+      await client.query('delete from plane_asset_objects where team_id=$1', [id])
       const deleted = await client.query('delete from plane_teams where team_id=$1', [id])
       if (deleted.rowCount === 0) throw new VrtControlError(404, 'Team not found')
       await client.query('commit')
@@ -153,6 +201,24 @@ export function registerTeams(app: Hono, deps: AdminDeps): void {
       throw error
     } finally {
       client.release()
+    }
+    if (assetRows && deps.assetStore) {
+      for (const row of assetRows.manifests) {
+        try {
+          await deps.assetStore.deleteManifest(id, row.digest)
+        } catch {
+          // Best-effort only — with the row gone, retention can't see a
+          // leaked file either; a failed delete leaves it on disk.
+        }
+      }
+      for (const row of assetRows.objects) {
+        try {
+          await deps.assetStore.deleteObject(id, row.digest)
+        } catch {
+          // Best-effort only — with the row gone, retention can't see a
+          // leaked file either; a failed delete leaves it on disk.
+        }
+      }
     }
     return c.json({ data: { deleted: true } })
   })
