@@ -30,6 +30,8 @@ export interface VrtBindingRecord {
     | 'K2'
     | 'SEND_EMAIL'
     | 'IMAGES'
+    | 'VECTORIZE'
+    | 'SECRETS_STORE'
   readonly resourceId: string
   readonly permissionRead: boolean
   readonly permissionWrite: boolean
@@ -49,6 +51,13 @@ export interface VrtBindingRecord {
   readonly destinationAddress?: string
   readonly allowedDestinationAddresses?: readonly string[]
   readonly allowedSenderAddresses?: readonly string[]
+  /** VECTORIZE only: index spec signed at deploy. */
+  readonly indexName?: string
+  readonly dimensions?: number
+  readonly metric?: 'cosine' | 'euclidean' | 'dot-product'
+  /** SECRETS_STORE only: account/tenant store + secret name. */
+  readonly storeId?: string
+  readonly secretName?: string
 }
 
 /** P3c-1: a DO class DECLARED by the worker — the rowset member the
@@ -107,6 +116,9 @@ export interface VrtWorkflowView {
   readonly className: string
   readonly uniqueKey: string
   readonly limitsSteps: number | null
+  readonly successRetentionMs?: number | null
+  readonly errorRetentionMs?: number | null
+  readonly concurrencyLimit?: number | null
   /** Emitted only when the workflow is defined by another worker —
    * `WorkerDesired.serviceWorkerId` (absent ⇒ same-worker, keeps
    * pre-W7 snapshots byte-identical). */
@@ -168,6 +180,9 @@ export interface VrtWorkflowInput {
   readonly binding: string
   readonly className: string
   readonly limitsSteps?: number
+  readonly successRetentionMs?: number
+  readonly errorRetentionMs?: number
+  readonly concurrencyLimit?: number
   /** W7 wrangler `script_name` — a worker NAME resolved server-side
    * (never a client-supplied id). */
   readonly scriptName?: string
@@ -180,6 +195,9 @@ export interface VrtWorkflowRow {
   readonly className: string
   readonly uniqueKey: string
   readonly limitsSteps: number | null
+  readonly successRetentionMs: number | null
+  readonly errorRetentionMs: number | null
+  readonly concurrencyLimit: number | null
   /** Resolved defining-worker id (`script_name`); null = own worker. */
   readonly serviceWorkerId: string | null
 }

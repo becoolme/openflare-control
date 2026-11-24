@@ -66,6 +66,8 @@ export interface VrtStoreVersion {
   readonly compatibilityDate: string
   readonly compatibilityFlags: readonly string[]
   readonly crons: readonly { scheduleId: string; expression: string }[]
+  /** Queue consumers declared by the serving version (absent on legacy rows). */
+  readonly queueConsumers?: readonly VrtQueueConsumerDraft[] | null
   /** Tail Workers: resolved consumer workerIds; `null` on pre-feature rows. */
   readonly tailConsumers: readonly string[] | null
   /** Streaming Tail Workers: resolved consumer workerIds; `null` pre-feature. */
@@ -248,7 +250,7 @@ export function collectCrossWorkerTargets(
     if (b.type === 'SERVICE') {
       put({ workerId: b.resourceId, requireActive: true, kind: 'service' })
     } else if (b.type === 'DO') {
-      const sep = b.resourceId.indexOf(':')
+      const sep = b.resourceId.lastIndexOf(':')
       if (sep > 0) {
         put({ workerId: b.resourceId.slice(0, sep), requireActive: false, kind: 'durableObject' })
       }

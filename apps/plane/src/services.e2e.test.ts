@@ -29,6 +29,7 @@ class NoBundles implements BundleStore {
 
 maybe('service resource API e2e', () => {
   let pool: Pool
+  let store: ReturnType<typeof createPlaneStore>
   let app: ReturnType<typeof createApp>
   const suffix = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`
   const cell = `svc-${suffix}`
@@ -51,8 +52,9 @@ maybe('service resource API e2e', () => {
   beforeAll(async () => {
     pool = new Pool({ connectionString: url })
     await pool.query(await readFile(new URL('./schema.sql', import.meta.url), 'utf8'))
+    store = createPlaneStore(pool)
     app = createApp({
-      store: createPlaneStore(pool),
+      store,
       pool,
       bundleStore: new NoBundles(),
       adminToken: TOKEN,
@@ -203,19 +205,386 @@ maybe('service resource API e2e', () => {
         )
       ).status
     ).toBe(200)
+    const doClass = await call(
+      'POST',
+      `/api/v1/cells/${cell}/teams/${team}/workers/${worker}/durable-object-classes`,
+      { className: 'MyDO' }
+    )
+    expect(doClass.status).toBe(201)
     const dos = await call(
       'GET',
       `/api/v1/cells/${cell}/teams/${team}/workers/${worker}/durable-objects`
     )
-    expect(dos.body.data.classes).toEqual(['MyDO'])
+    expect(dos.body.data.classes).toEqual([
+      expect.objectContaining({
+        className: 'MyDO',
+        uniqueKey: expect.stringMatching(/^[0-9a-f]{64}$/),
+        enableSql: true,
+      }),
+    ])
+
+    const doVersion = await call(
+      'POST',
+      `/api/v1/cells/${cell}/teams/${team}/workers/${worker}/versions`,
+      {
+        versionId: `do-${suffix}`,
+        bundleSha256: digest,
+        bundleBytes: bundle.byteLength,
+        queueConsumers: [{ queueId, queueName: 'jobs', maxBatchSize: 10 }],
+        bindings: [
+          {
+            name: 'MY_DO',
+            type: 'DO',
+            resourceId: `${workerId}:MyDO`,
+            permissionRead: true,
+            permissionWrite: false,
+          },
+        ],
+      }
+    )
+    expect(doVersion.status).toBe(201)
+    expect(
+      (
+        await call(
+          'POST',
+          `/api/v1/cells/${cell}/teams/${team}/workers/${worker}/versions/do-${suffix}/activate`,
+          {}
+        )
+      ).status
+    ).toBe(200)
+    expect(
+      (
+        await call('POST', `/api/v1/cells/${cell}/teams/${team}/workers/${worker}/versions`, {
+          versionId: `bad-do-${suffix}`,
+          bundleSha256: digest,
+          bundleBytes: bundle.byteLength,
+          bindings: [
+            {
+              name: 'BAD_DO',
+              type: 'DO',
+              resourceId: `${workerId}:MissingDO`,
+              permissionRead: true,
+              permissionWrite: false,
+            },
+          ],
+        })
+      ).status
+    ).toBe(400)
+    expect((await call('POST', `/api/v1/cells/${cell}/publish`, { cause: 'DO' })).status).toBe(201)
+    const doDesired = await app.request(`/api/internal/clusters/${cell}/vrt/desired`, {
+      headers: auth,
+    })
+    const doEnvelope = (await doDesired.json()) as any
+    const doServed = doEnvelope.payload.tenants
+      .flatMap((tenant: any) => tenant.workers)
+      .find((candidate: any) => candidate.workerId === workerId)
+    expect(doServed.durableObjectClasses).toEqual([
+      expect.objectContaining({ className: 'MyDO', enableSql: true }),
+    ])
+    expect(doServed.bindings).toContainEqual(
+      expect.objectContaining({ type: 'durableObject', name: 'MY_DO', className: 'MyDO' })
+    )
+    expect(
+      (
+        await call(
+          'POST',
+          `/api/v1/cells/${cell}/teams/${team}/workers/${worker}/durable-object-classes/migrations`,
+          { newSqliteClasses: ['ExtraDO'] }
+        )
+      ).status
+    ).toBe(200)
+    // Rename keeps the existing storage key; re-creating the old name mints
+    // a new key instead of aliasing the renamed class.
+    const temp = await call(
+      'POST',
+      `/api/v1/cells/${cell}/teams/${team}/workers/${worker}/durable-object-classes`,
+      { className: 'TempDO' }
+    )
+    expect(temp.status).toBe(201)
+    expect(
+      (
+        await call(
+          'POST',
+          `/api/v1/cells/${cell}/teams/${team}/workers/${worker}/durable-object-classes/migrations`,
+          { renamedClasses: [{ from: 'TempDO', to: 'TempDO2' }] }
+        )
+      ).status
+    ).toBe(200)
+    const recreated = await call(
+      'POST',
+      `/api/v1/cells/${cell}/teams/${team}/workers/${worker}/durable-object-classes`,
+      { className: 'TempDO' }
+    )
+    expect(recreated.body.data.uniqueKey).not.toBe(temp.body.data.uniqueKey)
+    expect(
+      (
+        await call(
+          'DELETE',
+          `/api/v1/cells/${cell}/teams/${team}/workers/${worker}/durable-object-classes/MyDO`
+        )
+      ).status
+    ).toBe(409)
+    expect(
+      (await call('POST', `/api/v1/cells/${cell}/publish`, { cause: 'DO-MIGRATE' })).status
+    ).toBe(201)
 
     // Workflow declaration + instance op
+    await store.recordCellCapabilities(cell, {
+      cron: true,
+      assets: true,
+      d1: true,
+      queue: true,
+      workflows: true,
+      workflowsCrossWorker: true,
+      flagship: true,
+      secretsStore: true,
+    })
+    // Flagship app + binding ride the next publication.
+    const flagship = await call(
+      'PUT',
+      `/api/v1/cells/${cell}/teams/${team}/flagship/apps/checkout`,
+      {
+        config: {
+          flags: {
+            newCheckout: {
+              type: 'boolean',
+              enabled: true,
+              variants: { on: true, off: false },
+              defaultVariant: 'off',
+            },
+          },
+        },
+      }
+    )
+    expect(flagship.status).toBe(201)
+    const flagshipVersion = await call(
+      'POST',
+      `/api/v1/cells/${cell}/teams/${team}/workers/${worker}/versions`,
+      {
+        versionId: `flagship-${suffix}`,
+        bundleSha256: digest,
+        bundleBytes: bundle.byteLength,
+        queueConsumers: [{ queueId, queueName: 'jobs', maxBatchSize: 10 }],
+        bindings: [
+          {
+            name: 'FLAGS',
+            type: 'FLAGSHIP',
+            resourceId: 'checkout',
+            permissionRead: true,
+            permissionWrite: false,
+          },
+          {
+            name: 'MY_DO',
+            type: 'DO',
+            resourceId: `${workerId}:MyDO`,
+            permissionRead: true,
+            permissionWrite: false,
+          },
+        ],
+      }
+    )
+    expect(flagshipVersion.status).toBe(201)
+    expect(
+      (
+        await call(
+          'POST',
+          `/api/v1/cells/${cell}/teams/${team}/workers/${worker}/versions/flagship-${suffix}/activate`,
+          {}
+        )
+      ).status
+    ).toBe(200)
+    expect(
+      (await call('POST', `/api/v1/cells/${cell}/publish`, { cause: 'FLAGSHIP' })).status
+    ).toBe(201)
+    const flagshipDesired = await app.request(`/api/internal/clusters/${cell}/vrt/desired`, {
+      headers: auth,
+    })
+    const flagshipEnvelope = (await flagshipDesired.json()) as any
+    const flagshipTenant = flagshipEnvelope.payload.tenants.find(
+      (tenant: any) => tenant.tenantId === team
+    )
+    expect(flagshipTenant.flagshipApps).toEqual([
+      expect.objectContaining({
+        appId: 'checkout',
+        config: expect.stringContaining('newCheckout'),
+      }),
+    ])
+    expect(flagshipTenant.flagshipApps).toEqual([
+      expect.objectContaining({
+        appId: 'checkout',
+        config: expect.stringContaining('newCheckout'),
+      }),
+    ])
+    expect(
+      (
+        await call('PUT', `/api/v1/cells/${cell}/teams/${team}/flagship/apps/bad`, {
+          config: {
+            flags: {
+              bad: { type: 'nope', enabled: true, variants: {}, defaultVariant: 'x' },
+            },
+          },
+        })
+      ).status
+    ).toBe(400)
+    expect(
+      (
+        await call('POST', `/api/v1/cells/${cell}/teams/${team}/workers/${worker}/versions`, {
+          versionId: `flagship-missing-${suffix}`,
+          bundleSha256: digest,
+          bundleBytes: bundle.byteLength,
+          bindings: [
+            {
+              name: 'FLAGS',
+              type: 'FLAGSHIP',
+              resourceId: 'missing',
+              permissionRead: true,
+              permissionWrite: false,
+            },
+          ],
+        })
+      ).status
+    ).toBe(400)
+    expect(
+      (await call('DELETE', `/api/v1/cells/${cell}/teams/${team}/flagship/apps/checkout`)).status
+    ).toBe(409)
+
+    // Secrets Store value + binding.
+    expect(
+      (
+        await call('PUT', `/api/v1/cells/${cell}/teams/${team}/secrets-store/default/API_KEY`, {
+          value: 'store-secret',
+        })
+      ).status
+    ).toBe(200)
+    const secretsVersion = await call(
+      'POST',
+      `/api/v1/cells/${cell}/teams/${team}/workers/${worker}/versions`,
+      {
+        versionId: `secrets-${suffix}`,
+        bundleSha256: digest,
+        bundleBytes: bundle.byteLength,
+        queueConsumers: [{ queueId, queueName: 'jobs', maxBatchSize: 10 }],
+        bindings: [
+          {
+            name: 'FLAGS',
+            type: 'FLAGSHIP',
+            resourceId: 'checkout',
+            permissionRead: true,
+            permissionWrite: false,
+          },
+          {
+            name: 'MY_DO',
+            type: 'DO',
+            resourceId: `${workerId}:MyDO`,
+            permissionRead: true,
+            permissionWrite: false,
+          },
+          {
+            name: 'SECRETS',
+            type: 'SECRETS_STORE',
+            resourceId: 'default:API_KEY',
+            storeId: 'default',
+            secretName: 'API_KEY',
+            permissionRead: true,
+            permissionWrite: false,
+          },
+        ],
+      }
+    )
+    expect(secretsVersion.status).toBe(201)
+    expect(
+      (
+        await call(
+          'POST',
+          `/api/v1/cells/${cell}/teams/${team}/workers/${worker}/versions/secrets-${suffix}/activate`,
+          {}
+        )
+      ).status
+    ).toBe(200)
+    expect((await call('POST', `/api/v1/cells/${cell}/publish`, { cause: 'SECRETS' })).status).toBe(
+      201
+    )
+    const secretInputs = await app.request(`/api/internal/clusters/${cell}/vrt/render-inputs`, {
+      headers: auth,
+    })
+    const secretBody = (await secretInputs.json()) as any
+    expect(secretBody.tenants[team].secrets['secrets-store:default:API_KEY']).toBe('store-secret')
+    const secretsDesired = await app.request(`/api/internal/clusters/${cell}/vrt/desired`, {
+      headers: auth,
+    })
+    const secretsEnvelope = (await secretsDesired.json()) as any
+    const secretsServed = secretsEnvelope.payload.tenants
+      .flatMap((tenant: any) => tenant.workers)
+      .find((candidate: any) => candidate.workerId === workerId)
+    expect(secretsServed.bindings).toContainEqual(
+      expect.objectContaining({
+        type: 'secretsStore',
+        name: 'SECRETS',
+        storeId: 'default',
+        secretName: 'API_KEY',
+        secretRef: 'secrets-store:default:API_KEY',
+      })
+    )
+    const stored = await pool.query(
+      'select value from plane_secrets_store where team_id=$1 and store_id=$2 and secret_name=$3',
+      [team, 'default', 'API_KEY']
+    )
+    expect((stored.rows[0] as { value: string }).value).toMatch(/^enc:v1:/)
+    expect(
+      (
+        await call('POST', `/api/v1/cells/${cell}/teams/${team}/workers/${worker}/versions`, {
+          versionId: `secrets-missing-${suffix}`,
+          bundleSha256: digest,
+          bundleBytes: bundle.byteLength,
+          bindings: [
+            {
+              name: 'SECRETS',
+              type: 'SECRETS_STORE',
+              resourceId: 'default:missing',
+              storeId: 'default',
+              secretName: 'missing',
+              permissionRead: true,
+              permissionWrite: false,
+            },
+          ],
+        })
+      ).status
+    ).toBe(400)
+    expect(
+      (await call('DELETE', `/api/v1/cells/${cell}/teams/${team}/secrets-store/default/API_KEY`))
+        .status
+    ).toBe(409)
+
     const wf = await call(
       'POST',
       `/api/v1/cells/${cell}/teams/${team}/workers/${worker}/workflows`,
-      { name: 'OrderWorkflow', className: 'OrderWorkflow' }
+      {
+        name: 'OrderWorkflow',
+        className: 'OrderWorkflow',
+        defaultRetention: { successRetention: '3 days', errorRetention: 86_400_000 },
+        concurrencyLimit: 100,
+      }
     )
     expect(wf.status).toBe(201)
+    expect(
+      (
+        await call('POST', `/api/v1/cells/${cell}/teams/${team}/workers/${worker}/workflows`, {
+          name: 'BadRetention',
+          className: 'BadRetention',
+          defaultRetention: { successRetention: '31 days' },
+        })
+      ).status
+    ).toBe(400)
+    expect(
+      (
+        await call('POST', `/api/v1/cells/${cell}/teams/${team}/workers/${worker}/workflows`, {
+          name: 'BadRetentionScript',
+          className: 'BadRetentionScript',
+          scriptName: 'missing',
+          defaultRetention: { successRetention: '1 day' },
+        })
+      ).status
+    ).toBe(400)
     expect(
       (
         await call(
@@ -229,20 +598,84 @@ maybe('service resource API e2e', () => {
         )
       ).status
     ).toBe(202)
+    expect(
+      (
+        await call('POST', `/api/v1/cells/${cell}/teams/${team}/workers/${worker}/workflows`, {
+          name: 'BadScript',
+          className: 'BadScript',
+          scriptName: 'missing',
+        })
+      ).status
+    ).toBe(404)
+
+    expect(
+      (await call('POST', `/api/v1/cells/${cell}/publish`, { cause: 'WORKFLOW' })).status
+    ).toBe(201)
+    const desired = await app.request(`/api/internal/clusters/${cell}/vrt/desired`, {
+      headers: auth,
+    })
+    expect(desired.status).toBe(200)
+    const envelope = (await desired.json()) as any
+    const served = envelope.payload.tenants
+      .flatMap((tenant: any) => tenant.workers)
+      .find((candidate: any) => candidate.workerId === workerId)
+    expect(served.workflows).toEqual([
+      expect.objectContaining({
+        name: 'OrderWorkflow',
+        binding: 'OrderWorkflow',
+        className: 'OrderWorkflow',
+        uniqueKey: expect.stringMatching(/^[0-9a-f]{64}$/),
+        successRetentionMs: 259_200_000,
+        errorRetentionMs: 86_400_000,
+        concurrencyLimit: 100,
+      }),
+    ])
+    expect(
+      (
+        await call('POST', `/api/v1/cells/${cell}/teams/${team}/workers/${worker}/versions`, {
+          versionId: `wf-collision-${suffix}`,
+          bundleSha256: digest,
+          bundleBytes: bundle.byteLength,
+          vars: { OrderWorkflow: 1 },
+        })
+      ).status
+    ).toBe(400)
+    expect(
+      (
+        await call(
+          'PUT',
+          `/api/v1/cells/${cell}/teams/${team}/workers/${worker}/vars/OrderWorkflow`,
+          { value: 'x' }
+        )
+      ).status
+    ).toBe(409)
 
     // Catalog sees every resource; bindings are ready to paste into a version.
     const services = await call('GET', `/api/v1/cells/${cell}/services`)
     expect(services.status).toBe(200)
-    expect(services.body.data.d1[0].binding).toMatchObject({ type: 'd1', databaseId })
-    expect(services.body.data.r2[0].binding).toMatchObject({ type: 'r2', bucket })
-    expect(services.body.data.kv[0].binding).toMatchObject({ type: 'kv', namespaceId })
+    expect(services.body.data.d1[0].binding).toMatchObject({
+      type: 'D1',
+      resourceId: databaseId,
+    })
+    expect(services.body.data.r2[0].binding).toMatchObject({
+      type: 'R2',
+      resourceId: bucket,
+    })
+    expect(services.body.data.kv[0].binding).toMatchObject({
+      type: 'KV',
+      resourceId: namespaceId,
+    })
     expect(services.body.data.queues[0].binding).toMatchObject({
-      type: 'queue',
+      type: 'QUEUE',
+      resourceId: queueId,
       deliveryDelaySeconds: 10,
     })
     expect(services.body.data.workflows[0]).toMatchObject({
       workerId,
       name: 'OrderWorkflow',
+      successRetentionMs: 259_200_000,
+      errorRetentionMs: 86_400_000,
+      concurrencyLimit: 100,
     })
 
     // Op polling by id exposes the generic channel to management clients.

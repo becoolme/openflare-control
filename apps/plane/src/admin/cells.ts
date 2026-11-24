@@ -88,6 +88,7 @@ export function registerCells(app: Hono, deps: AdminDeps): void {
       await client.query('delete from plane_d1_ops where cell_id=$1', [cell])
       await client.query('delete from plane_cell_ops where cell_id=$1', [cell])
       await client.query('delete from plane_logs where cell_id=$1', [cell])
+      await client.query('delete from plane_vectorize_indexes where cluster_id=$1', [cell])
       const deleted = await client.query('delete from plane_cells where cell_id=$1', [cell])
       await client.query('commit')
       if (deleted.rowCount === 0) throw new VrtControlError(404, 'Cell not found')

@@ -3,6 +3,53 @@ import { z } from 'zod'
 import { VrtControlError } from 'openflare-control'
 import { type AdminDeps, hostname, key, parse, readJson, rows, workerId } from './context.js'
 
+async function assertEnvNameAvailable(
+  deps: AdminDeps,
+  worker: string,
+  name: string,
+  source: 'var' | 'secret'
+): Promise<void> {
+  const otherTable = source === 'var' ? 'plane_secrets' : 'plane_vars'
+  const [other] = await rows(
+    deps,
+    `select 1 from ${otherTable} where worker_id=$1 and key=$2 limit 1`,
+    [worker, name]
+  )
+  if (other) {
+    throw new VrtControlError(
+      409,
+      `${name} is already used by a ${source === 'var' ? 'secret' : 'var'}`
+    )
+  }
+  const [inVersion] = await rows(
+    deps,
+    `select 1
+       from plane_workers w
+       join plane_versions v on v.worker_id=w.id and v.version_id=w.active_version_id
+      where w.id=$1
+        and (
+          exists (
+            select 1
+              from jsonb_array_elements(
+                case when jsonb_typeof(v.row->'bindings')='array'
+                  then v.row->'bindings' else '[]'::jsonb end
+              ) binding
+             where binding->>'name'=$2
+          )
+          or (case when jsonb_typeof(v.row->'jsonVars')='object'
+            then v.row->'jsonVars' else '{}'::jsonb end) ? $2
+          or v.row->>'versionMetadata'=$2
+        )
+      union all
+      select 1 from plane_workflows where worker_id=$1 and binding=$2
+      limit 1`,
+    [worker, name]
+  )
+  if (inVersion) {
+    throw new VrtControlError(409, `${name} is already used by the active version`)
+  }
+}
+
 export function registerConfig(app: Hono, deps: AdminDeps): void {
   const worker = (c: { req: { param: (k: string) => string } }) => {
     const team = c.req.param('teamId')
@@ -23,6 +70,7 @@ export function registerConfig(app: Hono, deps: AdminDeps): void {
     const k = c.req.param('key')
     parse(key, k)
     const body = parse(z.object({ value: z.string() }).strict(), await readJson(c))
+    await assertEnvNameAvailable(deps, worker(c), k, 'var')
     await deps.pool.query(
       `insert into plane_vars (worker_id, key, value) values ($1,$2,$3)
        on conflict (worker_id, key) do update set value=excluded.value`,
@@ -50,6 +98,7 @@ export function registerConfig(app: Hono, deps: AdminDeps): void {
     const k = c.req.param('key')
     parse(key, k)
     const body = parse(z.object({ value: z.string() }).strict(), await readJson(c))
+    await assertEnvNameAvailable(deps, worker(c), k, 'secret')
     await deps.pool.query(
       `insert into plane_secrets (worker_id, key, value) values ($1,$2,$3)
        on conflict (worker_id, key) do update set value=excluded.value`,

@@ -1,6 +1,10 @@
 import { Hono } from 'hono'
 import { type AdminDeps, requireAdmin } from './context.js'
+import { registerAssets } from './assets.js'
 import { registerBundles } from './bundles.js'
+import { registerDoClasses } from './doClasses.js'
+import { registerFlagship } from './flagship.js'
+import { registerSecretsStore } from './secretsStore.js'
 import { registerCells } from './cells.js'
 import { registerConfig } from './config.js'
 import { registerLogs } from './logs.js'
@@ -33,7 +37,11 @@ export function createAdminApp(deps: AdminDeps): Hono {
   registerTeams(app, deps)
   registerWorkers(app, deps)
   registerConfig(app, deps)
+  registerAssets(app, deps)
   registerBundles(app, deps)
+  registerDoClasses(app, deps)
+  registerFlagship(app, deps)
+  registerSecretsStore(app, deps)
   registerPublications(app, deps)
   registerServices(app, deps)
   registerStats(app, deps)
