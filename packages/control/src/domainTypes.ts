@@ -35,12 +35,6 @@ export interface VrtBindingRecord {
   readonly resourceId: string
   readonly permissionRead: boolean
   readonly permissionWrite: boolean
-  /** D1 only: writer epoch published in the signed desired document.
-   * Advances after a manual promotion; absent keeps the legacy `1`. */
-  readonly epoch?: number
-  /** D1 only: per-database writer endpoint. Published atomically with
-   * `epoch`; absent keeps the provider's static `vrtSql.addr`. */
-  readonly writerAddr?: string
   /** SERVICE only: named `WorkerEntrypoint` export; null/absent = default. */
   readonly entrypoint?: string | null
   /** SERVICE only: canonical JSON **text** for `ctx.props` (the DB column

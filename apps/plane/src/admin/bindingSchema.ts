@@ -24,23 +24,7 @@ export const bindingRecordSchema = z.discriminatedUnion('type', [
       ...permissions,
     })
     .strict(),
-  z
-    .object({
-      ...base,
-      type: z.literal('D1'),
-      resourceId: id26,
-      epoch: z.number().int().min(1).optional(),
-      writerAddr: z
-        .string()
-        .min(1)
-        .max(256)
-        .refine((v) => /^https?:\/\//.test(v) && !v.endsWith('/') && !/\s/.test(v), {
-          message: 'writerAddr must be an http(s) URL without a trailing slash',
-        })
-        .optional(),
-      ...permissions,
-    })
-    .strict(),
+  z.object({ ...base, type: z.literal('D1'), resourceId: id26, ...permissions }).strict(),
   z
     .object({
       ...base,
