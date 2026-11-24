@@ -5,6 +5,7 @@ import {
   bundleKeyFor,
   latestDesiredEnvelope,
   recordDesiredAck,
+  signAndRecordCellPublication,
   vrtDesiredAckSchema,
   type BundleStore,
   type VrtControlStore,
@@ -59,6 +60,40 @@ async function auth(c: Context, deps: AppDeps): Promise<string> {
     throw new VrtControlError(401, 'Invalid cell controller token')
   }
   return cellId
+}
+
+function parsePromotionResult(
+  payload: unknown,
+  result: unknown
+): { epoch: number; lsn: number | null; writerAddr: string | null } | null {
+  if (!result || typeof result !== 'object') return null
+  const r = result as Record<string, unknown>
+  if (r.success === false) return null
+  const epoch = Number(r.epoch)
+  if (!Number.isSafeInteger(epoch) || epoch < 1) return null
+  let lsn: number | null = null
+  if (r.lsn !== undefined && r.lsn !== null) {
+    const n = Number(r.lsn)
+    if (!Number.isSafeInteger(n) || n < 0) return null
+    lsn = n
+  }
+  const p = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {}
+  const raw = p.writerAddr ?? r.writerAddr
+  let writerAddr: string | null = null
+  if (raw !== undefined && raw !== null) {
+    if (
+      typeof raw !== 'string' ||
+      raw.length === 0 ||
+      raw.length > 256 ||
+      raw.endsWith('/') ||
+      /\s/.test(raw) ||
+      !/^https?:\/\//.test(raw)
+    ) {
+      return null
+    }
+    writerAddr = raw
+  }
+  return { epoch, lsn, writerAddr }
 }
 
 function errorResponse(c: Context, error: unknown): Response {
@@ -339,28 +374,131 @@ export function createApp(deps: AppDeps): Hono {
       const acks = Array.isArray(body.acks) ? body.acks : []
       let acked = 0
       let malformed = 0
+      let published = 0
       for (const raw of acks.slice(0, 500)) {
         const ack = raw as { seq?: unknown; status?: unknown; result?: unknown; error?: unknown }
         const seq = Number(ack.seq)
         const status = ack.status
-        if (!Number.isSafeInteger(seq) || seq < 0 || (status !== 'DONE' && status !== 'FAILED')) {
+        if (
+          !Number.isSafeInteger(seq) ||
+          seq < 0 ||
+          (status !== 'DONE' && status !== 'FAILED' && status !== 'EXPIRED')
+        ) {
           malformed++
           continue
         }
-        const r = await deps.pool.query(
-          `update plane_d1_ops set status=$1, result=$2, error=$3
-            where cell_id=$4 and seq=$5 and status='PENDING'`,
-          [
-            status,
-            ack.result ?? null,
-            typeof ack.error === 'string' ? ack.error.slice(0, 2048) : null,
-            cellId,
+        const outcome = await deps.store.runCellTransaction(cellId, async (tx) => {
+          const op = await tx.ackD1Op({
             seq,
-          ]
-        )
-        acked += r.rowCount ?? 0
+            status,
+            result: ack.result ?? null,
+            error: typeof ack.error === 'string' ? ack.error.slice(0, 2048) : null,
+          })
+          if (!op) return { acked: false, published: false }
+          if (status !== 'DONE' || op.kind !== 'PROMOTE') {
+            return { acked: true, published: false }
+          }
+          const promotion = parsePromotionResult(op.payload, ack.result)
+          if (!promotion) {
+            console.warn('[openflare-plane] PROMOTE acked without a valid writer result')
+            return { acked: true, published: false }
+          }
+          const changed = await tx.applyD1Writer({
+            databaseId: op.databaseId,
+            epoch: promotion.epoch,
+            writerAddr: promotion.writerAddr,
+            lsn: promotion.lsn,
+          })
+          if (!changed) return { acked: true, published: false }
+          if (!deps.signing) {
+            console.warn('[openflare-plane] writer updated but signing is not configured')
+            return { acked: true, published: false }
+          }
+          if (!(await tx.lockCell())) return { acked: true, published: false }
+          const revision = await tx.allocateRevision()
+          await signAndRecordCellPublication(tx, {
+            revision,
+            cause: 'D1_PROMOTE',
+            workerId: null,
+            publishedById: null,
+            now: new Date(),
+            signing: deps.signing,
+          })
+          return { acked: true, published: true }
+        })
+        if (outcome.acked) acked++
+        if (outcome.published) published++
       }
-      return c.json({ data: { acked, malformed } })
+      return c.json({ data: { acked, malformed, published } })
+    } catch (error) {
+      return errorResponse(c, error)
+    }
+  })
+
+  app.post('/api/internal/clusters/:clusterId/vrt/d1-writer', async (c) => {
+    try {
+      const cellId = await auth(c, deps)
+      const body = (await readJson(c, 4096)) as {
+        databaseId?: unknown
+        epoch?: unknown
+        lsn?: unknown
+        writerAddr?: unknown
+        cause?: unknown
+      }
+      const databaseId = body.databaseId
+      if (typeof databaseId !== 'string' || !/^[a-z0-9]{26}$/.test(databaseId)) {
+        throw new VrtControlError(400, 'databaseId must be 26 lowercase alphanumerics')
+      }
+      const epoch = Number(body.epoch)
+      if (!Number.isSafeInteger(epoch) || epoch < 1) {
+        throw new VrtControlError(400, 'epoch must be a positive integer')
+      }
+      let lsn: number | null = null
+      if (body.lsn !== undefined && body.lsn !== null) {
+        lsn = Number(body.lsn)
+        if (!Number.isSafeInteger(lsn) || lsn < 0) {
+          throw new VrtControlError(400, 'lsn must be a non-negative integer')
+        }
+      }
+      let writerAddr: string | null = null
+      if (body.writerAddr !== undefined && body.writerAddr !== null) {
+        const addr = body.writerAddr
+        if (
+          typeof addr !== 'string' ||
+          addr.length === 0 ||
+          addr.length > 256 ||
+          addr.endsWith('/') ||
+          /\s/.test(addr) ||
+          !/^https?:\/\//.test(addr)
+        ) {
+          throw new VrtControlError(
+            400,
+            'writerAddr must be an http(s) URL without a trailing slash'
+          )
+        }
+        writerAddr = addr
+      }
+      if (!deps.signing) throw new VrtControlError(501, 'Signing is not configured')
+      const cause =
+        typeof body.cause === 'string' && body.cause.length > 0 && body.cause.length <= 64
+          ? body.cause
+          : 'D1_AUTO_PROMOTE'
+      const result = await deps.store.runCellTransaction(cellId, async (tx) => {
+        const applied = await tx.applyD1Writer({ databaseId, epoch, writerAddr, lsn })
+        if (!applied) return { applied: false, published: false, revision: null }
+        if (!(await tx.lockCell())) throw new VrtControlError(409, 'Cell has no state row')
+        const revision = await tx.allocateRevision()
+        await signAndRecordCellPublication(tx, {
+          revision,
+          cause,
+          workerId: null,
+          publishedById: null,
+          now: new Date(),
+          signing: deps.signing!,
+        })
+        return { applied: true, published: true, revision }
+      })
+      return c.json({ data: result })
     } catch (error) {
       return errorResponse(c, error)
     }
