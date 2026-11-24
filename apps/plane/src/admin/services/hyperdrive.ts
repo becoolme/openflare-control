@@ -3,6 +3,29 @@ import { z } from 'zod'
 import { VrtControlError, hyperdriveResourceId } from 'openflare-control'
 import { type AdminDeps, generatedId, parse, readJson, rows, teamId } from '../context.js'
 
+// Origins are `host:port/db` or `scheme://host/db` — credentials live with
+// the provider, never in the plane. Writes reject an embedded userinfo and
+// reads mask it, so a legacy row can't echo a password back through GETs.
+const authorityOf = (origin: string) =>
+  origin.replace(/^[a-z][a-z0-9+.-]*:\/\//i, '').split('/')[0] ?? ''
+
+function assertNoCredentials(origin: string): void {
+  if (authorityOf(origin).includes('@')) {
+    throw new VrtControlError(
+      400,
+      'origin must not embed credentials — store them with the provider, not the plane'
+    )
+  }
+}
+
+function maskOrigin<T>(row: T): T {
+  const r = row as { origin?: unknown }
+  if (typeof r.origin !== 'string') return row
+  // userinfo sits between the optional scheme and the first `/` — masking
+  // there leaves `host/db@path` untouched.
+  return { ...row, origin: r.origin.replace(/^([a-z][a-z0-9+.-]*:\/\/)?[^@/\s]+@/i, '$1***@') }
+}
+
 export function registerHyperdriveService(app: Hono, deps: AdminDeps): void {
   app.get('/api/v1/cells/:cellId/hyperdrive', async (c) => {
     const team = c.req.query('teamId')
@@ -13,7 +36,7 @@ export function registerHyperdriveService(app: Hono, deps: AdminDeps): void {
         order by team_id, name`,
       [c.req.param('cellId'), team ?? null]
     )
-    return c.json({ data: { hyperdrives: list } })
+    return c.json({ data: { hyperdrives: list.map(maskOrigin) } })
   })
 
   app.post('/api/v1/cells/:cellId/hyperdrive', async (c) => {
@@ -29,6 +52,7 @@ export function registerHyperdriveService(app: Hono, deps: AdminDeps): void {
         .strict(),
       await readJson(c)
     )
+    assertNoCredentials(body.origin)
     const id = generatedId(`${cell}:${body.teamId}:hyperdrive:${body.name}`)
     await deps.pool.query(
       `insert into plane_hyperdrives
@@ -41,7 +65,7 @@ export function registerHyperdriveService(app: Hono, deps: AdminDeps): void {
       'select * from plane_hyperdrives where hyperdrive_id=$1',
       [id]
     )
-    return c.json({ data: { hyperdrive } }, 201)
+    return c.json({ data: { hyperdrive: maskOrigin(hyperdrive) } }, 201)
   })
 
   app.get('/api/v1/cells/:cellId/hyperdrive/:hyperdriveId', async (c) => {
@@ -52,7 +76,7 @@ export function registerHyperdriveService(app: Hono, deps: AdminDeps): void {
       [c.req.param('hyperdriveId'), c.req.param('cellId')]
     )
     if (!hyperdrive) throw new VrtControlError(404, 'Hyperdrive not found')
-    return c.json({ data: { hyperdrive } })
+    return c.json({ data: { hyperdrive: maskOrigin(hyperdrive) } })
   })
 
   app.delete('/api/v1/cells/:cellId/hyperdrive/:hyperdriveId', async (c) => {

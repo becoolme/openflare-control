@@ -222,6 +222,37 @@ maybe('management API edges', () => {
     ).toBe(200)
   })
 
+  it('keeps credentials out of hyperdrive origins, writes and reads', async () => {
+    // An origin with embedded userinfo is rejected at write time.
+    expect(
+      (
+        await call(app, 'POST', `${base}/hyperdrive`, {
+          teamId: team,
+          name: 'creds',
+          origin: 'postgres://user:pass@db.internal:5432/app',
+        })
+      ).status
+    ).toBe(400)
+    // A clean origin round-trips untouched.
+    const ok = await call(app, 'POST', `${base}/hyperdrive`, {
+      teamId: team,
+      name: 'plain',
+      origin: 'postgres://db.internal:5432/app',
+    })
+    expect(ok.status).toBe(201)
+    expect(ok.body.data.hyperdrive.origin).toBe('postgres://db.internal:5432/app')
+    // A legacy row written before the gate still can't echo its password.
+    await pool.query(
+      `insert into plane_hyperdrives (hyperdrive_id, team_id, cluster_id, name, origin)
+       values ('h'.repeat(26), $1, $2, 'legacy', 'postgres://u:s3cret@h/db')`,
+      [team, cell]
+    )
+    const list = await call(app, 'GET', `${base}/hyperdrive`)
+    const legacy = list.body.data.hyperdrives.find((h: { name: string }) => h.name === 'legacy')
+    expect(legacy.origin).toBe('postgres://***@h/db')
+    expect(legacy.origin).not.toContain('s3cret')
+  })
+
   it('covers vars/secrets/hostname validation and conflicts', async () => {
     expect(
       (
