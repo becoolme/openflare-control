@@ -90,6 +90,7 @@ maybe('service resource API e2e', () => {
 
   it('manages D1, R2, KV, queues and workflows', async () => {
     expect((await call('POST', '/api/v1/cells', { cellId: cell })).status).toBe(201)
+    expect((await call('POST', '/api/v1/teams', { teamId: team })).status).toBe(201)
     const base = `/api/v1/cells/${cell}`
     expect(
       (await call('POST', `/api/v1/cells/${cell}/workers`, { teamId: team, name: worker })).status

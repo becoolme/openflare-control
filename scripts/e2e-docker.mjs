@@ -64,6 +64,7 @@ async function waitReady() {
 async function main() {
   await waitReady()
   let r = await request('POST', '/api/v1/cells', { cellId: cell })
+  r = await request('POST', '/api/v1/teams', { teamId: team })
   assert.equal(r.status, 201)
   r = await request('POST', `/api/v1/cells/${cell}/token`)
   assert.equal(r.status, 201)

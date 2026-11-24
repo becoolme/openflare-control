@@ -92,6 +92,7 @@ maybe('vectorize', () => {
 
   it('creates an index, binds it, and publishes vectorize', async () => {
     expect((await call('POST', '/api/v1/cells', { cellId: cell })).status).toBe(201)
+    expect((await call('POST', '/api/v1/teams', { teamId: team })).status).toBe(201)
     expect((await call('POST', `${base}/workers`, { teamId: team, name: worker })).status).toBe(201)
     const index = await call('POST', `${base}/vectorize/indexes`, {
       teamId: team,

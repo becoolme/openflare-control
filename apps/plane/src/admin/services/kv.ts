@@ -2,7 +2,17 @@ import type { Hono } from 'hono'
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import { VrtControlError } from 'openflare-control'
-import { type AdminDeps, generatedId, mapOp, parse, readJson, rows, teamId } from '../context.js'
+import {
+  type AdminDeps,
+  generatedId,
+  mapOp,
+  parse,
+  readJson,
+  requireTeam,
+  resourceId,
+  rows,
+  teamId,
+} from '../context.js'
 
 const KV_KINDS = [
   'KV_GET',
@@ -40,6 +50,7 @@ export function registerKvService(app: Hono, deps: AdminDeps): void {
     )
     const namespaceId = generatedId(`${cell}:${body.teamId}:kv:${body.title}`)
     const physicalId = `vrtkv_${namespaceId}`
+    await requireTeam(deps, body.teamId)
     await deps.pool.query(
       `insert into plane_kv_namespaces (namespace_id, physical_id, team_id, cluster_id, title)
        values ($1,$2,$3,$4,$5) on conflict (namespace_id) do nothing`,
@@ -56,7 +67,7 @@ export function registerKvService(app: Hono, deps: AdminDeps): void {
   app.delete('/api/v1/cells/:cellId/kv/namespaces/:namespaceId', async (c) => {
     const deleted = await deps.pool.query(
       'delete from plane_kv_namespaces where namespace_id=$1 and cluster_id=$2',
-      [c.req.param('namespaceId'), c.req.param('cellId')]
+      [parse(resourceId, c.req.param('namespaceId')), c.req.param('cellId')]
     )
     if (deleted.rowCount === 0) throw new VrtControlError(404, 'KV namespace not found')
     return c.json({ data: { deleted: true } })
@@ -64,7 +75,7 @@ export function registerKvService(app: Hono, deps: AdminDeps): void {
 
   app.post('/api/v1/cells/:cellId/kv/namespaces/:namespaceId/ops', async (c) => {
     const cell = c.req.param('cellId')
-    const id = c.req.param('namespaceId')
+    const id = parse(resourceId, c.req.param('namespaceId'))
     const [ns] = await rows(
       deps,
       'select * from plane_kv_namespaces where namespace_id=$1 and cluster_id=$2',
@@ -104,7 +115,7 @@ export function registerKvService(app: Hono, deps: AdminDeps): void {
     const [ns] = await rows(
       deps,
       'select physical_id from plane_kv_namespaces where namespace_id=$1 and cluster_id=$2',
-      [c.req.param('namespaceId'), c.req.param('cellId')]
+      [parse(resourceId, c.req.param('namespaceId')), c.req.param('cellId')]
     )
     if (!ns) throw new VrtControlError(404, 'KV namespace not found')
     const list = await rows(

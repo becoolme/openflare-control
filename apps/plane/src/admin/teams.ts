@@ -77,9 +77,9 @@ export function registerTeams(app: Hono, deps: AdminDeps): void {
           plan: z.string().min(1).max(64).optional(),
           quotas: z
             .object({
-              requestsMonth: z.number().int().min(0).optional(),
-              cpuMsMonth: z.number().int().min(0).optional(),
-              workersMax: z.number().int().min(0).optional(),
+              requestsMonth: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).optional(),
+              cpuMsMonth: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).optional(),
+              workersMax: z.number().int().min(0).max(2_147_483_647).optional(),
             })
             .strict()
             .optional(),

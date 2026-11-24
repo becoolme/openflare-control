@@ -9,6 +9,7 @@ import {
   mapOp,
   parse,
   readJson,
+  requireTeam,
   rows,
   teamId,
 } from '../context.js'
@@ -33,6 +34,7 @@ export function registerD1Service(app: Hono, deps: AdminDeps): void {
       await readJson(c)
     )
     const id = generatedId(`${cell}:${body.teamId}:d1:${body.name}`)
+    await requireTeam(deps, body.teamId)
     await deps.pool.query(
       `insert into plane_d1_databases (database_id, team_id, cluster_id, name)
        values ($1,$2,$3,$4) on conflict (database_id) do nothing`,
@@ -48,7 +50,7 @@ export function registerD1Service(app: Hono, deps: AdminDeps): void {
     const [database] = await rows(
       deps,
       'select * from plane_d1_databases where database_id=$1 and cluster_id=$2',
-      [c.req.param('databaseId'), c.req.param('cellId')]
+      [parse(databaseId, c.req.param('databaseId')), c.req.param('cellId')]
     )
     if (!database) throw new VrtControlError(404, 'D1 database not found')
     return c.json({ data: { database } })
@@ -57,7 +59,7 @@ export function registerD1Service(app: Hono, deps: AdminDeps): void {
   app.delete('/api/v1/cells/:cellId/d1/databases/:databaseId', async (c) => {
     const deleted = await deps.pool.query(
       'delete from plane_d1_databases where database_id=$1 and cluster_id=$2',
-      [c.req.param('databaseId'), c.req.param('cellId')]
+      [parse(databaseId, c.req.param('databaseId')), c.req.param('cellId')]
     )
     if (deleted.rowCount === 0) throw new VrtControlError(404, 'D1 database not found')
     return c.json({ data: { deleted: true } })
@@ -103,7 +105,9 @@ export function registerD1Service(app: Hono, deps: AdminDeps): void {
       z
         .object({
           migrations: z
-            .array(z.object({ name: z.string().min(1).max(200), sql: z.string().min(1) }))
+            .array(
+              z.object({ name: z.string().min(1).max(200), sql: z.string().min(1).max(262_144) })
+            )
             .min(1)
             .max(512),
           expiresAt: z.number().int().optional(),
@@ -125,7 +129,7 @@ export function registerD1Service(app: Hono, deps: AdminDeps): void {
       deps,
       `select id, seq, database_id, kind, status, result, error, expires_at, created_at
          from plane_d1_ops where cell_id=$1 and database_id=$2 order by seq desc limit 100`,
-      [c.req.param('cellId'), c.req.param('databaseId')]
+      [c.req.param('cellId'), parse(databaseId, c.req.param('databaseId'))]
     )
     return c.json({ data: { ops: list.map(mapOp) } })
   })

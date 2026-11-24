@@ -86,6 +86,8 @@ assert.equal(r.status, 200, `cell ${CELL} missing`)
 assert.equal(r.body.data.cellId, CELL)
 
 // Worker + hostname + bundle + deploy → cell ack → ingress serve.
+r = await api('POST', '/api/v1/teams', { teamId: team })
+assert.equal(r.status, 201, JSON.stringify(r.body))
 r = await api('POST', `/api/v1/cells/${CELL}/workers`, { teamId: team, name: worker })
 assert.equal(r.status, 201, JSON.stringify(r.body))
 r = await api('POST', `/api/v1/cells/${CELL}/teams/${team}/workers/${worker}/hostnames`, {

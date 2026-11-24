@@ -2,7 +2,16 @@ import type { Hono } from 'hono'
 import { z } from 'zod'
 import { VrtControlError } from 'openflare-control'
 import { randomBytes, randomUUID } from 'node:crypto'
-import { type AdminDeps, generatedId, parse, readJson, rows, teamId } from '../context.js'
+import {
+  type AdminDeps,
+  generatedId,
+  parse,
+  readJson,
+  requireTeam,
+  resourceId,
+  rows,
+  teamId,
+} from '../context.js'
 
 const metric = z.enum(['cosine', 'euclidean', 'dot-product'])
 const indexName = z
@@ -60,6 +69,7 @@ export function registerVectorizeService(app: Hono, deps: AdminDeps): void {
     const id = generatedId(
       `${cell}:${body.teamId}:vectorize:${body.name}:${randomBytes(8).toString('hex')}`
     )
+    await requireTeam(deps, body.teamId)
     await deps.pool.query(
       `insert into plane_vectorize_indexes
          (index_id, team_id, cluster_id, name, dimensions, metric)
@@ -79,7 +89,7 @@ export function registerVectorizeService(app: Hono, deps: AdminDeps): void {
 
   app.delete(`${base}/:indexId`, async (c) => {
     const cell = c.req.param('cellId')
-    const indexId = c.req.param('indexId')
+    const indexId = parse(resourceId, c.req.param('indexId'))
     const [index] = await rows(
       deps,
       `select index_id, team_id
@@ -164,7 +174,7 @@ export function registerVectorizeService(app: Hono, deps: AdminDeps): void {
       deps,
       `select index_id, name, dimensions, metric from plane_vectorize_indexes
         where index_id=$1 and cluster_id=$2`,
-      [c.req.param('indexId'), c.req.param('cellId')]
+      [parse(resourceId, c.req.param('indexId')), c.req.param('cellId')]
     )
     if (!index) throw new VrtControlError(404, 'Vectorize index not found')
     return c.json({

@@ -107,6 +107,7 @@ maybe('worker lifecycle e2e', () => {
 
   it('uploads, deploys, suspends, updates and deletes a worker', async () => {
     expect((await call('POST', '/api/v1/cells', { cellId: cell })).status).toBe(201)
+    expect((await call('POST', '/api/v1/teams', { teamId: team })).status).toBe(201)
     expect((await call('POST', `${base}/workers`, { teamId: team, name: worker })).status).toBe(201)
 
     // A deploy without an uploaded bundle fails closed.
