@@ -11,7 +11,7 @@ const PLANE_URL = process.env.PLANE_URL ?? 'http://plane:8787'
 const ADMIN = process.env.PLANE_ADMIN_TOKEN
 const CELL = process.env.VRT_CELL_ID ?? 'local'
 const R2_BUCKET = process.env.VRT_R2_BUCKET ?? 'vrt-r2'
-const CIDR = process.env.VRT_TRUSTED_CIDR ?? '172.31.42.0/24'
+const CIDR = process.env.VRT_TRUSTED_CIDR ?? '172.31.42.250/32'
 const VRT_UID = 10001
 const VRT_GID = 10001
 const RUN = '/run/vrt'
@@ -46,7 +46,7 @@ if (r.status !== 201 && r.status !== 200) {
 
 // The signing public key derives from PLANE_SIGNING_SECRET via the same
 // module the plane uses — no separate trust source to keep in sync.
-const { resolvePlaneSigningKey } = await import('/app/apps/plane/dist/signing.js')
+const { resolvePlaneSigningKey } = await import('/app/dist/signing.js')
 const key = resolvePlaneSigningKey(process.env.PLANE_SIGNING_SECRET)
 
 const writeOnce = async (path, content, mode, uid = VRT_UID) => {

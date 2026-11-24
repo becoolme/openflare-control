@@ -9,7 +9,7 @@ listenAddr = "0.0.0.0:8080"
 # Loopback-only by construction — the cell-controller's [[pods]].readyz
 # and health probes live here (shared netns).
 controlListen = "127.0.0.1:9091"
-metricsListen = "0.0.0.0:9494"
+metricsListen = "127.0.0.1:9494"
 doStorageDir = "/data/do"
 # Single-copy durability waiver — same dev/internal-test default as the
 # k8s base; production should use an s3 [placement].

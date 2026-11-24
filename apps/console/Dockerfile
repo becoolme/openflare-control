@@ -17,4 +17,6 @@ COPY --from=build /src/apps/console/.output/public ./public
 COPY apps/console/server ./server
 USER node
 EXPOSE 8788
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
+  CMD node -e "fetch('http://127.0.0.1:8788/console-healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 CMD ["node", "server/main.mjs"]
