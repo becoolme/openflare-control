@@ -21,7 +21,7 @@ const cli = (script: string, args: string[], env: NodeJS.ProcessEnv = {}) =>
     timeout: 60_000,
   })
 
-const seedArgs = (cell: string, team: string, worker: string, digest: string) => [
+const seedArgs = (cell: string, team: string, worker: string, digest: string, version = 'v1') => [
   '--cluster',
   cell,
   '--team',
@@ -29,7 +29,7 @@ const seedArgs = (cell: string, team: string, worker: string, digest: string) =>
   '--name',
   worker,
   '--version',
-  'v1',
+  version,
   '--digest',
   digest,
 ]
@@ -95,7 +95,7 @@ maybe('ops CLI against Postgres', () => {
     await expect(
       cli(
         'seed.ts',
-        [...seedArgs(cell, team, `w2-${suffix}`, digest), '--secret', 'API_KEY=x'],
+        [...seedArgs(cell, team, `w2-${suffix}`, digest, 'v2'), '--secret', 'API_KEY=x'],
         env
       )
     ).rejects.toMatchObject({ stderr: expect.stringContaining('takes a KEY only') })
