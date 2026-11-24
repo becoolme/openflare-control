@@ -46,7 +46,7 @@ if (r.status !== 201 && r.status !== 200) {
 
 // The signing public key derives from PLANE_SIGNING_SECRET via the same
 // module the plane uses — no separate trust source to keep in sync.
-const { resolvePlaneSigningKey } = await import('/app/apps/plane/dist/signing.js')
+const { resolvePlaneSigningKey } = await import('/app/dist/signing.js')
 const key = resolvePlaneSigningKey(process.env.PLANE_SIGNING_SECRET)
 
 const writeOnce = async (path, content, mode, uid = VRT_UID) => {
