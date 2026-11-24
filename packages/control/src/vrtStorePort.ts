@@ -432,6 +432,23 @@ export interface VrtCellTx {
   /** T21: persist the latest ACK-reported capability bits (last write
    * wins — capabilities only ever change with a cell binary rollout). */
   setCapabilities(caps: VrtCellCapabilities): Promise<void>
+  /** Mark one D1 op terminal inside the cell transaction. Returns the op
+   * identity only when this call transitioned PENDING -> terminal (a replay
+   * returns null). Used by the PROMOTE side-effect path. */
+  ackD1Op(input: {
+    seq: number
+    status: string
+    result: unknown
+    error: string | null
+  }): Promise<{ databaseId: string; kind: string; payload: unknown } | null>
+  /** Monotonic writer update for a D1 database. Returns false for an older or
+   * equal epoch, so a late ACK can never roll a newer promotion back. */
+  applyD1Writer(input: {
+    databaseId: string
+    epoch: number
+    writerAddr?: string | null
+    lsn?: number | null
+  }): Promise<boolean>
   /** The desired-state view of the cell AFTER in-transaction mutations:
    * every VRT worker on the cell whose activeVrtVersionId is set. */
   cellView(): Promise<readonly VrtCellWorkerView[]>
