@@ -139,12 +139,34 @@ export function registerTeams(app: Hono, deps: AdminDeps): void {
     if (Number(count!.n) > 0) {
       throw new VrtControlError(409, 'Team still has workers', 'VRT_TEAM_NOT_EMPTY')
     }
+    // Asset rows are team-scoped across cells; their fs payloads are removed
+    // through the store after commit so an abort can't orphan row state.
+    const assetRows = deps.assetStore
+      ? {
+          manifests: (
+            await deps.pool.query('select digest from plane_asset_manifests where team_id=$1', [id])
+          ).rows as { digest: string }[],
+          objects: (
+            await deps.pool.query('select digest from plane_asset_objects where team_id=$1', [id])
+          ).rows as { digest: string }[],
+        }
+      : null
     const client = await deps.pool.connect()
     try {
       await client.query('begin')
       await client.query('delete from plane_flagship_apps where team_id=$1', [id])
       await client.query('delete from plane_vectorize_indexes where team_id=$1', [id])
       await client.query('delete from plane_secrets_store where team_id=$1', [id])
+      // Team-scoped resources carry no cascade FK — leaving them behind
+      // reattaches the dead team's catalog (and quota accounting) when the
+      // team id is reused.
+      await client.query('delete from plane_hyperdrives where team_id=$1', [id])
+      await client.query('delete from plane_d1_databases where team_id=$1', [id])
+      await client.query('delete from plane_r2_buckets where team_id=$1', [id])
+      await client.query('delete from plane_kv_namespaces where team_id=$1', [id])
+      await client.query('delete from plane_queues where team_id=$1', [id])
+      await client.query('delete from plane_asset_manifests where team_id=$1', [id])
+      await client.query('delete from plane_asset_objects where team_id=$1', [id])
       const deleted = await client.query('delete from plane_teams where team_id=$1', [id])
       if (deleted.rowCount === 0) throw new VrtControlError(404, 'Team not found')
       await client.query('commit')
@@ -153,6 +175,22 @@ export function registerTeams(app: Hono, deps: AdminDeps): void {
       throw error
     } finally {
       client.release()
+    }
+    if (assetRows && deps.assetStore) {
+      for (const row of assetRows.manifests) {
+        try {
+          await deps.assetStore.deleteManifest(id, row.digest)
+        } catch {
+          // Best-effort fs cleanup; a stray file ages out via retention.
+        }
+      }
+      for (const row of assetRows.objects) {
+        try {
+          await deps.assetStore.deleteObject(id, row.digest)
+        } catch {
+          // Best-effort fs cleanup; a stray file ages out via retention.
+        }
+      }
     }
     return c.json({ data: { deleted: true } })
   })

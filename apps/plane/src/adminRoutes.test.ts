@@ -467,9 +467,96 @@ maybe('management API edges', () => {
     ).toBe(404)
   })
 
-  it('deletes the cell and reports missing deletes', async () => {
+  it('deletes the cell and its cluster-scoped resources', async () => {
+    // Seed one of every resource family the cell delete must take with it —
+    // re-created cell ids must not resurrect the old catalog.
+    expect(
+      (
+        await call(app, 'POST', `${base}/d1/databases`, {
+          teamId: team,
+          name: `cascade-db-${suffix}`.slice(0, 63),
+        })
+      ).status
+    ).toBe(201)
+    expect(
+      (
+        await call(app, 'POST', `${base}/kv/namespaces`, {
+          teamId: team,
+          title: `cascade-kv-${suffix}`.slice(0, 63),
+        })
+      ).status
+    ).toBe(201)
+    expect(
+      (
+        await call(app, 'POST', `${base}/queues`, {
+          teamId: team,
+          name: `cascade-q-${suffix}`.slice(0, 63),
+        })
+      ).status
+    ).toBe(201)
+    await pool.query(
+      `insert into plane_cell_metrics (cell_id, sampled_at, window_ms, payload)
+       values ($1, now(), 1, '{}'::jsonb)`,
+      [cell]
+    )
+
     expect((await call(app, 'DELETE', `${base}/teams/${team}/workers/missing`)).status).toBe(404)
     expect((await call(app, 'DELETE', `/api/v1/cells/${cell}`)).status).toBe(200)
     expect((await call(app, 'DELETE', `/api/v1/cells/${cell}`)).status).toBe(404)
+
+    const orphans = await pool.query(
+      `select
+         (select count(*)::int from plane_d1_databases where cluster_id=$1) +
+         (select count(*)::int from plane_kv_namespaces where cluster_id=$1) +
+         (select count(*)::int from plane_queues where cluster_id=$1) +
+         (select count(*)::int from plane_r2_buckets where cluster_id=$1) +
+         (select count(*)::int from plane_hyperdrives where cluster_id=$1) +
+         (select count(*)::int from plane_cell_metrics where cell_id=$1) +
+         (select count(*)::int from plane_cell_resources where cell_id=$1) as n`,
+      [cell]
+    )
+    expect(orphans.rows[0]!.n).toBe(0)
+
+    // Re-creating the same cell id starts with an empty catalog.
+    expect((await call(app, 'POST', '/api/v1/cells', { cellId: cell })).status).toBe(201)
+    const list = await call(app, 'GET', `${base}/d1/databases`)
+    expect(list.body.data.databases).toHaveLength(0)
+  })
+
+  it('deletes the team and its team-scoped resources', async () => {
+    const orphanTeam = `del-${suffix}`
+    expect(
+      (await call(app, 'POST', '/api/v1/teams', { teamId: orphanTeam, name: 'doomed' })).status
+    ).toBe(201)
+    expect(
+      (
+        await call(app, 'POST', `${base}/d1/databases`, {
+          teamId: orphanTeam,
+          name: `doomed-db-${suffix}`.slice(0, 63),
+        })
+      ).status
+    ).toBe(201)
+    expect(
+      (
+        await call(app, 'POST', `${base}/kv/namespaces`, {
+          teamId: orphanTeam,
+          title: `doomed-kv-${suffix}`.slice(0, 63),
+        })
+      ).status
+    ).toBe(201)
+
+    expect((await call(app, 'DELETE', `/api/v1/teams/${orphanTeam}`)).status).toBe(200)
+    const orphans = await pool.query(
+      `select
+         (select count(*)::int from plane_d1_databases where team_id=$1) +
+         (select count(*)::int from plane_kv_namespaces where team_id=$1) +
+         (select count(*)::int from plane_queues where team_id=$1) +
+         (select count(*)::int from plane_r2_buckets where team_id=$1) +
+         (select count(*)::int from plane_hyperdrives where team_id=$1) +
+         (select count(*)::int from plane_asset_manifests where team_id=$1) +
+         (select count(*)::int from plane_asset_objects where team_id=$1) as n`,
+      [orphanTeam]
+    )
+    expect(orphans.rows[0]!.n).toBe(0)
   })
 })
