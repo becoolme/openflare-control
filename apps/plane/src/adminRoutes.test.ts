@@ -526,6 +526,10 @@ maybe('management API edges', () => {
     expect((await call(app, 'POST', '/api/v1/cells', { cellId: cell })).status).toBe(201)
     const list = await call(app, 'GET', `${base}/d1/databases`)
     expect(list.body.data.databases).toHaveLength(0)
+    // The cell detail endpoint aggregates counts plus the latest publication.
+    const detail = await call(app, 'GET', `/api/v1/cells/${cell}`)
+    expect(detail.status).toBe(200)
+    expect(detail.body.data.latestPublication).toBeNull()
   })
 
   it('deletes the team and its team-scoped resources', async () => {
@@ -592,5 +596,35 @@ maybe('management API edges', () => {
       201
     )
     expect((await call(app, 'DELETE', `/api/v1/teams/${busy}`)).status).toBe(409)
+  })
+
+  it('still deletes the team when asset fs cleanup fails', async () => {
+    // Store deletes are best-effort — rows must go even if the fs throws.
+    class FailingAssets extends MemoryAssetStore {
+      override async deleteManifest(): Promise<void> {
+        throw new Error('fs gone')
+      }
+      override async deleteObject(): Promise<void> {
+        throw new Error('fs gone')
+      }
+    }
+    const failApp = createApp({
+      store: createPlaneStore(pool),
+      pool,
+      bundleStore: new MemoryBundles(),
+      adminToken: TOKEN,
+      secrets: TEST_SECRETS_CIPHER,
+      assetStore: new FailingAssets(),
+    })
+    const doomed = `fs-${suffix}`
+    expect((await call(app, 'POST', '/api/v1/teams', { teamId: doomed, name: 'f' })).status).toBe(
+      201
+    )
+    const digest = sha256('x')
+    await pool.query(`insert into plane_asset_objects (team_id, digest, bytes) values ($1,$2,1)`, [
+      doomed,
+      digest,
+    ])
+    expect((await call(failApp, 'DELETE', `/api/v1/teams/${doomed}`)).status).toBe(200)
   })
 })
