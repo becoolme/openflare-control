@@ -13,6 +13,7 @@ import {
   VrtControlError,
   type VrtAckStatus,
   type VrtAckTenantFailure,
+  type VrtBindingRecord,
   type VrtAckWriteResult,
   type VrtCellCapabilities,
   type VrtCellTx,
@@ -546,6 +547,45 @@ class PlaneCellTx {
     return Number(r.revision)
   }
 
+  async ackD1Op(input: {
+    seq: number
+    status: string
+    result: unknown
+    error: string | null
+  }): Promise<{ databaseId: string; kind: string; payload: unknown } | null> {
+    const [r] = await this.rows(
+      `update plane_d1_ops set status=$1, result=$2::jsonb, error=$3
+        where cell_id=$4 and seq=$5 and status='PENDING'
+        returning database_id, kind, payload`,
+      [input.status, input.result ?? null, input.error, this.clusterId, input.seq]
+    )
+    if (!r) return null
+    return {
+      databaseId: String(r.database_id),
+      kind: String(r.kind),
+      payload: r.payload,
+    }
+  }
+
+  async applyD1Writer(input: {
+    databaseId: string
+    epoch: number
+    writerAddr?: string | null
+    lsn?: number | null
+  }): Promise<boolean> {
+    const rows = await this.rows(
+      `update plane_d1_databases
+          set writer_epoch=$2,
+              writer_addr=coalesce($3, writer_addr),
+              writer_lsn=coalesce($4, writer_lsn),
+              writer_updated_at=now()
+        where cluster_id=$1 and database_id=$5 and writer_epoch < $2
+        returning database_id`,
+      [this.clusterId, input.epoch, input.writerAddr ?? null, input.lsn ?? null, input.databaseId]
+    )
+    return rows.length > 0
+  }
+
   async flagshipApps(): Promise<readonly { tenantId: string; appId: string; config: string }[]> {
     return (
       await this.rows(
@@ -826,6 +866,28 @@ class PlaneCellTx {
        where w.cluster_id=$1 and w.runtime='VRT' and w.status='ACTIVE'`,
       [this.clusterId]
     )
+    const d1Writers = new Map<string, { epoch: number; addr: string | null }>()
+    const d1Rows = await this.rows(
+      `select database_id, writer_epoch, writer_addr from plane_d1_databases where cluster_id=$1`,
+      [this.clusterId]
+    )
+    for (const row of d1Rows) {
+      d1Writers.set(String(row.database_id), {
+        epoch: Number(row.writer_epoch ?? 1),
+        addr: row.writer_addr == null ? null : String(row.writer_addr),
+      })
+    }
+    const hydrateD1 = (bindings: readonly VrtBindingRecord[]): VrtBindingRecord[] =>
+      bindings.map((binding) => {
+        if (binding.type !== 'D1') return binding
+        const writer = d1Writers.get(binding.resourceId)
+        if (!writer) return binding
+        return {
+          ...binding,
+          epoch: writer.epoch,
+          ...(writer.addr ? { writerAddr: writer.addr } : {}),
+        }
+      })
     const out: VrtCellWorkerView[] = []
     for (const r of rows) {
       const version = r.version_row as VrtStoreVersion
@@ -855,7 +917,7 @@ class PlaneCellTx {
         artifactDigest: version.bundleSha256,
         compatibilityDate: version.compatibilityDate,
         compatibilityFlags: version.compatibilityFlags,
-        bindings: version.bindings,
+        bindings: hydrateD1(version.bindings),
         hostnames: hostnames.map((h) => h.hostname as string),
         crons: version.crons,
         queueConsumers: version.queueConsumers ?? [],
