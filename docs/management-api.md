@@ -201,14 +201,14 @@ Each service has a resource table plus a data channel. Data operations are
 asynchronous cell-ops, so they return `{opId, channel}` (`202`) and the caller
 polls `GET /api/v1/cells/{cell}/ops/{opId}?waitMs=`.
 
-| Service   | Resource endpoints                                              | Data/ops                                                                                              |
-| --------- | --------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| Service   | Resource endpoints                                                              | Data/ops                                                                                              |
+| --------- | ------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
 | D1        | `GET/POST /d1/databases`, `GET/DELETE /d1/databases/{id}`, `GET .../promotions` | `POST .../query {sql,params?}`, `POST .../migrations {migrations}`, `POST .../promote`, `GET .../ops` |
-| R2        | `GET/POST /r2/buckets`, `DELETE /r2/buckets/{name}`             | `POST .../ops {kind,payload}` for `R2_LIST/HEAD/GET/PUT/DELETE`; `GET .../ops`                        |
-| KV        | `GET/POST /kv/namespaces`, `DELETE /kv/namespaces/{id}`         | `POST .../ops {kind,payload}` for `KV_GET/PUT/DELETE/LIST/BULK_PUT/BULK_DELETE`; `GET .../ops`        |
-| Queues    | `GET/POST /queues`, `PATCH/DELETE /queues/{id}`                 | metadata only; producers/consumers are worker bindings (queue send stays on the data plane)           |
-| Workflows | `GET/POST/DELETE .../workers/{name}/workflows[/{wf}]`           | `POST .../workflows/{wf}/ops` for `WF_CREATE/GET/ACTION/EVENT/DELETE`; `GET .../ops`                  |
-| Vectorize | `GET/POST /vectorize/indexes`, `DELETE /vectorize/indexes/{id}` | `GET .../{id}/binding`; DELETE queues `STORAGE_PURGE` and returns `202 {opId}`                        |
+| R2        | `GET/POST /r2/buckets`, `DELETE /r2/buckets/{name}`                             | `POST .../ops {kind,payload}` for `R2_LIST/HEAD/GET/PUT/DELETE`; `GET .../ops`                        |
+| KV        | `GET/POST /kv/namespaces`, `DELETE /kv/namespaces/{id}`                         | `POST .../ops {kind,payload}` for `KV_GET/PUT/DELETE/LIST/BULK_PUT/BULK_DELETE`; `GET .../ops`        |
+| Queues    | `GET/POST /queues`, `PATCH/DELETE /queues/{id}`                                 | metadata only; producers/consumers are worker bindings (queue send stays on the data plane)           |
+| Workflows | `GET/POST/DELETE .../workers/{name}/workflows[/{wf}]`                           | `POST .../workflows/{wf}/ops` for `WF_CREATE/GET/ACTION/EVENT/DELETE`; `GET .../ops`                  |
+| Vectorize | `GET/POST /vectorize/indexes`, `DELETE /vectorize/indexes/{id}`                 | `GET .../{id}/binding`; DELETE queues `STORAGE_PURGE` and returns `202 {opId}`                        |
 
 Vectorize indexes are cell/team-scoped; `GET .../{id}/binding` returns a
 ready binding. `index_id` includes a per-incarnation component, so deleting
