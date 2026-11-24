@@ -125,13 +125,15 @@ const deploy = async (versionId, vars, opts = {}) => {
     compatibilityDate: '2024-09-25',
     crons: [],
     vars,
-    // vars is the value store keyed by varRef; env names are bound
-    // separately — env.E2E_VAR needs BOTH sides. bindings[] takes the
-    // VrtBindingRecord form (uppercase type + resourceId); the plane
-    // serializes it to {"type":"var","varRef":…} for the cell.
+    // vars is the render-inputs value store keyed by varRef; a VAR
+    // binding maps an env name onto that ref. The deploy boundary
+    // claims ONE env-name namespace across vars keys and binding
+    // names, so a store key and its env name must differ —
+    // `opts.envNames[varRef]` supplies the env name (defaults to the
+    // varRef itself only where no collision exists).
     bindings: [
       ...Object.keys(vars).map((k) => ({
-        name: k,
+        name: opts.envNames?.[k] ?? k,
         type: 'VAR',
         resourceId: k,
         permissionRead: true,
@@ -166,7 +168,11 @@ const deploy = async (versionId, vars, opts = {}) => {
 // against the by-then-populated render-inputs, exercising both the
 // vars path and a rolling upgrade.
 await deploy(`v1-${suffix}`, {})
-await deploy(`v2-${suffix}`, { E2E_VAR: 'all-in-one-var' })
+await deploy(
+  `v2-${suffix}`,
+  { E2E_STORE: 'all-in-one-var' },
+  { envNames: { E2E_STORE: 'E2E_VAR' } }
+)
 
 // Diagnostics for the vars channel: whether the plane serves them and
 // what the cell-controller wrote — KEYS ONLY, values may be secrets.
