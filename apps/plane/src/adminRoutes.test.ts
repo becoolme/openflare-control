@@ -575,6 +575,12 @@ maybe('management API edges', () => {
   })
 
   it('pins worker-scoped routes to the :cellId in the path', async () => {
+    // The cascade test deleted this cell's workers along with the cell —
+    // recreate the team + worker so the scope assertions have a target.
+    await call(app, 'POST', '/api/v1/teams', { teamId: team, name: 'scope' })
+    expect(
+      (await call(app, 'POST', `${base}/workers`, { teamId: team, name: worker })).status
+    ).toBe(201)
     // The worker id (`team:name`) is globally unique, so every route must
     // also pin `cluster_id` — otherwise any other cell's path resolves the
     // same worker and mutations land through the wrong cell.
