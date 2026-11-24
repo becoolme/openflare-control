@@ -122,8 +122,35 @@ maybe('management API edges', () => {
     expect((await call(app, 'GET', `/api/v1/cells/absent-${suffix}`)).status).toBe(404)
   })
 
+  it('rejects resource creates for missing teams and malformed resource ids', async () => {
+    expect((await call(app, 'POST', '/api/v1/cells', { cellId: cell })).status).toBe(201)
+    const ghost = `ghost-${suffix}`
+    // Writes must not mint rows under a team that was never created.
+    expect((await call(app, 'POST', `${base}/workers`, { teamId: ghost, name: 'w' })).status).toBe(
+      404
+    )
+    expect(
+      (await call(app, 'POST', `${base}/d1/databases`, { teamId: ghost, name: 'db' })).status
+    ).toBe(404)
+    expect(
+      (await call(app, 'POST', `${base}/kv/namespaces`, { teamId: ghost, title: 'ns' })).status
+    ).toBe(404)
+    expect((await call(app, 'POST', `${base}/queues`, { teamId: ghost, name: 'q' })).status).toBe(
+      404
+    )
+    // Path params carrying server-minted ids are shape-checked, not just bound.
+    expect((await call(app, 'GET', `${base}/d1/databases/not-an-id`)).status).toBe(400)
+    expect((await call(app, 'DELETE', `${base}/queues/not-an-id`)).status).toBe(400)
+    expect((await call(app, 'GET', `${base}/hyperdrive/not-an-id`)).status).toBe(400)
+    expect((await call(app, 'DELETE', `${base}/kv/namespaces/not-an-id`)).status).toBe(400)
+    expect((await call(app, 'DELETE', `${base}/r2/buckets/Bad_Name`)).status).toBe(400)
+  })
+
   it('creates the fixture cell and covers worker/version edges', async () => {
     expect((await call(app, 'POST', '/api/v1/cells', { cellId: cell })).status).toBe(201)
+    expect((await call(app, 'POST', '/api/v1/teams', { teamId: team, name: 'E2E' })).status).toBe(
+      201
+    )
     expect(
       (await call(app, 'POST', `/api/v1/cells/${cell}/workers`, { teamId: 'BAD', name: worker }))
         .status

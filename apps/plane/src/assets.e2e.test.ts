@@ -96,6 +96,7 @@ maybe('assets', () => {
 
   it('uploads object + manifest and publishes ASSETS', async () => {
     expect((await call('POST', '/api/v1/cells', { cellId: cell })).status).toBe(201)
+    expect((await call('POST', '/api/v1/teams', { teamId: team, name: 'E2E' })).status).toBe(201)
     expect((await call('POST', `${base}/workers`, { teamId: team, name: worker })).status).toBe(201)
 
     const object = new TextEncoder().encode('<h1>hello</h1>')

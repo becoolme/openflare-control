@@ -24,6 +24,7 @@ import {
   parse,
   quotas,
   readJson,
+  requireTeam,
   rows,
   sha256,
   teamId,
@@ -580,6 +581,7 @@ export function registerWorkers(app: Hono, deps: AdminDeps): void {
       await readJson(c)
     )
     const id = workerId(body.teamId, body.name)
+    await requireTeam(deps, body.teamId)
     await deps.pool.query(
       `insert into plane_workers (id, team_id, cluster_id, name, entrypoint, compatibility_date)
        values ($1,$2,$3,$4,$5,$6)

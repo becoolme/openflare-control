@@ -8,6 +8,8 @@ import {
   maskOrigin,
   parse,
   readJson,
+  requireTeam,
+  resourceId,
   rows,
   teamId,
 } from '../context.js'
@@ -42,6 +44,7 @@ export function registerHyperdriveService(app: Hono, deps: AdminDeps): void {
     )
     assertOriginNoCredentials(body.origin)
     const id = generatedId(`${cell}:${body.teamId}:hyperdrive:${body.name}`)
+    await requireTeam(deps, body.teamId)
     await deps.pool.query(
       `insert into plane_hyperdrives
          (hyperdrive_id, team_id, cluster_id, name, origin, caching)
@@ -61,7 +64,7 @@ export function registerHyperdriveService(app: Hono, deps: AdminDeps): void {
       deps,
       `select * from plane_hyperdrives
         where hyperdrive_id=$1 and cluster_id=$2`,
-      [c.req.param('hyperdriveId'), c.req.param('cellId')]
+      [parse(resourceId, c.req.param('hyperdriveId')), c.req.param('cellId')]
     )
     if (!hyperdrive) throw new VrtControlError(404, 'Hyperdrive not found')
     return c.json({ data: { hyperdrive: maskOrigin(hyperdrive as { origin: string }) } })
@@ -70,7 +73,7 @@ export function registerHyperdriveService(app: Hono, deps: AdminDeps): void {
   app.delete('/api/v1/cells/:cellId/hyperdrive/:hyperdriveId', async (c) => {
     const deleted = await deps.pool.query(
       'delete from plane_hyperdrives where hyperdrive_id=$1 and cluster_id=$2',
-      [c.req.param('hyperdriveId'), c.req.param('cellId')]
+      [parse(resourceId, c.req.param('hyperdriveId')), c.req.param('cellId')]
     )
     if (deleted.rowCount === 0) throw new VrtControlError(404, 'Hyperdrive not found')
     return c.json({ data: { deleted: true } })
@@ -83,7 +86,7 @@ export function registerHyperdriveService(app: Hono, deps: AdminDeps): void {
       deps,
       `select * from plane_hyperdrives
         where hyperdrive_id=$1 and cluster_id=$2`,
-      [c.req.param('hyperdriveId'), c.req.param('cellId')]
+      [parse(resourceId, c.req.param('hyperdriveId')), c.req.param('cellId')]
     )
     if (!hyperdrive) throw new VrtControlError(404, 'Hyperdrive not found')
     return c.json({

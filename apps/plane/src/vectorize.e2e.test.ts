@@ -92,6 +92,7 @@ maybe('vectorize', () => {
 
   it('creates an index, binds it, and publishes vectorize', async () => {
     expect((await call('POST', '/api/v1/cells', { cellId: cell })).status).toBe(201)
+    expect((await call('POST', '/api/v1/teams', { teamId: team, name: 'E2E' })).status).toBe(201)
     expect((await call('POST', `${base}/workers`, { teamId: team, name: worker })).status).toBe(201)
     const index = await call('POST', `${base}/vectorize/indexes`, {
       teamId: team,
@@ -246,10 +247,15 @@ maybe('vectorize', () => {
         })
       ).status
     ).toBe(400)
-    expect((await call('GET', `${base}/vectorize/indexes/missing/binding`)).status).toBe(404)
+    expect(
+      (await call('GET', `${base}/vectorize/indexes/eeeeeeeeeeeeeeeeeeeeeeeeee/binding`)).status
+    ).toBe(404)
 
     // The index is scoped to its owning team.
     const otherTeam = `other-${suffix}`
+    expect((await call('POST', '/api/v1/teams', { teamId: otherTeam, name: 'E2E' })).status).toBe(
+      201
+    )
     expect(
       (await call('POST', `${base}/workers`, { teamId: otherTeam, name: worker })).status
     ).toBe(201)

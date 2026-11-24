@@ -1,29 +1,31 @@
 import type { Hono } from 'hono'
+import type { PoolClient } from 'pg'
 import { z } from 'zod'
 import { VrtControlError } from 'openflare-control'
 import { type AdminDeps, hostname, key, parse, readJson, rows, workerId } from './context.js'
 
 async function assertEnvNameAvailable(
-  deps: AdminDeps,
+  client: PoolClient,
   worker: string,
   name: string,
   source: 'var' | 'secret'
 ): Promise<void> {
   const otherTable = source === 'var' ? 'plane_secrets' : 'plane_vars'
-  const [other] = await rows(
-    deps,
-    `select 1 from ${otherTable} where worker_id=$1 and key=$2 limit 1`,
-    [worker, name]
-  )
+  const [other] = (
+    await client.query(`select 1 from ${otherTable} where worker_id=$1 and key=$2 limit 1`, [
+      worker,
+      name,
+    ])
+  ).rows
   if (other) {
     throw new VrtControlError(
       409,
       `${name} is already used by a ${source === 'var' ? 'secret' : 'var'}`
     )
   }
-  const [inVersion] = await rows(
-    deps,
-    `select 1
+  const [inVersion] = (
+    await client.query(
+      `select 1
        from plane_workers w
        join plane_versions v on v.worker_id=w.id and v.version_id=w.active_version_id
       where w.id=$1
@@ -43,8 +45,9 @@ async function assertEnvNameAvailable(
       union all
       select 1 from plane_workflows where worker_id=$1 and binding=$2
       limit 1`,
-    [worker, name]
-  )
+      [worker, name]
+    )
+  ).rows
   if (inVersion) {
     throw new VrtControlError(409, `${name} is already used by the active version`)
   }
@@ -86,12 +89,26 @@ export function registerConfig(app: Hono, deps: AdminDeps): void {
     const k = c.req.param('key')
     parse(key, k)
     const body = parse(z.object({ value: z.string() }).strict(), await readJson(c))
-    await assertEnvNameAvailable(deps, worker(c), k, 'var')
-    await deps.pool.query(
-      `insert into plane_vars (worker_id, key, value) values ($1,$2,$3)
-       on conflict (worker_id, key) do update set value=excluded.value`,
-      [worker(c), k, body.value]
-    )
+    const client = await deps.pool.connect()
+    try {
+      await client.query('begin')
+      // Serialize env-name claims per worker: the cross-table check and the
+      // insert must hold the same lock or a var and a secret can race into
+      // the same name.
+      await client.query('select pg_advisory_xact_lock(hashtext($1))', [`plane-env:${worker(c)}`])
+      await assertEnvNameAvailable(client, worker(c), k, 'var')
+      await client.query(
+        `insert into plane_vars (worker_id, key, value) values ($1,$2,$3)
+         on conflict (worker_id, key) do update set value=excluded.value`,
+        [worker(c), k, body.value]
+      )
+      await client.query('commit')
+    } catch (error) {
+      await client.query('rollback')
+      throw error
+    } finally {
+      client.release()
+    }
     return c.json({ data: { key: k, value: body.value } })
   })
 
@@ -117,12 +134,23 @@ export function registerConfig(app: Hono, deps: AdminDeps): void {
     const k = c.req.param('key')
     parse(key, k)
     const body = parse(z.object({ value: z.string() }).strict(), await readJson(c))
-    await assertEnvNameAvailable(deps, worker(c), k, 'secret')
-    await deps.pool.query(
-      `insert into plane_secrets (worker_id, key, value) values ($1,$2,$3)
-       on conflict (worker_id, key) do update set value=excluded.value`,
-      [worker(c), k, deps.secrets.encrypt(body.value)]
-    )
+    const client = await deps.pool.connect()
+    try {
+      await client.query('begin')
+      await client.query('select pg_advisory_xact_lock(hashtext($1))', [`plane-env:${worker(c)}`])
+      await assertEnvNameAvailable(client, worker(c), k, 'secret')
+      await client.query(
+        `insert into plane_secrets (worker_id, key, value) values ($1,$2,$3)
+         on conflict (worker_id, key) do update set value=excluded.value`,
+        [worker(c), k, deps.secrets.encrypt(body.value)]
+      )
+      await client.query('commit')
+    } catch (error) {
+      await client.query('rollback')
+      throw error
+    } finally {
+      client.release()
+    }
     return c.json({ data: { key: k } })
   })
 

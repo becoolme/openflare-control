@@ -34,6 +34,10 @@ export const workerName = z.string().regex(/^[a-z0-9][a-z0-9-]{0,62}$/)
 export const key = z.string().regex(/^[A-Za-z_$][A-Za-z0-9_$]{0,63}$/)
 export const digest = z.string().regex(/^[0-9a-f]{64}$/)
 export const databaseId = z.string().regex(/^[a-z0-9]{26}$/)
+/** Every server-minted resource id — generatedId() emits 26 lowercase hex. */
+export const resourceId = z.string().regex(/^[a-z0-9]{26}$/)
+/** Service-resource names share the DNS-safe shape (r2 buckets, queues, …). */
+export const serviceName = z.string().regex(/^[a-z0-9][a-z0-9-]{0,62}$/)
 // Op expiry as epoch seconds. `to_timestamp()` throws out of range on
 // absurd integers — bound at the boundary so bad input is a 400, not a 500.
 export const opExpiresAt = z.number().int().min(0).max(4_102_444_800).optional()
@@ -133,6 +137,13 @@ export const rows = async (deps: AdminDeps, sql: string, params: unknown[] = [])
   (await deps.pool.query(sql, params)).rows as Row[]
 
 export type Row = Record<string, unknown>
+
+/** Resource creates must not accept a team that doesn't exist — orphan rows
+ * would outlive the typo. */
+export async function requireTeam(deps: AdminDeps, id: string): Promise<void> {
+  const [row] = await rows(deps, 'select 1 from plane_teams where team_id=$1 limit 1', [id])
+  if (!row) throw new VrtControlError(404, 'Team not found', 'VRT_TEAM_NOT_FOUND')
+}
 
 export const s = (v: unknown): string => (typeof v === 'string' ? v : v == null ? '' : String(v))
 export const n = (v: unknown): number => Number(v)

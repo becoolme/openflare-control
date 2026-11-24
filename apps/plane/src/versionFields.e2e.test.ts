@@ -108,6 +108,7 @@ maybe('version-scoped fields', () => {
 
   it('publishes every version-scoped field and fingerprints the full config', async () => {
     expect((await call('POST', '/api/v1/cells', { cellId: cell })).status).toBe(201)
+    expect((await call('POST', '/api/v1/teams', { teamId: team, name: 'E2E' })).status).toBe(201)
     await store.recordCellCapabilities(cell, {
       cron: true,
       assets: true,

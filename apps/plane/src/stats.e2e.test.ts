@@ -75,6 +75,7 @@ maybe('management API stats edges', () => {
 
   it('covers teams, Hyperdrive and stats fail-closed paths', async () => {
     expect((await call('POST', '/api/v1/cells', { cellId: cell })).status).toBe(201)
+    expect((await call('POST', '/api/v1/teams', { teamId: team, name: 'E2E' })).status).toBe(201)
     expect((await call('POST', `${base}/workers`, { teamId: team, name: worker })).status).toBe(201)
 
     // Teams: validation + missing + non-empty delete + happy path.
@@ -98,8 +99,8 @@ maybe('management API stats edges', () => {
     expect(
       (await call('POST', `${base}/hyperdrive`, { teamId: team, name: 'ok', origin: '' })).status
     ).toBe(400)
-    expect((await call('GET', `${base}/hyperdrive/nope`)).status).toBe(404)
-    expect((await call('DELETE', `${base}/hyperdrive/nope`)).status).toBe(404)
+    expect((await call('GET', `${base}/hyperdrive/dddddddddddddddddddddddddd`)).status).toBe(404)
+    expect((await call('DELETE', `${base}/hyperdrive/dddddddddddddddddddddddddd`)).status).toBe(404)
     const hd = await call('POST', `${base}/hyperdrive`, {
       teamId: team,
       name: 'edge',

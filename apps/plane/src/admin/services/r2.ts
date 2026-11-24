@@ -9,7 +9,9 @@ import {
   opExpiresAt,
   parse,
   readJson,
+  requireTeam,
   rows,
+  serviceName,
   teamId,
 } from '../context.js'
 
@@ -42,6 +44,7 @@ export function registerR2Service(app: Hono, deps: AdminDeps): void {
     if (!validVrtBucketName(body.bucketName)) {
       throw new VrtControlError(400, 'Invalid bucket name')
     }
+    await requireTeam(deps, body.teamId)
     const physical = `vrt-${generatedId(`${cell}:${body.teamId}:r2:${body.bucketName}`)}`
     await deps.pool.query(
       `insert into plane_r2_buckets (bucket_name, bucket_id, team_id, cluster_id)
@@ -57,7 +60,7 @@ export function registerR2Service(app: Hono, deps: AdminDeps): void {
   app.delete('/api/v1/cells/:cellId/r2/buckets/:bucketName', async (c) => {
     const deleted = await deps.pool.query(
       'delete from plane_r2_buckets where bucket_name=$1 and cluster_id=$2',
-      [c.req.param('bucketName'), c.req.param('cellId')]
+      [parse(serviceName, c.req.param('bucketName')), c.req.param('cellId')]
     )
     if (deleted.rowCount === 0) throw new VrtControlError(404, 'R2 bucket not found')
     return c.json({ data: { deleted: true } })
@@ -67,7 +70,7 @@ export function registerR2Service(app: Hono, deps: AdminDeps): void {
   // physical prefix from the control-plane-attested scope, never the payload).
   app.post('/api/v1/cells/:cellId/r2/buckets/:bucketName/ops', async (c) => {
     const cell = c.req.param('cellId')
-    const name = c.req.param('bucketName')
+    const name = parse(serviceName, c.req.param('bucketName'))
     const [bucket] = await rows(
       deps,
       'select * from plane_r2_buckets where bucket_name=$1 and cluster_id=$2',
@@ -107,7 +110,7 @@ export function registerR2Service(app: Hono, deps: AdminDeps): void {
     const [bucket] = await rows(
       deps,
       'select bucket_id from plane_r2_buckets where bucket_name=$1 and cluster_id=$2',
-      [c.req.param('bucketName'), c.req.param('cellId')]
+      [parse(serviceName, c.req.param('bucketName')), c.req.param('cellId')]
     )
     if (!bucket) throw new VrtControlError(404, 'R2 bucket not found')
     const list = await rows(

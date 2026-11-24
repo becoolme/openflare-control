@@ -90,6 +90,7 @@ maybe('service resource API e2e', () => {
 
   it('manages D1, R2, KV, queues and workflows', async () => {
     expect((await call('POST', '/api/v1/cells', { cellId: cell })).status).toBe(201)
+    expect((await call('POST', '/api/v1/teams', { teamId: team, name: 'E2E' })).status).toBe(201)
     const base = `/api/v1/cells/${cell}`
     expect(
       (await call('POST', `/api/v1/cells/${cell}/workers`, { teamId: team, name: worker })).status
@@ -769,6 +770,7 @@ maybe('service resource API e2e', () => {
 
   it('covers service validation, missing-resource and op-list edges', async () => {
     expect((await call('POST', '/api/v1/cells', { cellId: `${cell}-e` })).status).toBe(201)
+    expect((await call('POST', '/api/v1/teams', { teamId: team, name: 'E2E' })).status).toBe(201)
     const cellE = `${cell}-e`
     const base = `/api/v1/cells/${cellE}`
 
@@ -776,8 +778,10 @@ maybe('service resource API e2e', () => {
     expect(
       (await call('POST', `${base}/d1/databases`, { teamId: team, name: 'BAD NAME' })).status
     ).toBe(400)
-    expect((await call('GET', `${base}/d1/databases/nope`)).status).toBe(404)
-    expect((await call('DELETE', `${base}/d1/databases/nope`)).status).toBe(404)
+    expect((await call('GET', `${base}/d1/databases/aaaaaaaaaaaaaaaaaaaaaaaaaa`)).status).toBe(404)
+    expect((await call('DELETE', `${base}/d1/databases/aaaaaaaaaaaaaaaaaaaaaaaaaa`)).status).toBe(
+      404
+    )
     const db = await call('POST', `${base}/d1/databases`, { teamId: team, name: 'db2' })
     const dbId = db.body.data.database.database_id as string
     expect(
@@ -815,7 +819,9 @@ maybe('service resource API e2e', () => {
     expect((await call('POST', `${base}/kv/namespaces`, { teamId: team, title: '' })).status).toBe(
       400
     )
-    expect((await call('DELETE', `${base}/kv/namespaces/none`)).status).toBe(404)
+    expect((await call('DELETE', `${base}/kv/namespaces/bbbbbbbbbbbbbbbbbbbbbbbbbb`)).status).toBe(
+      404
+    )
     const kv = await call('POST', `${base}/kv/namespaces`, { teamId: team, title: 'edge' })
     const nsId = kv.body.data.namespace.namespace_id as string
     expect(
@@ -838,7 +844,7 @@ maybe('service resource API e2e', () => {
         })
       ).status
     ).toBe(400)
-    expect((await call('DELETE', `${base}/queues/none`)).status).toBe(404)
+    expect((await call('DELETE', `${base}/queues/cccccccccccccccccccccccccc`)).status).toBe(404)
     const q = await call('POST', `${base}/queues`, { teamId: team, name: 'q2' })
     const qid = q.body.data.queue.queue_id as string
     expect(

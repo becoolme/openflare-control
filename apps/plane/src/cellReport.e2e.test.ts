@@ -123,6 +123,7 @@ maybe('cell report e2e', () => {
 
   it('ingests the report and serves real metrics + resources + instances', async () => {
     expect((await call('POST', '/api/v1/cells', { cellId: cell })).status).toBe(201)
+    expect((await call('POST', '/api/v1/teams', { teamId: team, name: 'E2E' })).status).toBe(201)
     expect((await call('POST', `${base}/workers`, { teamId: team, name: worker })).status).toBe(201)
 
     // Version: DO class declared, queue consumer bound.

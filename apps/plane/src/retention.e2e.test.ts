@@ -82,7 +82,9 @@ maybe('retention e2e', () => {
       })
     }
     // D1 ops: one terminal/old, one pending/old, one fresh. Ops can only
-    // target a database that exists on this cell.
+    // target a database that exists on this cell — and the database needs
+    // a real team row now.
+    await call('POST', '/api/v1/teams', { teamId: team, name: 'ret' })
     const db = await call('POST', `/api/v1/cells/${cell}/d1/databases`, {
       teamId: team,
       name: `ret-db-${suffix}`.slice(0, 63),

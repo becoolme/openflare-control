@@ -23,6 +23,7 @@ import {
 } from '../context.js'
 
 const WF_KINDS = ['WF_CREATE', 'WF_GET', 'WF_ACTION', 'WF_EVENT', 'WF_DELETE'] as const
+const workflowNameSchema = z.string().regex(WORKFLOW_NAME_RE)
 const MAX_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
 const RETENTION_UNITS: Record<string, number> = {
   ms: 1,
@@ -291,7 +292,7 @@ export function registerWorkflowService(app: Hono, deps: AdminDeps): void {
       'delete from plane_workflows where worker_id=$1 and name=$2 and cluster_id=$3',
       [
         workerId(c.req.param('teamId'), c.req.param('name')),
-        c.req.param('workflowName'),
+        parse(workflowNameSchema, c.req.param('workflowName')),
         c.req.param('cellId'),
       ]
     )
@@ -302,7 +303,7 @@ export function registerWorkflowService(app: Hono, deps: AdminDeps): void {
   app.post(`${base}/:workflowName/ops`, async (c) => {
     const cell = c.req.param('cellId')
     const id = workerId(c.req.param('teamId'), c.req.param('name'))
-    const workflowName = c.req.param('workflowName')
+    const workflowName = parse(workflowNameSchema, c.req.param('workflowName'))
     const [workflow] = await rows(
       deps,
       'select 1 from plane_workflows where worker_id=$1 and name=$2 and cluster_id=$3',
@@ -348,7 +349,7 @@ export function registerWorkflowService(app: Hono, deps: AdminDeps): void {
       [
         c.req.param('cellId'),
         workerId(c.req.param('teamId'), c.req.param('name')),
-        c.req.param('workflowName'),
+        parse(workflowNameSchema, c.req.param('workflowName')),
       ]
     )
     return c.json({ data: { ops: list.map(mapOp) } })

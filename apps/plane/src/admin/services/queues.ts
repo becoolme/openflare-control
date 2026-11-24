@@ -1,7 +1,16 @@
 import type { Hono } from 'hono'
 import { z } from 'zod'
 import { VrtControlError } from 'openflare-control'
-import { type AdminDeps, generatedId, parse, readJson, rows, teamId } from '../context.js'
+import {
+  type AdminDeps,
+  generatedId,
+  parse,
+  readJson,
+  requireTeam,
+  resourceId,
+  rows,
+  teamId,
+} from '../context.js'
 
 export function registerQueueService(app: Hono, deps: AdminDeps): void {
   app.get('/api/v1/cells/:cellId/queues', async (c) => {
@@ -29,6 +38,7 @@ export function registerQueueService(app: Hono, deps: AdminDeps): void {
       await readJson(c)
     )
     const queueId = generatedId(`${cell}:${body.teamId}:queue:${body.name}`)
+    await requireTeam(deps, body.teamId)
     await deps.pool.query(
       `insert into plane_queues (queue_id, team_id, cluster_id, name, delivery_delay_seconds)
        values ($1,$2,$3,$4,$5) on conflict (queue_id) do nothing`,
@@ -47,7 +57,7 @@ export function registerQueueService(app: Hono, deps: AdminDeps): void {
       deps,
       `update plane_queues set delivery_delay_seconds=$3
         where queue_id=$1 and cluster_id=$2 returning *`,
-      [c.req.param('queueId'), c.req.param('cellId'), body.deliveryDelaySeconds]
+      [parse(resourceId, c.req.param('queueId')), c.req.param('cellId'), body.deliveryDelaySeconds]
     )
     if (!queue) throw new VrtControlError(404, 'Queue not found')
     return c.json({ data: { queue } })
@@ -55,7 +65,7 @@ export function registerQueueService(app: Hono, deps: AdminDeps): void {
 
   app.delete('/api/v1/cells/:cellId/queues/:queueId', async (c) => {
     const cell = c.req.param('cellId')
-    const queueId = c.req.param('queueId')
+    const queueId = parse(resourceId, c.req.param('queueId'))
     const [referenced] = await rows(
       deps,
       `select 1
