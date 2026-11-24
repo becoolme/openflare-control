@@ -112,7 +112,9 @@ services:
       PLANE_ADMIN_TOKEN: ${PLANE_ADMIN_TOKEN:?set PLANE_ADMIN_TOKEN}
       PLANE_SIGNING_SECRET: ${PLANE_SIGNING_SECRET:?set PLANE_SIGNING_SECRET}
       VRT_CELL_ID: ${VRT_CELL_ID:-local}
-      VRT_TRUSTED_CIDR: ${VRT_TRUSTED_CIDR:-172.31.42.0/24}
+      # Trusted-XFF scope is the pinned Traefik address — nothing else on
+      # the net is a legitimate proxy. Keep in sync with VRT_TRAEFIK_IP.
+      VRT_TRUSTED_CIDR: ${VRT_TRUSTED_CIDR:-172.31.42.250/32}
       VRT_R2_BUCKET: ${VRT_R2_BUCKET:-vrt-r2}
     volumes:
       - ./deploy/docker/all-in-one:/init:ro
@@ -172,8 +174,8 @@ services:
     network_mode: 'service:vrt-host'
     environment:
       VRT_KVROCKS_URL: ${VRT_KVROCKS_URL:-redis://redis:6379}
-      VRT_R2_BINDING_ACCESS_KEY: ${VRT_R2_ACCESS_KEY:-openflare-r2-access}
-      VRT_R2_BINDING_SECRET_KEY: ${VRT_R2_SECRET_KEY:-openflare-r2-secret-012345}
+      VRT_R2_BINDING_ACCESS_KEY: ${VRT_R2_BINDING_ACCESS_KEY:-openflare-r2-binding}
+      VRT_R2_BINDING_SECRET_KEY: ${VRT_R2_BINDING_SECRET_KEY:-openflare-r2-binding-secret}
     volumes:
       - cell-run:/run/vrt
       - cell-config:/etc/vrt:ro
@@ -213,8 +215,8 @@ services:
     entrypoint: ['/usr/local/bin/vrt-provider', '--config', '/etc/vrt/vrt-provider.toml']
     environment:
       VRT_KVROCKS_URL: ${VRT_KVROCKS_URL:-redis://redis:6379}
-      VRT_R2_BINDING_ACCESS_KEY: ${VRT_R2_ACCESS_KEY:-openflare-r2-access}
-      VRT_R2_BINDING_SECRET_KEY: ${VRT_R2_SECRET_KEY:-openflare-r2-secret-012345}
+      VRT_R2_BINDING_ACCESS_KEY: ${VRT_R2_BINDING_ACCESS_KEY:-openflare-r2-binding}
+      VRT_R2_BINDING_SECRET_KEY: ${VRT_R2_BINDING_SECRET_KEY:-openflare-r2-binding-secret}
     volumes:
       - cell-run:/run/vrt
       - cell-config:/etc/vrt:ro
@@ -271,7 +273,11 @@ services:
       timeout: 3s
       retries: 30
 
-  # One-shot bucket create — same image carries the bundled mc client.
+  # One-shot bucket create + scoped binding user — same image carries the
+  # bundled mc client. Tenant bindings get VRT_R2_BINDING_* (an
+  # s3:*-on-one-bucket user), never the root credentials: those stay in
+  # silo-init so a leaked binding credential cannot list or delete other
+  # tenants' buckets.
   silo-init:
     image: ${S3_IMAGE:-pgsty/silo:RELEASE.2026-11-12T00-00-00Z}
     restart: 'no'
@@ -282,12 +288,18 @@ services:
       MINIO_ROOT_USER: ${VRT_R2_ACCESS_KEY:-openflare-r2-access}
       MINIO_ROOT_PASSWORD: ${VRT_R2_SECRET_KEY:-openflare-r2-secret-012345}
       VRT_R2_BUCKET: ${VRT_R2_BUCKET:-vrt-r2}
+      VRT_R2_BINDING_ACCESS_KEY: ${VRT_R2_BINDING_ACCESS_KEY:-openflare-r2-binding}
+      VRT_R2_BINDING_SECRET_KEY: ${VRT_R2_BINDING_SECRET_KEY:-openflare-r2-binding-secret}
     entrypoint: ['/bin/sh', '-c']
     command:
       - >-
         mc alias set local http://silo.openflare.svc:9000
         "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD" &&
-        mc mb --ignore-existing "local/$$VRT_R2_BUCKET"
+        mc mb --ignore-existing "local/$$VRT_R2_BUCKET" &&
+        printf '%s' "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":[\"s3:*\"],\"Resource\":[\"arn:aws:s3:::$$VRT_R2_BUCKET\",\"arn:aws:s3:::$$VRT_R2_BUCKET/*\"]}]}" > /tmp/vrt-r2-binding.json &&
+        (mc admin policy create local vrt-r2-binding /tmp/vrt-r2-binding.json || true) &&
+        (mc admin user add local "$$VRT_R2_BINDING_ACCESS_KEY" "$$VRT_R2_BINDING_SECRET_KEY" || true) &&
+        mc admin policy attach local vrt-r2-binding --user "$$VRT_R2_BINDING_ACCESS_KEY"
 
   # ---- public TLS entry (Dokploy-style) ----
   traefik:
@@ -316,6 +328,12 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./deploy/docker/all-in-one/traefik:/dynamic:ro
       - traefik-acme:/acme
+    # Pinned inside VRT_NET_SUBNET so vrt-host can trust X-Forwarded-For
+    # from exactly this /32 — not the whole compose net, where any
+    # container (or escaped tenant) could spoof client IPs.
+    networks:
+      default:
+        ipv4_address: ${VRT_TRAEFIK_IP:-172.31.42.250}
     depends_on:
       console:
         condition: service_started

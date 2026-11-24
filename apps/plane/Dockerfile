@@ -12,24 +12,25 @@ RUN pnpm install --frozen-lockfile --prod=false
 COPY packages/control packages/control
 COPY apps/plane apps/plane
 RUN pnpm --filter openflare-control build && pnpm --filter openflare-plane build
+# Prod-only deploy tree: shipping the workspace install would drag every
+# devDependency (tsc, vitest, tsx…) into the runtime image.
+RUN pnpm --filter openflare-plane deploy --prod /deploy
 
 FROM node:22-bookworm-slim
 WORKDIR /app
 ENV NODE_ENV=production
-# pnpm keeps dependencies in the workspace package's node_modules (symlinks
-# into the root .pnpm store), so all three must be copied together.
-COPY --from=build /src/node_modules ./node_modules
-COPY --from=build /src/packages/control/package.json ./packages/control/package.json
-COPY --from=build /src/packages/control/node_modules ./packages/control/node_modules
-COPY --from=build /src/packages/control/dist ./packages/control/dist
-COPY --from=build /src/apps/plane/package.json ./apps/plane/package.json
-COPY --from=build /src/apps/plane/node_modules ./apps/plane/node_modules
-COPY --from=build /src/apps/plane/dist ./apps/plane/dist
-COPY --from=build /src/apps/plane/src/schema.sql ./apps/plane/dist/schema.sql
+# `pnpm deploy` materializes prod deps plus the workspace `openflare-control`
+# package as plain files — no .pnpm store or cross-package symlinks needed.
+COPY --from=build /deploy/package.json ./package.json
+COPY --from=build /deploy/node_modules ./node_modules
+# dist is gitignored so `pnpm deploy` will not copy it — take it from the
+# build stage (schema.sql is already inside via the package build script).
+COPY --from=build /src/apps/plane/dist ./dist
 # The default bundle volume is initialized from this directory; root-owned
 # `/data` would make every bundle PUT fail with EACCES for the `node` user.
 RUN mkdir -p /data/bundles && chown -R node:node /data
-WORKDIR /app/apps/plane
 USER node
 EXPOSE 8787
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s \
+  CMD node -e "fetch('http://127.0.0.1:8787/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 CMD ["node", "dist/main.js"]

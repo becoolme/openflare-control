@@ -2,7 +2,7 @@
 # NOTE: the provider does NOT honor VRT_CELL_ID — cellId is rendered.
 cellId = "__CELL_ID__"
 listenerDir = "/run/vrt/listeners"
-metricsListen = "0.0.0.0:9493"
+metricsListen = "127.0.0.1:9493"
 cursorSecretFile = "/run/vrt/secrets/cursor-secret"
 operationTimeoutMs = 30000
 tenantConcurrency = 64
