@@ -133,6 +133,14 @@ export function registerD1Service(app: Hono, deps: AdminDeps): void {
             .string()
             .regex(/^gen-[0-9a-f]{16}-[0-9a-f]{16}\.sqlite$/)
             .optional(),
+          writerAddr: z
+            .string()
+            .min(1)
+            .max(256)
+            .refine((v) => /^https?:\/\//.test(v) && !v.endsWith('/') && !/\s/.test(v), {
+              message: 'writerAddr must be an http(s) URL without a trailing slash',
+            })
+            .optional(),
           reason: z.string().min(1).max(200).optional(),
           expiresAt: z.number().int().optional(),
         })
@@ -154,6 +162,7 @@ export function registerD1Service(app: Hono, deps: AdminDeps): void {
     if (body.expectedEpoch !== undefined) payload.expectedEpoch = body.expectedEpoch
     if (body.expectedLsn !== undefined) payload.expectedLsn = body.expectedLsn
     if (body.generation !== undefined) payload.generation = body.generation
+    if (body.writerAddr !== undefined) payload.writerAddr = body.writerAddr
     if (body.reason !== undefined) payload.reason = body.reason
     await deps.pool.query(
       `insert into plane_d1_ops (id, cell_id, database_id, kind, payload, expires_at)

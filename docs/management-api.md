@@ -278,14 +278,21 @@ returns `501`.
 | POST     | `/api/v1/maintenance/prune`                  | `{keepPerCell}` retention prune                             |
 
 `POST .../d1/databases/{id}/promote` queues a manual writer promotion
-(`{expectedEpoch?, expectedLsn?, generation?, reason?, expiresAt?}`; epoch/lsn
-must be supplied together). The cell executes it through
+(`{expectedEpoch?, expectedLsn?, generation?, writerAddr?, reason?, expiresAt?}`;
+epoch/lsn must be supplied together). The cell executes it through
 `[d1sql].promoteEndpoint` on the follower and ACKs the promoted epoch/lsn.
+On a `DONE` ACK the plane monotonic-CASes `writer_epoch`/`writer_addr` on
+`plane_d1_databases`, allocates a new revision and republishes the signed
+desired document; the provider switches writes to `writerAddr` on the next
+snapshot pull. `writerAddr` is supplied by the operator (the runtime cannot
+know the serving address).
 
 The cell channel pulls pending ops and ACKs them by `seq`:
 
 - `GET /api/internal/clusters/{cell}/vrt/d1-ops` / `POST .../d1-ops/ack`
-  (`{acks:[{seq,status,result?,error?}]}`, status `DONE` / `FAILED` / `EXPIRED`);
+  (`{acks:[{seq,status,result?,error?}]}`, status `DONE` / `FAILED` / `EXPIRED`;
+  the response also reports `published` when a PROMOTE caused a new desired
+  revision);
 - `GET /api/internal/clusters/{cell}/vrt/cell-ops` / `POST .../cell-ops/ack`;
 - `POST /api/internal/clusters/{cell}/vrt/logs` dedupes by
   `(workerId,bootId,seq)` and stores the batch for the management log query.
