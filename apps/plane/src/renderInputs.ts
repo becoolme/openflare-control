@@ -56,25 +56,35 @@ export async function collectRenderInputs(
     const secretRows = await pool.query('select key, value from plane_secrets where worker_id=$1', [
       worker.id,
     ])
-    let storeSecrets = storeSecretsByTeam.get(worker.team_id)
-    if (!storeSecrets) {
-      storeSecrets = {}
-      const storeRows = await pool.query(
-        'select store_id, secret_name, value from plane_secrets_store where team_id=$1',
-        [worker.team_id]
-      )
-      for (const row of storeRows.rows as {
-        store_id: string
-        secret_name: string
-        value: string
-      }[]) {
-        storeSecrets[`secrets-store:${row.store_id}:${row.secret_name}`] = secrets.decrypt(
-          row.value
+    // Ship only the secrets-store values an active version actually binds —
+    // the rest of the team's store rows must not leave the plane just because
+    // a worker on the same team is deployed here.
+    const boundRefs = storeRefsByTeam.get(worker.team_id)
+    if (boundRefs && boundRefs.size > 0) {
+      let storeSecrets = storeSecretsByTeam.get(worker.team_id)
+      if (!storeSecrets) {
+        storeSecrets = {}
+        const storeRows = await pool.query(
+          'select store_id, secret_name, value from plane_secrets_store where team_id=$1',
+          [worker.team_id]
         )
+        for (const row of storeRows.rows as {
+          store_id: string
+          secret_name: string
+          value: string
+        }[]) {
+          storeSecrets[`secrets-store:${row.store_id}:${row.secret_name}`] = secrets.decrypt(
+            row.value
+          )
+        }
+        storeSecretsByTeam.set(worker.team_id, storeSecrets)
       }
-      storeSecretsByTeam.set(worker.team_id, storeSecrets)
+      for (const ref of boundRefs) {
+        const key = `secrets-store:${ref}`
+        const value = storeSecrets[key]
+        if (value !== undefined) tenant.secrets[key] = value
+      }
     }
-    Object.assign(tenant.secrets, storeSecrets)
     for (const row of secretRows.rows as { key: string; value: string }[]) {
       const plaintext = secrets.decrypt(row.value)
       tenant.secrets[row.key] = plaintext

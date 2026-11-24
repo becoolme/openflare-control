@@ -11,6 +11,7 @@ import { timingSafeEqual } from 'node:crypto'
 import { createServer } from 'node:http'
 import { extname, join, normalize, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { createProxy } from './proxy.mjs'
 import { proxyTarget } from './proxyPath.mjs'
 
 const here = fileURLToPath(new URL('.', import.meta.url))
@@ -79,54 +80,7 @@ function sendFile(req, res, file, status = 200) {
   return true
 }
 
-async function proxy(req, res, target) {
-  const headers = { ...req.headers, authorization: `Bearer ${adminToken}` }
-  delete headers.host
-  delete headers.cookie
-  const body = req.method === 'GET' || req.method === 'HEAD' ? undefined : await readBody(req)
-  let upstream
-  try {
-    upstream = await fetch(`${planeUrl}${target}`, {
-      method: req.method,
-      headers,
-      body,
-      redirect: 'manual',
-    })
-  } catch (error) {
-    res.writeHead(502, { 'content-type': 'application/json' })
-    res.end(
-      JSON.stringify({ data: null, error: { code: 'PLANE_UNAVAILABLE', message: String(error) } })
-    )
-    return
-  }
-  const out = {}
-  upstream.headers.forEach((value, key) => {
-    if (key !== 'transfer-encoding' && key !== 'connection') out[key] = value
-  })
-  res.writeHead(upstream.status, out)
-  if (upstream.body) {
-    for await (const chunk of upstream.body) res.write(chunk)
-  }
-  res.end()
-}
-
-function readBody(req) {
-  return new Promise((resolveBody, reject) => {
-    const chunks = []
-    let size = 0
-    req.on('data', (c) => {
-      size += c.length
-      if (size > 256 * 1024 * 1024) {
-        reject(new Error('request body too large'))
-        req.destroy()
-        return
-      }
-      chunks.push(c)
-    })
-    req.on('end', () => resolveBody(Buffer.concat(chunks)))
-    req.on('error', reject)
-  })
-}
+const proxy = createProxy({ planeUrl, adminToken })
 
 const server = createServer(async (req, res) => {
   try {
