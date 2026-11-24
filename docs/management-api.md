@@ -293,6 +293,9 @@ The cell channel pulls pending ops and ACKs them by `seq`:
   (`{acks:[{seq,status,result?,error?}]}`, status `DONE` / `FAILED` / `EXPIRED`;
   the response also reports `published` when a PROMOTE caused a new desired
   revision);
+- `POST /api/internal/clusters/{cell}/vrt/d1-writer` (`{databaseId, epoch,
+  lsn?, writerAddr?, cause?}`) — the cell's automatic-failover report; applies
+  the monotonic writer CAS and republishes the signed desired document;
 - `GET /api/internal/clusters/{cell}/vrt/cell-ops` / `POST .../cell-ops/ack`;
 - `POST /api/internal/clusters/{cell}/vrt/logs` dedupes by
   `(workerId,bootId,seq)` and stores the batch for the management log query.
