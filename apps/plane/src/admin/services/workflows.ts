@@ -69,8 +69,8 @@ export function registerWorkflowService(app: Hono, deps: AdminDeps): void {
       `select workflow_id, worker_id, team_id, cluster_id, name, class_name, binding,
               unique_key, limits_steps, service_worker_id, success_retention_ms,
               error_retention_ms, concurrency_limit, created_at
-         from plane_workflows where worker_id=$1 order by name`,
-      [workerId(c.req.param('teamId'), c.req.param('name'))]
+         from plane_workflows where worker_id=$1 and cluster_id=$2 order by name`,
+      [workerId(c.req.param('teamId'), c.req.param('name')), c.req.param('cellId')]
     )
     return c.json({ data: { workflows: list } })
   })
@@ -287,8 +287,12 @@ export function registerWorkflowService(app: Hono, deps: AdminDeps): void {
 
   app.delete(`${base}/:workflowName`, async (c) => {
     const deleted = await deps.pool.query(
-      'delete from plane_workflows where worker_id=$1 and name=$2',
-      [workerId(c.req.param('teamId'), c.req.param('name')), c.req.param('workflowName')]
+      'delete from plane_workflows where worker_id=$1 and name=$2 and cluster_id=$3',
+      [
+        workerId(c.req.param('teamId'), c.req.param('name')),
+        c.req.param('workflowName'),
+        c.req.param('cellId'),
+      ]
     )
     if (deleted.rowCount === 0) throw new VrtControlError(404, 'Workflow not found')
     return c.json({ data: { deleted: true } })
@@ -300,8 +304,8 @@ export function registerWorkflowService(app: Hono, deps: AdminDeps): void {
     const workflowName = c.req.param('workflowName')
     const [workflow] = await rows(
       deps,
-      'select 1 from plane_workflows where worker_id=$1 and name=$2',
-      [id, workflowName]
+      'select 1 from plane_workflows where worker_id=$1 and name=$2 and cluster_id=$3',
+      [id, workflowName, cell]
     )
     if (!workflow) throw new VrtControlError(404, 'Workflow not found')
     const body = parse(
