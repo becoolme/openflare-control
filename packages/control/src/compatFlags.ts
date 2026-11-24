@@ -2,9 +2,8 @@
 // from the vendored compatibility-date.capnp — do not edit by hand.
 // CI runs `gen_compat_flags.py --check`; any drift fails the build.
 //
-// Provenance (RV-R83): vendored capnp sha256 aedc87ae5fbc4bb4450e7d73c64bc369e54c9df680dfbd7cc132017c55c30fb4;
-// snapshot pulled from upstream main on 2026-11-09, workerd binary dated
-// 2026-07-22; pinned runtime is workerd 1.20261120.1
+// Provenance (RV-R83): vendored capnp sha256 d57805b521720436eb28797e55968e7a9a3dfda8558bc3247494b0e5ae91a785;
+// snapshot from workerd v1.20261123.1; pinned runtime is workerd 1.20261123.1
 // (deploy/docker/workerd.lock).
 //
 // Tenant `compatibilityFlags[]` must be a KNOWN STABLE flag. Experimental
@@ -142,6 +141,8 @@ const stable: ReadonlySet<string> = new Set([
   'export_commonjs_default',
   'export_commonjs_namespace',
   'expose_global_message_channel',
+  'fetch_invalid_response_legacy_error',
+  'fetch_invalid_response_type_error',
   'fetch_iterable_type_support',
   'fetch_iterable_type_support_override_adjustment',
   'fetch_legacy_url',
@@ -197,6 +198,7 @@ const stable: ReadonlySet<string> = new Set([
   'no_nodejs_process_version_24',
   'no_nodejs_zlib',
   'no_pipe_to_backward_propagation',
+  'no_python_dedicated_snapshot_keep_import_caches',
   'no_python_workers_20250116',
   'no_python_workers_20260610',
   'no_python_workers_314',
@@ -236,6 +238,7 @@ const stable: ReadonlySet<string> = new Set([
   'pipe_to_backward_propagation',
   'python_check_rng_state',
   'python_dedicated_snapshot',
+  'python_dedicated_snapshot_keep_import_caches',
   'python_external_packages',
   'python_no_global_handlers',
   'python_process_pth_files',
@@ -310,7 +313,9 @@ const stable: ReadonlySet<string> = new Set([
   'web_socket_manual_reply_to_close',
   'webcrypto_modern_algorithms',
   'websocket_close_reason_byte_limit',
+  'websocket_legacy_url_and_extensions',
   'websocket_standard_binary_type',
+  'websocket_standard_url_and_extensions',
   'workers_api_getters_setters_on_instance',
   'workers_api_getters_setters_on_prototype',
   'workflows_disable_fast_engine_creation',
@@ -325,6 +330,7 @@ const experimental: ReadonlySet<string> = new Set([
   'auto_inject_python_workers',
   'cache_reload_disabled',
   'cache_reload_enabled',
+  'connect_handler_immediate_tls',
   'connect_handler_starttls',
   'connect_pass_through',
   'd1_binding_jsrpc',
@@ -339,6 +345,7 @@ const experimental: ReadonlySet<string> = new Set([
   'enable_web_file_system',
   'experimental',
   'expose_draining_reader',
+  'expose_serialization_test_class',
   'increase_websocket_message_size',
   'js_rpc',
   'kv_direct_binding',
@@ -442,6 +449,7 @@ export const COMPAT_FLAG_CONFLICT_PAIRS: readonly (readonly [string, string])[] 
   ['env_module_nullable_support', 'no_env_module_nullable_support'],
   ['export_commonjs_default', 'export_commonjs_namespace'],
   ['expose_global_message_channel', 'no_expose_global_message_channel'],
+  ['fetch_invalid_response_type_error', 'fetch_invalid_response_legacy_error'],
   ['fetch_iterable_type_support', 'no_fetch_iterable_type_support'],
   [
     'fetch_iterable_type_support_override_adjustment',
@@ -479,6 +487,10 @@ export const COMPAT_FLAG_CONFLICT_PAIRS: readonly (readonly [string, string])[] 
   ['precise_timers', 'no_precise_timers'],
   ['python_check_rng_state', 'disable_python_check_rng_state'],
   ['python_dedicated_snapshot', 'disable_python_dedicated_snapshot'],
+  [
+    'python_dedicated_snapshot_keep_import_caches',
+    'no_python_dedicated_snapshot_keep_import_caches',
+  ],
   ['python_no_global_handlers', 'disable_python_no_global_handlers'],
   ['python_process_pth_files', 'disable_python_process_pth_files'],
   ['python_request_headers_preserve_commas', 'disable_python_request_headers_preserve_commas'],
@@ -534,6 +546,7 @@ export const COMPAT_FLAG_CONFLICT_PAIRS: readonly (readonly [string, string])[] 
   ['web_socket_compression', 'no_web_socket_compression'],
   ['websocket_close_reason_byte_limit', 'no_websocket_close_reason_byte_limit'],
   ['websocket_standard_binary_type', 'no_websocket_standard_binary_type'],
+  ['websocket_standard_url_and_extensions', 'websocket_legacy_url_and_extensions'],
   ['workers_api_getters_setters_on_prototype', 'workers_api_getters_setters_on_instance'],
   ['workflows_enable_fast_engine_creation', 'workflows_disable_fast_engine_creation'],
   [
@@ -544,15 +557,14 @@ export const COMPAT_FLAG_CONFLICT_PAIRS: readonly (readonly [string, string])[] 
 ]
 
 /** workerd release pinned by deploy/docker/workerd.lock. */
-export const PINNED_WORKERD_VERSION = '1.20261120.1'
+export const PINNED_WORKERD_VERSION = '1.20261123.1'
 
-/** Date of the workerd build the vendored capnp snapshot was taken from
- * (differs from the pinned release until the snapshot is re-vendored). */
-export const SNAPSHOT_WORKERD_DATE = '2026-07-22'
+/** Date of the workerd release tag the vendored capnp snapshot was taken from. */
+export const SNAPSHOT_WORKERD_DATE = '2026-11-23'
 
 /** Latest compatibility_date the pinned workerd implements; later dates are
  * rejected at the control plane (the Rust twin is WORKERD_MAX_COMPAT_DATE). */
-export const WORKERD_MAX_COMPAT_DATE = '2026-11-20'
+export const WORKERD_MAX_COMPAT_DATE = '2026-11-23'
 
 export function isTenantAllowedCompatFlag(name: string): boolean {
   return stable.has(name)
