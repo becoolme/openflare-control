@@ -592,7 +592,8 @@ maybe('management API edges', () => {
     // a recreated same-named database/namespace would otherwise inherit
     // the dead team's queued and resulted ops.
     const doomedDbId = doomedDb.body.data.database.database_id as string
-    const doomedNsId = doomedNs.body.data.namespace.namespace_id as string
+    // KV ops key on physical_id (`vrtkv_…`), not namespace_id.
+    const doomedPhysical = doomedNs.body.data.namespace.physical_id as string
     await pool.query(
       `insert into plane_d1_ops (id, cell_id, database_id, kind, payload)
        values ($1,$2,$3,'EXECUTE','{}'::jsonb)`,
@@ -601,7 +602,7 @@ maybe('management API edges', () => {
     await pool.query(
       `insert into plane_cell_ops (id, cell_id, resource_key, kind, payload)
        values ($1,$2,$3,'KV_GET','{}'::jsonb)`,
-      [randomUUID(), cell, doomedNsId]
+      [randomUUID(), cell, doomedPhysical]
     )
 
     expect((await call(assetsApp, 'DELETE', `/api/v1/teams/${orphanTeam}`)).status).toBe(200)
@@ -618,7 +619,7 @@ maybe('management API edges', () => {
          (select count(*)::int from plane_asset_objects where team_id=$1) +
          (select count(*)::int from plane_d1_ops where database_id=$2) +
          (select count(*)::int from plane_cell_ops where resource_key=$3) as n`,
-      [orphanTeam, doomedDbId, doomedNsId]
+      [orphanTeam, doomedDbId, doomedPhysical]
     )
     expect(orphans.rows[0]!.n).toBe(0)
   })

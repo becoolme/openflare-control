@@ -169,7 +169,7 @@ export function registerTeams(app: Hono, deps: AdminDeps): void {
         `delete from plane_cell_ops
           where resource_key in (
             select bucket_id from plane_r2_buckets where team_id=$1
-            union all select namespace_id from plane_kv_namespaces where team_id=$1
+            union all select physical_id from plane_kv_namespaces where team_id=$1
             union all select index_id from plane_vectorize_indexes where team_id=$1
             union all select queue_id from plane_queues where team_id=$1
             union all select hyperdrive_id from plane_hyperdrives where team_id=$1
