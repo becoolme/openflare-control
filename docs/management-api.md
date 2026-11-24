@@ -203,7 +203,7 @@ polls `GET /api/v1/cells/{cell}/ops/{opId}?waitMs=`.
 
 | Service   | Resource endpoints                                              | Data/ops                                                                                       |
 | --------- | --------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| D1        | `GET/POST /d1/databases`, `GET/DELETE /d1/databases/{id}`       | `POST .../query {sql,params?}`, `POST .../migrations {migrations}`, `GET .../ops`              |
+| D1        | `GET/POST /d1/databases`, `GET/DELETE /d1/databases/{id}`       | `POST .../query {sql,params?}`, `POST .../migrations {migrations}`, `POST .../promote`, `GET .../ops` |
 | R2        | `GET/POST /r2/buckets`, `DELETE /r2/buckets/{name}`             | `POST .../ops {kind,payload}` for `R2_LIST/HEAD/GET/PUT/DELETE`; `GET .../ops`                 |
 | KV        | `GET/POST /kv/namespaces`, `DELETE /kv/namespaces/{id}`         | `POST .../ops {kind,payload}` for `KV_GET/PUT/DELETE/LIST/BULK_PUT/BULK_DELETE`; `GET .../ops` |
 | Queues    | `GET/POST /queues`, `PATCH/DELETE /queues/{id}`                 | metadata only; producers/consumers are worker bindings (queue send stays on the data plane)    |
@@ -271,16 +271,21 @@ returns `501`.
 
 | Method   | Path                                         | Purpose                                                     |
 | -------- | -------------------------------------------- | ----------------------------------------------------------- |
-| POST/GET | `/api/v1/cells/{cell}/d1-ops[?status=]`      | enqueue/list D1 ops (`EXECUTE`, `MIGRATIONS_APPLY`, `DROP`) |
+| POST/GET | `/api/v1/cells/{cell}/d1-ops[?status=]`      | enqueue/list D1 ops (`EXECUTE`, `MIGRATIONS_APPLY`, `DROP`, `PROMOTE`) |
 | POST/GET | `/api/v1/cells/{cell}/cell-ops[?status=]`    | enqueue/list generic cell ops (workflows, KV, R2, ...)      |
 | GET      | `/api/v1/cells/{cell}/ops/{opId}?waitMs=`    | unified op lookup/long-poll (D1 or cell channel)            |
 | GET      | `/api/v1/cells/{cell}/logs?workerId=&limit=` | query ingested worker logs                                  |
 | POST     | `/api/v1/maintenance/prune`                  | `{keepPerCell}` retention prune                             |
 
+`POST .../d1/databases/{id}/promote` queues a manual writer promotion
+(`{expectedEpoch?, expectedLsn?, generation?, reason?, expiresAt?}`; epoch/lsn
+must be supplied together). The cell executes it through
+`[d1sql].promoteEndpoint` on the follower and ACKs the promoted epoch/lsn.
+
 The cell channel pulls pending ops and ACKs them by `seq`:
 
 - `GET /api/internal/clusters/{cell}/vrt/d1-ops` / `POST .../d1-ops/ack`
-  (`{acks:[{seq,status,result?,error?}]}`);
+  (`{acks:[{seq,status,result?,error?}]}`, status `DONE` / `FAILED` / `EXPIRED`);
 - `GET /api/internal/clusters/{cell}/vrt/cell-ops` / `POST .../cell-ops/ack`;
 - `POST /api/internal/clusters/{cell}/vrt/logs` dedupes by
   `(workerId,bootId,seq)` and stores the batch for the management log query.
