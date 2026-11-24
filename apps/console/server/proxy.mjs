@@ -6,6 +6,7 @@
  * the authoritative boundary.
  */
 import { Readable } from 'node:stream'
+import { pipeline } from 'node:stream/promises'
 
 // Hop-by-hop headers belong to the client↔console hop only; forwarding
 // them corrupts the upstream request (a stale content-length or a
@@ -32,6 +33,9 @@ export function createProxy({ planeUrl, adminToken }) {
     headers.authorization = `Bearer ${adminToken}`
     delete headers.host
     delete headers.cookie
+    // undici transparently decodes compressed bodies; asking for identity
+    // keeps the bytes we forward identical to what the headers describe.
+    headers['accept-encoding'] = 'identity'
     const init = { method: req.method, headers, redirect: 'manual' }
     if (req.method !== 'GET' && req.method !== 'HEAD') {
       init.body = Readable.toWeb(req)
@@ -51,9 +55,21 @@ export function createProxy({ planeUrl, adminToken }) {
     upstream.headers.forEach((value, key) => {
       if (!HOP_BY_HOP.has(key)) out[key] = value
     })
+    // The streamed body no longer matches a negotiated length/encoding —
+    // forwarding either desyncs the client's framing.
+    delete out['content-length']
+    delete out['content-encoding']
     res.writeHead(upstream.status, out)
+    // pipeline applies backpressure both ways and ends `res` — a slow
+    // client can't pile the whole response up in memory.
     if (upstream.body) {
-      for await (const chunk of upstream.body) res.write(chunk)
+      try {
+        await pipeline(Readable.fromWeb(upstream.body), res)
+      } catch {
+        if (!res.headersSent) res.writeHead(502).end()
+        else res.destroy()
+      }
+      return
     }
     res.end()
   }

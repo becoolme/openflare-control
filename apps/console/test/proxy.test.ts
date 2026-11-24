@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { createServer, request } from 'node:http'
+import { gzipSync } from 'node:zlib'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { describe, expect, it } from 'vitest'
 // @ts-expect-error — plain .mjs modules, no types
@@ -8,7 +9,12 @@ import { createProxy } from '../server/proxy.mjs'
 /** Spin a fake upstream that records the request and echoes canned
  * status/body. Returns its address + the last-seen request summary. */
 async function fakeUpstream(echoStatus = 200, echoBody = 'upstream-body') {
-  const seen = { headers: {}, body: Buffer.alloc(0), method: '', url: '' }
+  const seen = {
+    headers: {} as IncomingMessage['headers'],
+    body: Buffer.alloc(0),
+    method: '',
+    url: '',
+  }
   const srv = createServer((req, res) => {
     seen.method = req.method ?? ''
     seen.url = req.url ?? ''
@@ -127,5 +133,32 @@ describe('createProxy', () => {
     // strip it so only the client-facing hop's own connection semantics apply.
     expect(res.headers.connection).not.toBe('upstream-sentinel')
     up.srv.close()
+  })
+
+  it('asks upstream for identity and drops stale length/encoding headers', async () => {
+    // Even if an upstream ignored `accept-encoding: identity` and sent gzip,
+    // undici decodes it — so the forwarded framing fields must not describe
+    // the compressed bytes.
+    const gz = gzipSync('decoded-payload')
+    const srv = createServer((req, res) => {
+      res.writeHead(200, {
+        'content-encoding': 'gzip',
+        'content-length': String(gz.length),
+        'content-type': 'application/json',
+      })
+      res.end(gz)
+      ;(srv as unknown as { seen: typeof req.headers }).seen = req.headers
+    })
+    await new Promise<void>((r) => srv.listen(0, '127.0.0.1', r))
+    const { port } = srv.address() as { port: number }
+    const proxy = createProxy({ planeUrl: `http://127.0.0.1:${port}`, adminToken: 'adm' })
+    const res = await callProxy(proxy, { method: 'GET' })
+    expect(res.status).toBe(200)
+    expect(res.headers['content-encoding']).toBeUndefined()
+    expect(res.headers['content-length']).toBeUndefined()
+    expect(res.body.toString()).toBe('decoded-payload')
+    const seen = (srv as unknown as { seen: IncomingMessage['headers'] }).seen
+    expect(seen['accept-encoding']).toBe('identity')
+    srv.close()
   })
 })

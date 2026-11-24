@@ -227,11 +227,32 @@ export function serializeBinding(
       // (compute_desired.rs: /^[a-z0-9]{26}$/) — storage identity is
       // server-minted and never client-shaped.
       if (!/^[a-z0-9]{26}$/.test(resourceId)) throw invalid('bindings.databaseId')
+      if (
+        binding.epoch !== undefined &&
+        (!Number.isSafeInteger(binding.epoch) || binding.epoch < 1)
+      ) {
+        throw invalid('bindings.epoch')
+      }
+      let writerAddr: string | undefined
+      if (binding.writerAddr !== undefined) {
+        if (
+          typeof binding.writerAddr !== 'string' ||
+          binding.writerAddr.length === 0 ||
+          binding.writerAddr.length > 256 ||
+          binding.writerAddr.endsWith('/') ||
+          /\s/.test(binding.writerAddr) ||
+          !/^https?:\/\//.test(binding.writerAddr)
+        ) {
+          throw invalid('bindings.writerAddr')
+        }
+        writerAddr = binding.writerAddr
+      }
       return {
         type: 'd1',
         name,
         databaseId: resourceId,
-        epoch: 1,
+        epoch: binding.epoch ?? 1,
+        ...(writerAddr !== undefined ? { writerAddr } : {}),
         permissions: { read: binding.permissionRead, write: binding.permissionWrite },
       }
     case 'QUEUE':
