@@ -32,7 +32,7 @@ export function registerPublications(app: Hono, deps: AdminDeps): void {
 
   app.get('/api/v1/cells/:cellId/publications', async (c) => {
     const raw = Number(c.req.query('limit') ?? '50')
-    const limit = Number.isFinite(raw) ? Math.min(Math.max(raw, 1), 200) : 50
+    const limit = Number.isSafeInteger(raw) ? Math.min(Math.max(raw, 1), 200) : 50
     const list = await deps.store.recentPublications(c.req.param('cellId'), limit)
     return c.json({
       data: {

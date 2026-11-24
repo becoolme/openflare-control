@@ -298,6 +298,9 @@ maybe('management API edges', () => {
     expect((await call(app, 'GET', `${base}/publications/abc`)).status).toBe(400)
     expect((await call(app, 'GET', `${base}/publications?limit=abc`)).status).toBe(200)
     expect((await call(app, 'GET', `${base}/publications?limit=0`)).status).toBe(200)
+    // A fractional limit would reach `limit $2` as a non-integer and 500 —
+    // degrade to the default instead.
+    expect((await call(app, 'GET', `${base}/publications?limit=1.5`)).status).toBe(200)
     expect((await call(noSigningApp, 'POST', `${base}/publish`, {})).status).toBe(501)
     expect((await call(app, 'POST', `${base}/publish`, undefined)).status).toBe(201)
     const published = await call(app, 'POST', `${base}/publish`, { cause: 'EDGE' })

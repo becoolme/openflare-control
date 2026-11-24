@@ -482,10 +482,10 @@ export function registerStats(app: Hono, deps: AdminDeps): void {
         [cell, name]
       )
       for (const w of workflows) {
-        pairs.push({
-          workerId: w.worker_id as string,
-          set: snapshot?.resources.workflows[w.worker_id as string]?.[name],
-        })
+        const wfSets = snapshot?.resources.workflows[w.worker_id as string]
+        // `__proto__` is a legal identifier here — index with hasOwn.
+        const set = wfSets && Object.hasOwn(wfSets, name) ? wfSets[name] : undefined
+        pairs.push({ workerId: w.worker_id as string, set })
       }
     } else {
       const workers = await rows(
@@ -498,10 +498,9 @@ export function registerStats(app: Hono, deps: AdminDeps): void {
         [cell, name]
       )
       for (const w of workers) {
-        pairs.push({
-          workerId: w.id as string,
-          set: snapshot?.resources.durableObjects[w.id as string]?.[name],
-        })
+        const bucket = snapshot?.resources.durableObjects[w.id as string]
+        const set = bucket && Object.hasOwn(bucket, name) ? bucket[name] : undefined
+        pairs.push({ workerId: w.id as string, set })
       }
     }
     const instances = pairs.flatMap(({ workerId, set }) =>
