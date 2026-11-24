@@ -52,8 +52,27 @@ are never overwritten — re-running `up` never rotates credentials.
 | Workers, versions, hostnames, secrets, assets, D1, queue, cron, logs | ✅                                                                  |
 | KV                                                                   | ✅ via bundled `redis` service (override `VRT_KVROCKS_URL`)         |
 | R2                                                                   | ✅ via bundled `silo` (maintained MinIO fork; `VRT_R2_*` → real S3) |
-| Hyperdrive/pg                                                        | credentials file is provisioned; pg endpoints need a reachable DB   |
+| Hyperdrive/pg                                                        | ✅ register origin via admin API; worker connects through `pgProxy` |
 | TLS                                                                  | Traefik profile; cert per SNI hostname on first handshake           |
+
+## Hyperdrive
+
+Fully wired, just no origin registered yet:
+
+```sh
+curl -X POST $PLANE/api/v1/cells/$VRT_CELL_ID/hyperdrive \
+  -H "authorization: Bearer $PLANE_ADMIN_TOKEN" -H 'content-type: application/json' \
+  -d '{"teamId":"<team>","name":"my-db","origin":"postgresql://user:pass@postgres:5432/app"}'
+```
+
+then bind it on the worker (`hyperdrive` binding). Plane carries the
+credential in render-inputs `tenants.<team>.pg`; cell-controller writes
+it to `pg-credentials.json` (0600, provider-side only — it never enters
+an isolate's env), and `vrt-provider`'s `[pg]`/`[pgProxy]` listener
+(`127.0.0.1:19543` inside the pod) tunnels worker connections to the
+origin. The origin just needs to be reachable from the `vrt-provider`
+container — the bundled `postgres`, another compose service, or an
+external database.
 
 ## Ports
 
