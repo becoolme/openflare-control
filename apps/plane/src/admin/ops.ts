@@ -4,7 +4,38 @@ import { z } from 'zod'
 import { VrtControlError } from 'openflare-control'
 import { type AdminDeps, databaseId, mapOp, parse, readJson, rows } from './context.js'
 
-const expires = z.number().int().optional()
+const expires = z.number().int().min(0).max(4_102_444_800).optional()
+
+// Kinds the generic endpoint accepts. Resource-scoped kinds (R2_*, KV_*,
+// STORAGE_PURGE, D1) carry server-injected scope — tenantId/bucketId/
+// namespaceId/databaseId and a resource_key pointing at the target — so
+// they can only be minted by the dedicated per-resource endpoints, which
+// verify the row exists on this cell first. Accepting them here with a
+// caller-supplied resourceKey would let ops target another team's
+// resources. Anything else would sit PENDING forever — fail at the
+// boundary instead of enqueueing an op nothing can ack.
+const CELL_OP_KINDS = ['WF_CREATE', 'WF_GET', 'WF_ACTION', 'WF_EVENT', 'WF_DELETE'] as const
+
+// The cell trusts op payloads as control-plane-attested scope. The dedicated
+// per-resource endpoints inject `tenantId`/`namespaceId`/`bucketId`/…
+// server-side from verified rows; this generic endpoint must never let a
+// caller write those fields itself (it would mint ops against resources on
+// another tenant). Keep in sync with the scope keys each scoped endpoint
+// injects — an omitted key is a bypass.
+const SCOPE_PAYLOAD_KEYS = [
+  'tenantId',
+  'namespaceId',
+  'physicalId',
+  'storageId',
+  'storage',
+  'databaseId',
+  'queueId',
+  'bucketName',
+  'bucketId',
+  'indexId',
+  'hyperdriveId',
+  'accountId',
+] as const
 
 async function findOp(deps: AdminDeps, cell: string, id: string) {
   const [d1] = await rows(
@@ -38,6 +69,12 @@ export function registerOps(app: Hono, deps: AdminDeps): void {
         .strict(),
       await readJson(c)
     )
+    const [db] = await rows(
+      deps,
+      'select 1 from plane_d1_databases where database_id=$1 and cluster_id=$2',
+      [body.databaseId, cell]
+    )
+    if (!db) throw new VrtControlError(404, 'D1 database not found')
     const id = randomUUID()
     await deps.pool.query(
       `insert into plane_d1_ops (id, cell_id, database_id, kind, payload, expires_at)
@@ -65,8 +102,8 @@ export function registerOps(app: Hono, deps: AdminDeps): void {
     const body = parse(
       z
         .object({
-          kind: z.string().min(1).max(64),
-          workerId: z.string().optional(),
+          kind: z.enum(CELL_OP_KINDS),
+          workerId: z.string().min(1).max(128).optional(),
           resourceKey: z.string().max(128).optional(),
           payload: z.record(z.unknown()),
           expiresAt: expires,
@@ -74,6 +111,19 @@ export function registerOps(app: Hono, deps: AdminDeps): void {
         .strict(),
       await readJson(c)
     )
+    for (const key of SCOPE_PAYLOAD_KEYS) {
+      if (key in body.payload) {
+        throw new VrtControlError(400, `payload.${key} is server-managed — use the scoped endpoint`)
+      }
+    }
+    if (body.workerId !== undefined) {
+      const [worker] = await rows(
+        deps,
+        'select 1 from plane_workers where id=$1 and cluster_id=$2',
+        [body.workerId, cell]
+      )
+      if (!worker) throw new VrtControlError(404, 'Worker not found')
+    }
     const id = randomUUID()
     await deps.pool.query(
       `insert into plane_cell_ops (id, cell_id, worker_id, resource_key, kind, payload, expires_at)
