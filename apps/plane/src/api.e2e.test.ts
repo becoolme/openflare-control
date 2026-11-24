@@ -64,7 +64,6 @@ maybe('management API e2e', () => {
   const worker = 'hello'
   const versionId = `v-${suffix}`
   const hostname = `hello-${suffix}.example.test`
-  const databaseId = 'a'.repeat(26)
   const auth = { authorization: `Bearer ${TOKEN}` }
   const json = { ...auth, 'content-type': 'application/json' }
   const base = `/api/v1/cells/${cell}`
@@ -248,7 +247,14 @@ maybe('management API e2e', () => {
     expect(publications.status).toBe(200)
     expect(publications.body.data.publications[0].revision).toBe(revision)
 
-    // d1 + cell ops: enqueue over management, pull/ack over the cell channel
+    // d1 + cell ops: enqueue over management, pull/ack over the cell channel.
+    // The op can only target a database that exists on this cell.
+    const db = await call('POST', `${base}/d1/databases`, {
+      teamId: team,
+      name: `e2e-db-${suffix}`.slice(0, 63),
+    })
+    expect(db.status).toBe(201)
+    const databaseId = db.body.data.database.database_id as string
     const d1 = await call('POST', `${base}/d1-ops`, {
       databaseId,
       kind: 'EXECUTE',

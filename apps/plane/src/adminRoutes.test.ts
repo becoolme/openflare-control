@@ -322,8 +322,25 @@ maybe('management API edges', () => {
         })
       ).status
     ).toBe(400)
+    // Ops can only target a database that exists on this cell — the
+    // dedicated endpoints enforce the same scope check.
+    const db = await call(app, 'POST', `${base}/d1/databases`, {
+      teamId: team,
+      name: `edge-db-${suffix}`.slice(0, 63),
+    })
+    expect(db.status).toBe(201)
+    const databaseId = db.body.data.database.database_id as string
+    expect(
+      (
+        await call(app, 'POST', `${base}/d1-ops`, {
+          databaseId: 'a'.repeat(26),
+          kind: 'DROP',
+          payload: {},
+        })
+      ).status
+    ).toBe(404)
     const op = await call(app, 'POST', `${base}/d1-ops`, {
-      databaseId: 'a'.repeat(26),
+      databaseId,
       kind: 'DROP',
       payload: {},
     })
@@ -465,6 +482,96 @@ maybe('management API edges', () => {
         })
       ).status
     ).toBe(404)
+  })
+
+  it('pins worker-scoped routes to the :cellId in the path', async () => {
+    // The worker id (`team:name`) is globally unique, so every route must
+    // also pin `cluster_id` — otherwise any other cell's path resolves the
+    // same worker and mutations land through the wrong cell.
+    const other = `other-${suffix}`
+    await provisionCellToken(other)
+    const otherBase = `/api/v1/cells/${other}/teams/${team}/workers/${worker}`
+
+    expect((await call(app, 'GET', `${otherBase}/vars`)).status).toBe(404)
+    expect((await call(app, 'PUT', `${otherBase}/vars/K`, { value: 'x' })).status).toBe(404)
+    expect((await call(app, 'DELETE', `${otherBase}/vars/K`)).status).toBe(404)
+    expect((await call(app, 'GET', `${otherBase}/secrets`)).status).toBe(404)
+    expect((await call(app, 'PUT', `${otherBase}/secrets/K`, { value: 'x' })).status).toBe(404)
+    expect((await call(app, 'DELETE', `${otherBase}/secrets/K`)).status).toBe(404)
+    expect((await call(app, 'DELETE', `${otherBase}/hostnames/${hostname}`)).status).toBe(404)
+
+    // The same worker stays reachable through its own cell.
+    expect((await call(app, 'GET', `${base}/teams/${team}/workers/${worker}/vars`)).status).toBe(
+      200
+    )
+
+    // Workflows get the same treatment (inserted directly — capability
+    // gating is covered in cellReport.e2e).
+    await pool.query(
+      `insert into plane_workflows (workflow_id, worker_id, team_id, cluster_id, name, class_name)
+       values ($1,$2,$3,$4,$5,$6)`,
+      [`wf-${suffix}`, `${team}:${worker}`, team, cell, 'wf-scope', 'WfScope']
+    )
+    const wf = `teams/${team}/workers/${worker}/workflows`
+    const otherWf = `/api/v1/cells/${other}/${wf}`
+    expect((await call(app, 'GET', otherWf)).body.data.workflows).toHaveLength(0)
+    expect((await call(app, 'DELETE', `${otherWf}/wf-scope`)).status).toBe(404)
+    expect((await call(app, 'POST', `${otherWf}/wf-scope/ops`, { kind: 'WF_GET' })).status).toBe(
+      404
+    )
+    expect((await call(app, 'GET', `${otherWf}/wf-scope/stats`)).status).toBe(404)
+    expect((await call(app, 'DELETE', `${base}/${wf}/wf-scope`)).status).toBe(200)
+  })
+
+  it('constrains generic cell-ops payloads at the boundary', async () => {
+    // Unknown kinds would sit PENDING forever — reject at the boundary.
+    expect(
+      (await call(app, 'POST', `${base}/cell-ops`, { kind: 'NOPE_KIND', payload: {} })).status
+    ).toBe(400)
+    // Scope fields are server-managed: the dedicated per-resource endpoints
+    // inject tenantId/namespaceId/storageId from verified rows, so a caller
+    // must not write them itself.
+    for (const key of ['tenantId', 'storageId', 'namespaceId', 'bucketName']) {
+      expect(
+        (
+          await call(app, 'POST', `${base}/cell-ops`, {
+            kind: 'STORAGE_PURGE',
+            payload: { [key]: 'x' },
+          })
+        ).status
+      ).toBe(400)
+    }
+    // workerId, when present, must exist on this cell.
+    expect(
+      (
+        await call(app, 'POST', `${base}/cell-ops`, {
+          kind: 'WF_GET',
+          workerId: 'other-team:ghost',
+          payload: {},
+        })
+      ).status
+    ).toBe(404)
+    const other = `other-${suffix}`
+    expect(
+      (
+        await call(app, 'POST', `/api/v1/cells/${other}/cell-ops`, {
+          kind: 'WF_GET',
+          workerId: `${team}:${worker}`,
+          payload: {},
+        })
+      ).status
+    ).toBe(404)
+    // A scope-free workflow op still enqueues.
+    expect(
+      (
+        await call(app, 'POST', `${base}/cell-ops`, {
+          kind: 'WF_GET',
+          workerId: `${team}:${worker}`,
+          resourceKey: 'wf-scope',
+          payload: { workflow: 'wf-scope', instanceId: 'i-2' },
+        })
+      ).status
+    ).toBe(201)
   })
 
   it('deletes the cell and reports missing deletes', async () => {
