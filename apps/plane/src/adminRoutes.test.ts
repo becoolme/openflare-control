@@ -558,6 +558,9 @@ maybe('management API edges', () => {
   })
 
   it('covers d1 promote ops, writer CAS, and failover reports', async () => {
+    // The preceding cascade test deletes and recreates this cell — make the
+    // channel credential valid again regardless of suite ordering.
+    await provisionCellToken(cell)
     const db = await call(app, 'POST', `${base}/d1/databases`, {
       teamId: team,
       name: `ddb-${suffix}`,
