@@ -37,7 +37,8 @@ const PLANE_URL = `http://127.0.0.1:${PLANE_PORT}`
 const STUB = process.env.FULLSTACK_STUB === '1'
 const KEEP = process.env.FULLSTACK_KEEP === '1'
 const ADMIN_TOKEN = process.env.PLANE_ADMIN_TOKEN ?? 'fullstack-admin-token-0123456789abcdef'
-const SIGNING_SECRET = process.env.PLANE_SIGNING_SECRET ?? 'fullstack-signing-secret-0123456789abcdef'
+const SIGNING_SECRET =
+  process.env.PLANE_SIGNING_SECRET ?? 'fullstack-signing-secret-0123456789abcdef'
 const SECRETS_KEY = process.env.PLANE_SECRETS_KEY ?? 'fullstack-secrets-key-0123456789abcdef'
 const DATABASE_URL = process.env.DATABASE_URL
 if (!DATABASE_URL) throw new Error('DATABASE_URL is required')
