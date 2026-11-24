@@ -149,8 +149,15 @@ async function main() {
   assert.equal(r.status, 200, JSON.stringify(r.body))
   assert.equal(r.body.data.ackStatus, 'APPLIED')
 
+  // Ops only target databases that exist on this cell — create one first.
+  r = await request('POST', `/api/v1/cells/${cell}/d1/databases`, {
+    teamId: team,
+    name: 'ops-db',
+  })
+  assert.equal(r.status, 201, JSON.stringify(r.body))
+  const opsDbId = r.body.data.database.database_id
   r = await request('POST', `/api/v1/cells/${cell}/d1-ops`, {
-    databaseId: 'a'.repeat(26),
+    databaseId: opsDbId,
     kind: 'EXECUTE',
     payload: { sql: 'select 1' },
   })

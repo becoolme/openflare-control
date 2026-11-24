@@ -2,14 +2,12 @@ import type { Hono } from 'hono'
 import { z } from 'zod'
 import { VrtControlError } from 'openflare-control'
 import { publishCell } from '../publish.js'
-import { type AdminDeps, parse, readJson } from './context.js'
+import { type AdminDeps, parse, readJsonOrEmpty } from './context.js'
 
 export function registerPublications(app: Hono, deps: AdminDeps): void {
   app.post('/api/v1/cells/:cellId/publish', async (c) => {
     const cell = c.req.param('cellId')
     if (!deps.signing) throw new VrtControlError(501, 'Signing is not configured')
-    // readJson caps at MAX_JSON; an empty body is a valid "publish" call.
-    const raw = (await c.req.text()).trim()
     const body = parse(
       z
         .object({
@@ -18,7 +16,7 @@ export function registerPublications(app: Hono, deps: AdminDeps): void {
           versionId: z.string().max(128).optional(),
         })
         .strict(),
-      raw ? await readJson(c) : {}
+      await readJsonOrEmpty(c)
     )
     const revision = await publishCell(deps.store, {
       cellId: cell,

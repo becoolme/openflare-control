@@ -369,8 +369,8 @@ export function registerStats(app: Hono, deps: AdminDeps): void {
       const workflowName = c.req.param('workflowName')
       const [workflow] = await rows(
         deps,
-        'select * from plane_workflows where worker_id=$1 and name=$2',
-        [id, workflowName]
+        'select * from plane_workflows where worker_id=$1 and name=$2 and cluster_id=$3',
+        [id, workflowName, cell]
       )
       if (!workflow) throw new VrtControlError(404, 'Workflow not found')
       const [ops] = await rows(

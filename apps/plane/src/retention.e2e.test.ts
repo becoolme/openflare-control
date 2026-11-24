@@ -81,10 +81,16 @@ maybe('retention e2e', () => {
         ],
       })
     }
-    // D1 ops: one terminal/old, one pending/old, one fresh.
+    // D1 ops: one terminal/old, one pending/old, one fresh. Ops can only
+    // target a database that exists on this cell.
+    const db = await call('POST', `/api/v1/cells/${cell}/d1/databases`, {
+      teamId: team,
+      name: `ret-db-${suffix}`.slice(0, 63),
+    })
+    const databaseId = db.body.data.database.database_id as string
     for (const kind of ['EXECUTE', 'DROP', 'EXECUTE']) {
       await call('POST', `/api/v1/cells/${cell}/d1-ops`, {
-        databaseId: 'a'.repeat(26),
+        databaseId,
         kind,
         payload: { sql: 'select 1' },
       })
@@ -111,7 +117,7 @@ maybe('retention e2e', () => {
     // One expired PENDING D1 op and one expired PENDING cell op: they can
     // never be dispatched, so the sweep reclaims them (one-day grace).
     await call('POST', `/api/v1/cells/${cell}/d1-ops`, {
-      databaseId: 'a'.repeat(26),
+      databaseId,
       kind: 'EXECUTE',
       payload: { sql: 'select 2' },
     })
