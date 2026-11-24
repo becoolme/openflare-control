@@ -159,3 +159,24 @@ export const mapLog = (r: Row) => ({
 export function generatedId(seed: string): string {
   return createHash('sha256').update(seed).digest('hex').slice(0, 26)
 }
+
+// Origins are `host:port/db` or `scheme://host/db` — credentials live with
+// the provider, never in the plane. Writes reject an embedded userinfo and
+// reads mask it, so a legacy row can't echo a password back through GETs.
+const authorityOf = (origin: string) =>
+  origin.replace(/^[a-z][a-z0-9+.-]*:\/\//i, '').split('/')[0]!
+
+export function assertOriginNoCredentials(origin: string): void {
+  if (authorityOf(origin).includes('@')) {
+    throw new VrtControlError(
+      400,
+      'origin must not embed credentials — store them with the provider, not the plane'
+    )
+  }
+}
+
+export function maskOrigin<T extends { origin: string }>(row: T): T {
+  // userinfo sits between the optional scheme and the first `/` — masking
+  // there leaves `host/db@path` untouched.
+  return { ...row, origin: row.origin.replace(/^([a-z][a-z0-9+.-]*:\/\/)?[^@/\s]+@/i, '$1***@') }
+}

@@ -251,6 +251,11 @@ maybe('management API edges', () => {
     const legacy = list.body.data.hyperdrives.find((h: { name: string }) => h.name === 'legacy')
     expect(legacy.origin).toBe('postgres://***@h/db')
     expect(legacy.origin).not.toContain('s3cret')
+    // The services catalog must mask it too — it is another read path.
+    const catalog = await call(app, 'GET', `${base}/services`)
+    const entry = catalog.body.data.hyperdrive.find((h: { name: string }) => h.name === 'legacy')
+    expect(entry.origin).toBe('postgres://***@h/db')
+    expect(entry.origin).not.toContain('s3cret')
     expect((await call(app, 'GET', `${base}/hyperdrive/${'f'.repeat(26)}`)).status).toBe(404)
   })
 

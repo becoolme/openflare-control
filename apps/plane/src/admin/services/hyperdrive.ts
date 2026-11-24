@@ -1,28 +1,16 @@
 import type { Hono } from 'hono'
 import { z } from 'zod'
 import { VrtControlError, hyperdriveResourceId } from 'openflare-control'
-import { type AdminDeps, generatedId, parse, readJson, rows, teamId } from '../context.js'
-
-// Origins are `host:port/db` or `scheme://host/db` — credentials live with
-// the provider, never in the plane. Writes reject an embedded userinfo and
-// reads mask it, so a legacy row can't echo a password back through GETs.
-const authorityOf = (origin: string) =>
-  origin.replace(/^[a-z][a-z0-9+.-]*:\/\//i, '').split('/')[0]!
-
-function assertNoCredentials(origin: string): void {
-  if (authorityOf(origin).includes('@')) {
-    throw new VrtControlError(
-      400,
-      'origin must not embed credentials — store them with the provider, not the plane'
-    )
-  }
-}
-
-function maskOrigin<T extends { origin: string }>(row: T): T {
-  // userinfo sits between the optional scheme and the first `/` — masking
-  // there leaves `host/db@path` untouched.
-  return { ...row, origin: row.origin.replace(/^([a-z][a-z0-9+.-]*:\/\/)?[^@/\s]+@/i, '$1***@') }
-}
+import {
+  type AdminDeps,
+  assertOriginNoCredentials,
+  generatedId,
+  maskOrigin,
+  parse,
+  readJson,
+  rows,
+  teamId,
+} from '../context.js'
 
 export function registerHyperdriveService(app: Hono, deps: AdminDeps): void {
   app.get('/api/v1/cells/:cellId/hyperdrive', async (c) => {
@@ -52,7 +40,7 @@ export function registerHyperdriveService(app: Hono, deps: AdminDeps): void {
         .strict(),
       await readJson(c)
     )
-    assertNoCredentials(body.origin)
+    assertOriginNoCredentials(body.origin)
     const id = generatedId(`${cell}:${body.teamId}:hyperdrive:${body.name}`)
     await deps.pool.query(
       `insert into plane_hyperdrives
