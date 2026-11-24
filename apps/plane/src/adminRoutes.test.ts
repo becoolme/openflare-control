@@ -1011,4 +1011,79 @@ maybe('management API edges', () => {
     )
     expect((await call(failApp, 'DELETE', `/api/v1/teams/${doomed}`)).status).toBe(200)
   })
+
+  it('clears ops when a single resource is deleted', async () => {
+    // Re-created deterministic ids must not resurrect ops minted against the
+    // deleted row — each scoped delete takes its pending ops with it.
+    const db = await call(app, 'POST', `${base}/d1/databases`, {
+      teamId: team,
+      name: `opd-db-${suffix}`,
+    })
+    expect(db.status).toBe(201)
+    const databaseId = db.body.data.database.database_id as string
+    await call(app, 'POST', `${base}/d1-ops`, {
+      databaseId,
+      kind: 'EXECUTE',
+      payload: { sql: 'select 1' },
+    })
+    expect((await call(app, 'DELETE', `${base}/d1/databases/${databaseId}`)).status).toBe(200)
+    expect(
+      (
+        await pool.query('select count(*)::int as n from plane_d1_ops where database_id=$1', [
+          databaseId,
+        ])
+      ).rows[0]!.n
+    ).toBe(0)
+    expect((await call(app, 'DELETE', `${base}/d1/databases/${databaseId}`)).status).toBe(404)
+
+    const ns = await call(app, 'POST', `${base}/kv/namespaces`, {
+      teamId: team,
+      title: `opd-kv-${suffix}`.slice(0, 63),
+    })
+    expect(ns.status).toBe(201)
+    const namespaceId = ns.body.data.namespace.namespace_id as string
+    const op = await call(app, 'POST', `${base}/kv/namespaces/${namespaceId}/ops`, {
+      kind: 'KV_GET',
+      payload: { key: 'k' },
+    })
+    expect(op.status).toBe(202)
+    expect((await call(app, 'DELETE', `${base}/kv/namespaces/${namespaceId}`)).status).toBe(200)
+    expect((await call(app, 'GET', `${base}/kv/namespaces/${namespaceId}/ops`)).status).toBe(404)
+
+    const bucket = `opd-b-${suffix}`.slice(0, 63)
+    expect(
+      (await call(app, 'POST', `${base}/r2/buckets`, { teamId: team, bucketName: bucket })).status
+    ).toBe(201)
+    const r2op = await call(app, 'POST', `${base}/r2/buckets/${bucket}/ops`, {
+      kind: 'R2_GET',
+      payload: { object: 'o' },
+    })
+    expect(r2op.status).toBe(202)
+    expect((await call(app, 'DELETE', `${base}/r2/buckets/${bucket}`)).status).toBe(200)
+
+    await pool.query(
+      `insert into plane_workflows (workflow_id, worker_id, team_id, cluster_id, name, class_name)
+       values ($1,$2,$3,$4,$5,$6)`,
+      [`wfd-${suffix}`, `${team}:${worker}`, team, cell, 'wf-opd', 'WfOpd']
+    )
+    const wfBase = `${base}/teams/${team}/workers/${worker}/workflows`
+    const wfOp = await call(app, 'POST', `${wfBase}/wf-opd/ops`, {
+      kind: 'WF_GET',
+      instanceId: 'i-opd',
+    })
+    expect(wfOp.status).toBe(202)
+    expect((await call(app, 'DELETE', `${wfBase}/wf-opd`)).status).toBe(200)
+    expect(
+      (
+        await pool.query(
+          `select count(*)::int as n from plane_cell_ops
+            where cell_id=$1 and resource_key='wf-opd' and kind like 'WF\\_%'`,
+          [cell]
+        )
+      ).rows[0]!.n
+    ).toBe(0)
+    // Deleting an absent bucket/workflow still reports 404.
+    expect((await call(app, 'DELETE', `${base}/r2/buckets/${bucket}`)).status).toBe(404)
+    expect((await call(app, 'DELETE', `${wfBase}/wf-opd`)).status).toBe(404)
+  })
 })

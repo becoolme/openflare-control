@@ -58,12 +58,34 @@ export function registerR2Service(app: Hono, deps: AdminDeps): void {
   })
 
   app.delete('/api/v1/cells/:cellId/r2/buckets/:bucketName', async (c) => {
-    const deleted = await deps.pool.query(
-      'delete from plane_r2_buckets where bucket_name=$1 and cluster_id=$2',
-      [parse(serviceName, c.req.param('bucketName')), c.req.param('cellId')]
-    )
-    if (deleted.rowCount === 0) throw new VrtControlError(404, 'R2 bucket not found')
-    return c.json({ data: { deleted: true } })
+    const cell = c.req.param('cellId')
+    const name = parse(serviceName, c.req.param('bucketName'))
+    const client = await deps.pool.connect()
+    try {
+      await client.query('begin')
+      // Ops key on the bucket's physical id — a re-created bucket name must
+      // not inherit ops minted against the deleted one.
+      await client.query(
+        `delete from plane_cell_ops
+          where cell_id=$1
+            and resource_key=(
+              select bucket_id from plane_r2_buckets
+               where bucket_name=$2 and cluster_id=$1)`,
+        [cell, name]
+      )
+      const deleted = await client.query(
+        'delete from plane_r2_buckets where bucket_name=$1 and cluster_id=$2',
+        [name, cell]
+      )
+      await client.query('commit')
+      if (deleted.rowCount === 0) throw new VrtControlError(404, 'R2 bucket not found')
+      return c.json({ data: { deleted: true } })
+    } catch (error) {
+      await client.query('rollback')
+      throw error
+    } finally {
+      client.release()
+    }
   })
 
   // R2 data operations ride the generic cell-op channel (the cell derives the
