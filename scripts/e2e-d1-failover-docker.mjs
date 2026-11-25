@@ -110,7 +110,11 @@ retainGenerations = 2
 let followerStarted = false
 const stopFollower = () => {
   if (!followerStarted) return
-  try { docker(['rm', '-f', followerName]) } catch {}
+  try {
+    docker(['rm', '-f', followerName])
+  } catch {
+    // best-effort cleanup
+  }
   followerStarted = false
 }
 try {
