@@ -1086,4 +1086,61 @@ maybe('management API edges', () => {
     expect((await call(app, 'DELETE', `${base}/r2/buckets/${bucket}`)).status).toBe(404)
     expect((await call(app, 'DELETE', `${wfBase}/wf-opd`)).status).toBe(404)
   })
+  it('serves the D1 writer/promotions and the latest DO alarm snapshot', async () => {
+    const pageCell = `ops-page-${suffix}`
+    await provisionCellToken(pageCell)
+    const pageBase = `/api/v1/cells/${pageCell}`
+
+    const created = await call(app, 'POST', `${pageBase}/d1/databases`, {
+      teamId: team,
+      name: `writer-${suffix}`,
+    })
+    expect(created.status).toBe(201)
+    const databaseId = created.body.data.database.database_id as string
+
+    const promoted = await call(app, 'POST', `${pageBase}/d1/databases/${databaseId}/promote`, {
+      reason: 'console contract',
+    })
+    expect(promoted.status).toBe(202)
+
+    const detail = await call(app, 'GET', `${pageBase}/d1/databases/${databaseId}/promotions`)
+    expect(detail.status).toBe(200)
+    expect(detail.body.data.writer).toMatchObject({ epoch: 1, addr: null, lsn: null })
+    expect(detail.body.data.promotions).toHaveLength(1)
+    expect(detail.body.data.promotions[0]).toMatchObject({
+      kind: 'PROMOTE',
+      status: 'PENDING',
+    })
+
+    // The console treats a missing snapshot as "not reported yet", not an error.
+    expect((await call(app, 'GET', `${pageBase}/do-alarms`)).status).toBe(404)
+
+    const snapshot = {
+      entries: [
+        {
+          tenantId: 't1',
+          workerId: 'w1',
+          classKey: 'a'.repeat(64),
+          objectId: 'object-1',
+          atMs: 1_800_000_000_000,
+          observedAtMs: 1_799_999_000_000,
+        },
+      ],
+      unknown: [{ tenantId: 't1', workerId: 'w2', classKey: 'b'.repeat(64) }],
+      truncated: [],
+      observed: [{ tenantId: 't1', workerId: 'w1', classKey: 'a'.repeat(64) }],
+    }
+    const pushed = await call(
+      app,
+      'POST',
+      `/api/internal/clusters/${pageCell}/vrt/alarms`,
+      snapshot
+    )
+    expect(pushed.status).toBe(200)
+
+    const alarms = await call(app, 'GET', `${pageBase}/do-alarms`)
+    expect(alarms.status).toBe(200)
+    expect(alarms.body.data.snapshot).toEqual(snapshot)
+    expect(typeof alarms.body.data.updatedAt).toBe('string')
+  })
 })
