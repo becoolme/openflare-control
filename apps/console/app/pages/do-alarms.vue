@@ -32,60 +32,14 @@ const { data, pending, error, refresh } = await useAsyncData(
       : Promise.resolve(null),
   { watch: [activeCell] }
 )
-const entries = computed(() => [...(data.value?.snapshot.entries ?? [])].sort((a, b) => a.atMs - b.atMs))
-const fmt = (v: number | string) => new Date(v).toLocaleString()
 </script>
 
 <template>
-  <div class="wrap" style="display: flex; flex-direction: column; gap: 18px">
-    <div style="display: flex; align-items: flex-end; justify-content: space-between; gap: 16px">
-      <div>
-        <div class="gl" style="margin-bottom: 6px">Durable Objects</div>
-        <h1 style="margin: 0; font-size: 26px; font-weight: 600; letter-spacing: -0.03em">Alarm index</h1>
-        <p class="muted" style="margin: 6px 0 0; font-size: 13.5px">Cell-reported earliest alarms and classes whose scan could not be trusted.</p>
-      </div>
-      <UiButton variant="secondary" size="sm" @click="refresh()">Refresh</UiButton>
-    </div>
-
-    <UiError v-if="error" :message="String(error)" />
-    <div v-else-if="!activeCell" class="card" style="padding: 18px">Select a cell.</div>
-    <div v-else-if="pending" class="card" style="padding: 18px">Loading…</div>
-    <div v-else-if="!data" class="card" style="padding: 18px">No alarm snapshot reported by this cell yet.</div>
-    <template v-else>
-      <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px">
-        <UiMetricCard label="Known alarms"><template #value>{{ data.snapshot.entries.length }}</template></UiMetricCard>
-        <UiMetricCard label="Observed classes"><template #value>{{ data.snapshot.observed.length }}</template></UiMetricCard>
-        <UiMetricCard label="Unknown classes"><template #value>{{ data.snapshot.unknown.length }}</template></UiMetricCard>
-        <UiMetricCard label="Truncated classes"><template #value>{{ data.snapshot.truncated.length }}</template></UiMetricCard>
-      </div>
-      <div class="muted" style="font-size: 12.5px">Snapshot updated {{ fmt(data.updatedAt) }}</div>
-
-      <section class="card" style="padding: 16px 18px">
-        <div class="ch-h"><span class="t">Earliest alarms</span><span class="v">{{ entries.length }}</span></div>
-        <table class="tbl rg">
-          <thead><tr><th>at</th><th>tenant</th><th>worker</th><th>class</th><th>object</th></tr></thead>
-          <tbody>
-            <tr v-if="entries.length === 0"><td colspan="5" class="muted">No pending alarms.</td></tr>
-            <tr v-for="e in entries" :key="`${e.tenantId}:${e.classKey}:${e.objectId}`">
-              <td class="mono">{{ fmt(e.atMs) }}</td>
-              <td>{{ e.tenantId }}</td>
-              <td class="mono">{{ e.workerId }}</td>
-              <td class="mono dim">{{ e.classKey.slice(0, 12) }}…</td>
-              <td class="mono dim">{{ e.objectId.slice(0, 12) }}…</td>
-            </tr>
-          </tbody>
-        </table>
-      </section>
-
-      <section v-if="data.snapshot.unknown.length || data.snapshot.truncated.length" class="card" style="padding: 16px 18px">
-        <div class="ch-h"><span class="t">Unsafe classes</span></div>
-        <div v-for="c in data.snapshot.unknown" :key="`u:${c.tenantId}:${c.classKey}`" class="mig">
-          <UiBadge tone="err">unknown</UiBadge> <span class="mono">{{ c.tenantId }} / {{ c.workerId }} / {{ c.classKey.slice(0, 12) }}…</span>
-        </div>
-        <div v-for="c in data.snapshot.truncated" :key="`t:${c.tenantId}:${c.classKey}`" class="mig">
-          <UiBadge tone="warn">truncated</UiBadge> <span class="mono">{{ c.tenantId }} / {{ c.workerId }} / {{ c.classKey.slice(0, 12) }}…</span>
-        </div>
-      </section>
-    </template>
-  </div>
+  <DoAlarmsView
+    :active-cell="activeCell"
+    :data="data ?? null"
+    :pending="pending"
+    :error="error ? String(error) : null"
+    @refresh="refresh()"
+  />
 </template>
