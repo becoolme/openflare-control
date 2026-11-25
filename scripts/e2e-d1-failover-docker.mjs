@@ -12,8 +12,7 @@
 //   6. restarts the writer and reads the data back through a new EXECUTE op.
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const PLANE = 'http://127.0.0.1:8787'
@@ -22,8 +21,6 @@ const CELL = process.env.VRT_CELL_ID ?? 'local'
 const suffix = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`
 const team = `d1fail-${suffix}`
 const dbName = `d1-fail-${suffix}`
-const followerName = `e2e-d1-follower-${suffix}`
-const project = 'openflare-all-in-one'
 
 const api = async (method, path, body) => {
   const res = await fetch(`${PLANE}${path}`, {
@@ -88,9 +85,10 @@ await waitFor(
 await runOp('CREATE TABLE IF NOT EXISTS t(v INTEGER)')
 await runOp('INSERT INTO t VALUES (1)')
 
-// Start a follower/premote listener on the same persistence + data volume.
-const tmp = mkdtempSync(join(tmpdir(), 'vrt-d1-fail-'))
-const cfg = join(tmp, 'follower.toml')
+// Start the optional compose follower with a config for this database.
+const dir = join(process.cwd(), '.ci', 'd1-failover')
+mkdirSync(dir, { recursive: true })
+const cfg = join(dir, 'follower.toml')
 writeFileSync(
   cfg,
   `dbRoot = "/data/replica"
@@ -109,40 +107,19 @@ pollIntervalMs = 200
 retainGenerations = 2
 `
 )
+const compose = ['compose', '-f', 'docker-compose.all-in-one.yml', '--profile', 'failover']
 let followerStarted = false
 const stopFollower = () => {
   if (!followerStarted) return
   try {
-    docker(['rm', '-f', followerName])
+    docker([...compose, 'rm', '-sf', 'vrt-sql-follower'])
   } catch {
     // best-effort cleanup
   }
   followerStarted = false
 }
 try {
-  docker([
-    'run',
-    '-d',
-    '--name',
-    followerName,
-    '--network',
-    `${project}_default`,
-    '--network-alias',
-    'vrt-sql-follower.openflare.svc',
-    '--user',
-    '10001:10001',
-    '-v',
-    `${tmp}:/etc/vrt:ro`,
-    '-v',
-    `${project}_cell-sql-data:/data`,
-    '-v',
-    `${project}_cell-run:/run/vrt:ro`,
-    '--entrypoint',
-    '/usr/local/bin/vrt-sql',
-    'openflare-cell-sql:local',
-    '--config',
-    '/etc/vrt/follower.toml',
-  ])
+  docker([...compose, 'up', '-d', 'vrt-sql-follower'])
   followerStarted = true
 
   // Stop the writer so the follower's manifest head is final.
@@ -177,7 +154,10 @@ try {
       )
     } catch (e) {
       try {
-        console.error('d1 failover: follower logs\n' + docker(['logs', followerName]))
+        console.error(
+          'd1 failover: follower logs\n' +
+            docker([...compose, 'logs', '--no-color', 'vrt-sql-follower'])
+        )
       } catch (logErr) {
         console.error('d1 failover: follower logs unavailable', logErr.message)
       }
@@ -229,5 +209,4 @@ try {
   console.log('d1 failover: restarted writer serves the promoted database OK')
 } finally {
   stopFollower()
-  rmSync(tmp, { recursive: true, force: true })
 }

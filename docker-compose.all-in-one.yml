@@ -245,6 +245,24 @@ services:
         condition: service_completed_successfully
     restart: unless-stopped
 
+  # Optional follower/premote listener for the D1 failover drill. The
+  # config is written by scripts/e2e-d1-failover-docker.mjs after the
+  # database id exists; starting it without that file exits closed.
+  vrt-sql-follower:
+    <<: *vrt-cell
+    profiles: ['failover']
+    image: openflare-cell-sql:local
+    pull_policy: never
+    entrypoint: ['/usr/local/bin/vrt-sql', '--config', '/etc/vrt-follower/follower.toml']
+    volumes:
+      - cell-sql-data:/data
+      - cell-run:/run/vrt:ro
+      - ./.ci/d1-failover:/etc/vrt-follower:ro
+    networks:
+      default:
+        aliases: ['vrt-sql-follower.openflare.svc']
+    restart: 'no'
+
   redis:
     # RESP store backing the KV binding + purge ops (kvrocks-shaped).
     image: redis:7-alpine
