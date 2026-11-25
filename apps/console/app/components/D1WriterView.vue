@@ -51,7 +51,13 @@ const fmt = (v: string | null) => (v ? new Date(v).toLocaleString() : '—')
         <select
           v-model="selected"
           class="mono"
-          style="padding: 7px 10px; border-radius: 8px; border: 1px solid var(--b1); background: var(--s1); color: var(--t1)"
+          style="
+            padding: 7px 10px;
+            border-radius: 8px;
+            border: 1px solid var(--b1);
+            background: var(--s1);
+            color: var(--t1);
+          "
         >
           <option v-for="db in props.databases ?? []" :key="db.database_id" :value="db.database_id">
             {{ db.name || db.database_id }}

@@ -102,7 +102,14 @@ describe('d1 writer page', () => {
     expect(empty.text()).toContain('No promotions yet.')
 
     const noCell = mount(D1WriterView, {
-      props: { activeCell: '', databases: [], selected: '', detail: null, pending: false, error: null },
+      props: {
+        activeCell: '',
+        databases: [],
+        selected: '',
+        detail: null,
+        pending: false,
+        error: null,
+      },
       global,
     })
     expect(noCell.text()).toContain('Select a cell.')
