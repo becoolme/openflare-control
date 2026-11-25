@@ -149,30 +149,42 @@ try {
   docker(['compose', '-f', 'docker-compose.all-in-one.yml', 'stop', 'vrt-sql'])
 
   // Enqueue PROMOTE until the follower is caught up (409/FAILED before that).
-  const promoted = await waitFor(
-    async () => {
-      const enq = await api('POST', `/api/v1/cells/${CELL}/d1/databases/${dbId}/promote`, {
-        writerAddr: 'http://vrt-sql.openflare.svc:8082',
-        reason: 'docker e2e',
-      })
-      if (enq.status !== 202) return null
-      const opId = enq.body.data.opId
-      return waitFor(
+  const promoteWithDiagnostics = async () => {
+    try {
+      return await waitFor(
         async () => {
-          const got = await api('GET', `/api/v1/cells/${CELL}/ops/${opId}?waitMs=2000`)
-          const op = got.body?.data?.op ?? got.body?.data
-          if (!op || op.status === 'PENDING') return null
-          return op.status === 'DONE' ? op : null
+          const enq = await api('POST', `/api/v1/cells/${CELL}/d1/databases/${dbId}/promote`, {
+            writerAddr: 'http://vrt-sql.openflare.svc:8082',
+            reason: 'docker e2e',
+          })
+          if (enq.status !== 202) return null
+          const opId = enq.body.data.opId
+          return waitFor(
+            async () => {
+              const got = await api('GET', `/api/v1/cells/${CELL}/ops/${opId}?waitMs=2000`)
+              const op = got.body?.data?.op ?? got.body?.data
+              if (!op || op.status === 'PENDING') return null
+              return op.status === 'DONE' ? op : null
+            },
+            `promote op ${opId}`,
+            10_000,
+            250
+          )
         },
-        `promote op ${opId}`,
-        10_000,
-        250
+        'promotion (follower catch-up)',
+        90_000,
+        2_000
       )
-    },
-    'promotion (follower catch-up)',
-    90_000,
-    2_000
-  )
+    } catch (e) {
+      try {
+        console.error('d1 failover: follower logs\n' + docker(['logs', followerName]))
+      } catch (logErr) {
+        console.error('d1 failover: follower logs unavailable', logErr.message)
+      }
+      throw e
+    }
+  }
+  const promoted = await promoteWithDiagnostics()
   assert.ok(promoted, 'promotion did not reach DONE')
 
   const detail = await waitFor(async () => {
