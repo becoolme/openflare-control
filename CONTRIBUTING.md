@@ -6,6 +6,8 @@ pnpm --filter openflare-control build
 pnpm --filter openflare-control test        # pure unit tests, no database
 pnpm --filter openflare-plane typecheck
 DATABASE_URL=postgresql://.../openflare_plane_test pnpm --filter openflare-plane test
+# without DATABASE_URL most of the plane suite silently skips (16+ files
+# gate `describe` on it) — a green local run without it proves little.
 pnpm lint && pnpm format:check
 OPENFLARE_DIR=../openflare node scripts/vrt-k8s-check.mjs --template deploy/k8s/overlays/example
 ```

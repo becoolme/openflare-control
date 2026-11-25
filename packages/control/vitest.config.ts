@@ -8,7 +8,7 @@ export default defineConfig({
       include: ['src/**/*.ts'],
       exclude: ['src/**/*.test.ts'],
       reporter: ['text'],
-      thresholds: { statements: 70, branches: 70, functions: 65, lines: 70 },
+      thresholds: { statements: 70, branches: 70, functions: 75, lines: 70 },
     },
   },
 })
