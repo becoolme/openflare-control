@@ -8,6 +8,9 @@ resources:
 # switching to an fsGroup-capable class (Longhorn, ...).
 components:
   - ../../components/local-path-perms
+  # Optional: add when the VictoriaMetrics operator (vmalert) is installed.
+  # The component ships deploy/k8s/components/runtime-alerts/vmrules.yaml.
+  # - ../../components/runtime-alerts
 # Example overlay — a FILLED-IN copy of the base for documentation.
 # One cell-host pod (host + provider + controller). A second cron
 # controller never exists in this topology: the controller delivers

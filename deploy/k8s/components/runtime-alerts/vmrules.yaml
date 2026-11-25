@@ -1,0 +1,90 @@
+# Runtime alert rules for the VictoriaMetrics operator.
+# Source of truth: openflare deploy/alerts/openflare-runtime.yaml; the
+# control-plane script test compares the groups to that file at the pinned
+# OPENFLARE_CONTRACT_REV. Add this component only when the VictoriaMetrics
+# operator (vmalert) is installed in the cluster:
+#
+#   components:
+#     - ../../components/runtime-alerts
+#
+# The rules evaluate against the metrics the cell exposes on :9494/:9495
+# (vmagent scrapes them; see base/networkpolicy.yaml).
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMRule
+metadata:
+  name: openflare-runtime
+  namespace: openflare-system
+  labels:
+    app.kubernetes.io/part-of: openflare-control
+spec:
+  groups:
+    - name: openflare-d1-failover
+      rules:
+        - alert: OpenflareD1PromoteFailures
+          expr: increase(vrt_cell_d1_promote_total{outcome="failed"}[15m]) > 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: Manual D1 promotion failed
+            runbook: docs/d1-failover-drill.md
+        - alert: OpenflareD1AutoPromoteFailures
+          expr: increase(vrt_cell_d1_auto_total{outcome="promote_failed"}[15m]) > 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: Automatic D1 failover failed to promote
+            runbook: docs/d1-failover-drill.md
+        - alert: OpenflareD1AutoProbeFlapping
+          expr: increase(vrt_cell_d1_auto_total{outcome="probe_failed"}[10m]) > 20
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: D1 writer health probe is flapping
+            runbook: docs/d1-failover-drill.md
+    - name: openflare-do-alarms
+      rules:
+        - alert: OpenflareDoAlarmWakeFailures
+          expr: increase(vrt_cell_do_alarm_wake_total{outcome="failed"}[10m]) > 3
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: DO alarm wake requests are failing
+            runbook: docs/runtime-alerts.md
+        - alert: OpenflareDoAlarmUnassigned
+          expr: increase(vrt_cell_do_alarm_wake_total{outcome="unassigned"}[15m]) > 0
+          for: 15m
+          labels:
+            severity: critical
+          annotations:
+            summary: Due DO alarms have no assigned pod
+            runbook: docs/runtime-alerts.md
+        - alert: OpenflareDoAlarmsStuckDue
+          expr: increase(vrt_cell_do_alarm_due_total[30m]) > 0 and increase(vrt_cell_do_alarm_wake_total{outcome="ok"}[30m]) == 0
+          for: 30m
+          labels:
+            severity: critical
+          annotations:
+            summary: Due DO alarms are not being acknowledged by a wake
+            runbook: docs/runtime-alerts.md
+        - alert: OpenflareDoSessionsFailReattach
+          expr: increase(vrt_host_ws_session_end_total{reason=~"reattach_failed|replay_overflow|wake_failed"}[15m]) > 3
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: Hibernated WebSocket sessions fail to reattach
+            runbook: docs/runtime-alerts.md
+    - name: openflare-scale-to-zero
+      rules:
+        - alert: OpenflareAlarmWakeSlow
+          expr: histogram_quantile(0.95, sum by (le) (rate(vrt_host_wake_seconds_bucket{source="alarm"}[10m]))) > 30
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: DO alarm wakes take longer than 30s at p95
+            runbook: docs/runtime-alerts.md
