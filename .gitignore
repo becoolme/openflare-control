@@ -5,3 +5,6 @@ dist/
 .env.*
 .wrangler/
 .opencode-tmp/
+
+# worktree-local symlinks (directories and links)
+node_modules
