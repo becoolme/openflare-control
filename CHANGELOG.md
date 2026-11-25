@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-11-25 — re-pin the wire contract to OpenFlare `4a18cd1`
+
+- Bumped `OPENFLARE_CONTRACT_REV` from `5ebe1e0` to `4a18cd1` (configurable
+  alarm wake grace + `source` label on wake latency; standalone vmalert /
+  Alertmanager wiring; no wire-format change).
+- No wire fixture changed: `desired-ack-partial`,
+  `desired-ack-tenant-failures` and `cell-report` are identical at the new
+  revision.
+
 ## 2026-11-23 — re-pin the wire contract to OpenFlare `450bdb6`
 
 - Bumped `OPENFLARE_CONTRACT_REV` from `9c1ee3c` to `450bdb6` (workerd pin
