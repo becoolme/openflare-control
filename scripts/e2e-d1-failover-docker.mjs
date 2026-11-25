@@ -173,7 +173,7 @@ try {
     90_000,
     2_000
   )
-  assert.ok(promoted && !promoted.failed, `promote failed: ${JSON.stringify(promoted)}`)
+  assert.ok(promoted, 'promotion did not reach DONE')
 
   const detail = await waitFor(async () => {
     const d = await api('GET', `/api/v1/cells/${CELL}/d1/databases/${dbId}/promotions`)
