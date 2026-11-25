@@ -224,6 +224,8 @@ jobs:
         run: node scripts/vrt-fetch-workerd.mjs --arch linux-x64 | tee /dev/stderr | grep '^WORKERD_SHA256=' >> "$GITHUB_ENV"
       - run: docker compose -f docker-compose.all-in-one.yml up -d --build
       - run: node scripts/e2e-all-in-one.mjs
+      - name: D1 failover drill (Docker)
+        run: node scripts/e2e-d1-failover-docker.mjs
       - if: always()
         run: docker compose -f docker-compose.all-in-one.yml logs --no-color
       - if: always()

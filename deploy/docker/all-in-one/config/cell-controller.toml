@@ -29,6 +29,8 @@ trusted_keys = [
 endpoint = "http://vrt-sql.openflare.svc:8082"
 auth_secret_file = "/run/vrt/secrets/vrt-sql-auth-secret"
 timeout_secs = 5
+# Opt-in follower promote listener used by PROMOTE ops / auto-failover.
+promote_endpoint = "http://vrt-sql-follower.openflare.svc:8092"
 
 # Same RESP store as the provider's [kvrocks] (KV purge + data cell-ops).
 [storage_purge.kvrocks]
