@@ -133,22 +133,6 @@ tenantInflightBytes = 4194304
 # container euid 0 may enable it with matching base/span on BOTH
 # vrt-host and vrt-provider (see workers-runtime-deploy.md).
 
-# [scaleToZero] is intentionally ABSENT (feature OFF by default).
-# Tenant-level hibernate/wake: an idle tenant's workerd process is
-# stopped and relaunched on demand (HTTP, cron, queue dispatch, wfops,
-# DO alarm via the cell-controller alarm index + gate). Structural
-# holds: workflow tenants never sleep; DO tenants need a safe alarm
-# gate; in-flight requests and pending waitUntil block (fail closed).
-# WebSocket sessions need the separate opt-in
-# `[ingress.websocket] hibernation = true`. Uncomment to enable —
-# all keys optional, defaults shown (see k8s/base/config/vrt-host.toml
-# for the full rationale).
-# [scaleToZero]
-# enabled = true
-# idleMs = 600000
-# minResidencyMs = 120000
-# maxConcurrentWakes = 4
-# maxWakeQueue = 256
-# drainTimeoutMs = 30000
-# wakeDeadlineMs = 30000
-# alarmWakeGraceMs = 60000
+# [scaleToZero] is ENABLED above. The remaining knobs use runtime
+# defaults: maxConcurrentWakes=4, maxWakeQueue=256, drainTimeoutMs=30000,
+# wakeDeadlineMs=30000. See openflare vrt-host config for ranges.

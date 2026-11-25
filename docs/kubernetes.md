@@ -45,6 +45,11 @@ images` workflow builds them on a `v*` tag and pushes to
 lines that replace the `images:` block in the overlay. Tags alone are
 rejected by the render gate — pin digests.
 
+## Production cutover
+
+See [`production-cutover.md`](./production-cutover.md) for the scale-to-zero,
+WebSocket hibernation, image-pin and external-alerting checklist.
+
 ## Rollout and rollback
 
 ConfigMaps are content-hashed, so changing a TOML restarts the pod. The
