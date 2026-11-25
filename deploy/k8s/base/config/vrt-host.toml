@@ -144,23 +144,6 @@ tenantInflightBytes = 4194304
 # container euid 0 may enable it with matching base/span on BOTH
 # vrt-host and vrt-provider (see workers-runtime-deploy.md).
 
-# [scaleToZero] is intentionally ABSENT (feature OFF by default).
-# Tenant-level hibernate/wake: an idle tenant's workerd process is
-# stopped and relaunched on demand (HTTP, cron, queue dispatch, wfops,
-# DO alarm via the cell-controller alarm index + gate — the index runs
-# unconditionally, so no cell-controller key is needed). Structural
-# holds: workflow tenants never sleep; DO tenants need a safe alarm
-# gate; in-flight requests and pending waitUntil block (fail closed).
-# WebSocket sessions need the separate opt-in
-# `[ingress.websocket] hibernation = true`.
-# Uncomment to enable — all keys are optional, defaults shown.
-# [scaleToZero]
-# enabled = true
-# idleMs = 600000            # idle before hibernating (1s..7d)
-# minResidencyMs = 120000    # min uptime after Ready, anti-flap (<=24h)
-# maxConcurrentWakes = 4     # host-wide wake cap (1..256)
-# maxWakeQueue = 256         # queued wakes beyond the cap (<=100000)
-# drainTimeoutMs = 30000     # quiesce bound; aborts, never force-kills
-# wakeDeadlineMs = 30000     # one whole wake: queue+launch+ready (1s..10min)
-# alarmWakeGraceMs = 60000   # post-alarm-wake residency so workerd can
-#                            # deliver the persisted overdue alarm
+# [scaleToZero] is ENABLED above. The remaining knobs use runtime
+# defaults: maxConcurrentWakes=4, maxWakeQueue=256, drainTimeoutMs=30000,
+# wakeDeadlineMs=30000. See openflare vrt-host config for ranges.
