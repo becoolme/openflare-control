@@ -69,6 +69,19 @@ dir = "/data/assets"
 baseUrl = "https://REPLACE_ME_CP_HOST/api/internal/clusters/REPLACE_ME_CELL_ID"
 tokenFile = "/run/vrt/secrets/cell-token"
 
+# Tenant scale-to-zero. Enabled here so idle tenants (including D1/DO
+# tenants whose alarm gate says no alarm is due) release their workerd
+# process; HTTP, cron, queue, workflow, alarm and WebSocket frames all
+# wake them. Idle/residency defaults are conservative; tune per cell.
+[scaleToZero]
+enabled = true
+idleMs = 600000
+minResidencyMs = 120000
+# How long an alarm wake keeps the tenant resident after Ready. Must
+# cover workerd boot + the overdue alarm handler; the cell alarm gate
+# replaces it on the next authoritative scan.
+alarmWakeGraceMs = 60000
+
 [ingress]
 # MIG-7: workerd derives `request.url`'s scheme from the
 # `x-forwarded-proto` header vrt-host writes (worker socket
@@ -103,6 +116,14 @@ forwardedProtoTrusted = ["10.42.0.0/16"]
 # render on drift between the two.
 [ingress.clientIp]
 mode = "none"
+
+# Hold upgraded client sessions across tenant hibernation: the ingress
+# detaches the upstream, keeps the client socket, and replays the next
+# bounded frame window to the woken generation. Metric:
+# vrt_host_ws_session_end_total{reason="detached"|"reattached"|...}.
+[ingress.websocket]
+hibernation = true
+hibernationReplayBytes = 65536
 
 [limits]
 maxRssBytes = 536870912
