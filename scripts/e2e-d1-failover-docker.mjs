@@ -37,7 +37,9 @@ const api = async (method, path, body) => {
   const text = await res.text()
   return {
     status: res.status,
-    body: (res.headers.get('content-type') ?? '').includes('json') ? JSON.parse(text || 'null') : text,
+    body: (res.headers.get('content-type') ?? '').includes('json')
+      ? JSON.parse(text || 'null')
+      : text,
   }
 }
 const waitFor = async (fn, label, timeoutMs = 120_000, intervalMs = 500) => {
@@ -119,15 +121,27 @@ const stopFollower = () => {
 }
 try {
   docker([
-    'run', '-d', '--name', followerName,
-    '--network', `${project}_default`,
-    '--network-alias', 'vrt-sql-follower.openflare.svc',
-    '--user', '10001:10001',
-    '-v', `${tmp}:/etc/vrt:ro`,
-    '-v', `${project}_cell-sql-data:/data`,
-    '-v', `${project}_cell-run:/run/vrt:ro`,
-    '--entrypoint', '/usr/local/bin/vrt-sql',
-    'openflare-cell-sql:local', '--config', '/etc/vrt/follower.toml',
+    'run',
+    '-d',
+    '--name',
+    followerName,
+    '--network',
+    `${project}_default`,
+    '--network-alias',
+    'vrt-sql-follower.openflare.svc',
+    '--user',
+    '10001:10001',
+    '-v',
+    `${tmp}:/etc/vrt:ro`,
+    '-v',
+    `${project}_cell-sql-data:/data`,
+    '-v',
+    `${project}_cell-run:/run/vrt:ro`,
+    '--entrypoint',
+    '/usr/local/bin/vrt-sql',
+    'openflare-cell-sql:local',
+    '--config',
+    '/etc/vrt/follower.toml',
   ])
   followerStarted = true
 
@@ -135,43 +149,66 @@ try {
   docker(['compose', '-f', 'docker-compose.all-in-one.yml', 'stop', 'vrt-sql'])
 
   // Enqueue PROMOTE until the follower is caught up (409/FAILED before that).
-  const promoted = await waitFor(async () => {
-    const enq = await api('POST', `/api/v1/cells/${CELL}/d1/databases/${dbId}/promote`, {
-      writerAddr: 'http://vrt-sql.openflare.svc:8082',
-      reason: 'docker e2e',
-    })
-    if (enq.status !== 202) return null
-    const opId = enq.body.data.opId
-    return waitFor(async () => {
-      const got = await api('GET', `/api/v1/cells/${CELL}/ops/${opId}?waitMs=2000`)
-      const op = got.body?.data?.op ?? got.body?.data
-      if (!op || op.status === 'PENDING') return null
-      return op.status === 'DONE' ? op : { failed: true, error: op.error }
-    }, `promote op ${opId}`, 10_000, 250)
-  }, 'promotion (follower catch-up)', 90_000, 2_000)
+  const promoted = await waitFor(
+    async () => {
+      const enq = await api('POST', `/api/v1/cells/${CELL}/d1/databases/${dbId}/promote`, {
+        writerAddr: 'http://vrt-sql.openflare.svc:8082',
+        reason: 'docker e2e',
+      })
+      if (enq.status !== 202) return null
+      const opId = enq.body.data.opId
+      return waitFor(
+        async () => {
+          const got = await api('GET', `/api/v1/cells/${CELL}/ops/${opId}?waitMs=2000`)
+          const op = got.body?.data?.op ?? got.body?.data
+          if (!op || op.status === 'PENDING') return null
+          return op.status === 'DONE' ? op : { failed: true, error: op.error }
+        },
+        `promote op ${opId}`,
+        10_000,
+        250
+      )
+    },
+    'promotion (follower catch-up)',
+    90_000,
+    2_000
+  )
   assert.ok(promoted && !promoted.failed, `promote failed: ${JSON.stringify(promoted)}`)
 
   const detail = await waitFor(async () => {
     const d = await api('GET', `/api/v1/cells/${CELL}/d1/databases/${dbId}/promotions`)
     return d.status === 200 && d.body.data.writer.epoch >= 2 ? d.body.data : null
   }, 'writer epoch published')
-  assert.ok(detail.promotions.some((p) => p.status === 'DONE'), 'PROMOTE not DONE')
+  assert.ok(
+    detail.promotions.some((p) => p.status === 'DONE'),
+    'PROMOTE not DONE'
+  )
   console.log('d1 failover: writer epoch', detail.writer.epoch, 'addr', detail.writer.addr)
 
   // Restart the writer: it claims the promoted epoch and must serve the data.
   docker(['compose', '-f', 'docker-compose.all-in-one.yml', 'start', 'vrt-sql'])
-  await waitFor(async () => {
-    const h = await api('POST', `/api/v1/cells/${CELL}/d1/databases/${dbId}/query`, {
-      sql: 'SELECT count(*) AS n FROM t',
-    })
-    if (h.status !== 202) return null
-    const op = await waitFor(async () => {
-      const got = await api('GET', `/api/v1/cells/${CELL}/ops/${h.body.data.opId}?waitMs=2000`)
-      const o = got.body?.data?.op ?? got.body?.data
-      return o && o.status !== 'PENDING' ? o : null
-    }, 'post-promote read', 15_000, 250)
-    return op.status === 'DONE' && op.result ? op : null
-  }, 'writer serves promoted data', 120_000, 1_000)
+  await waitFor(
+    async () => {
+      const h = await api('POST', `/api/v1/cells/${CELL}/d1/databases/${dbId}/query`, {
+        sql: 'SELECT count(*) AS n FROM t',
+      })
+      if (h.status !== 202) return null
+      const op = await waitFor(
+        async () => {
+          const got = await api('GET', `/api/v1/cells/${CELL}/ops/${h.body.data.opId}?waitMs=2000`)
+          const o = got.body?.data?.op ?? got.body?.data
+          return o && o.status !== 'PENDING' ? o : null
+        },
+        'post-promote read',
+        15_000,
+        250
+      )
+      return op.status === 'DONE' && op.result ? op : null
+    },
+    'writer serves promoted data',
+    120_000,
+    1_000
+  )
   console.log('d1 failover: restarted writer serves the promoted database OK')
 } finally {
   stopFollower()
