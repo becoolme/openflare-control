@@ -162,7 +162,7 @@ try {
           const got = await api('GET', `/api/v1/cells/${CELL}/ops/${opId}?waitMs=2000`)
           const op = got.body?.data?.op ?? got.body?.data
           if (!op || op.status === 'PENDING') return null
-          return op.status === 'DONE' ? op : { failed: true, error: op.error }
+          return op.status === 'DONE' ? op : null
         },
         `promote op ${opId}`,
         10_000,
@@ -177,11 +177,16 @@ try {
 
   const detail = await waitFor(async () => {
     const d = await api('GET', `/api/v1/cells/${CELL}/d1/databases/${dbId}/promotions`)
-    return d.status === 200 && d.body.data.writer.epoch >= 2 ? d.body.data : null
-  }, 'writer epoch published')
+    return d.status === 200 ? d.body.data : null
+  }, 'promotions read')
+  console.log('d1 failover: detail', JSON.stringify(detail))
   assert.ok(
     detail.promotions.some((p) => p.status === 'DONE'),
     'PROMOTE not DONE'
+  )
+  assert.ok(
+    detail.writer.epoch >= 2,
+    `writer epoch did not advance: ${JSON.stringify(detail.writer)}`
   )
   console.log('d1 failover: writer epoch', detail.writer.epoch, 'addr', detail.writer.addr)
 
