@@ -253,7 +253,8 @@ services:
     profiles: ['failover']
     image: openflare-cell-sql:local
     pull_policy: never
-    entrypoint: ['/usr/local/bin/vrt-sql', '--config', '/etc/vrt-follower/follower.toml']
+    entrypoint:
+      ['/usr/local/bin/vrt-sql', 'follower', '--config', '/etc/vrt-follower/follower.toml']
     volumes:
       - cell-sql-data:/data
       - cell-run:/run/vrt:ro
