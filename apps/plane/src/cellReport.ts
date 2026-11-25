@@ -40,6 +40,10 @@ const tenantSchema = z
     tenantId,
     cpuSeconds: z.number().min(0),
     memoryRssBytes: count,
+    // Point-in-time gauge (seconds the tenant has been asleep); `> 0` =
+    // hibernated. Optional so pre-s2z runtimes keep validating — absent
+    // means "not reported", which aggregates as `null`, never as `0`.
+    hibernatedSeconds: z.number().min(0).optional(),
     doStorage: z
       .array(
         z
@@ -166,6 +170,10 @@ export interface MetricsAggregate {
   /** Scale-to-zero wakes (`vrt_host_wake_total{outcome="ok"}`), not deploy
    * launches. Generation launches are reported separately. */
   coldStarts: number | null
+  /** Tenants currently hibernated, counted over each pod's newest report.
+   * `null` when no reporting pod carries `hibernatedSeconds` (pre-s2z
+   * runtime) — an absence of evidence, not evidence of absence. */
+  hibernatedTenants: number | null
   launches: { ready: number; failed: number } | null
   latency: LatencySummary
   durationCount: number
@@ -206,6 +214,11 @@ export function aggregateMetrics(
   const buckets = new Map<number, number>()
   // Gauges: newest pod sample wins, never a sum over time.
   const newest = new Map<string, { at: number; inflight: number }>()
+  // Same newest-wins rule for hibernation: a pod's tenant list is its
+  // full point-in-time set, so the count comes from each pod's LATEST
+  // report only — a tenant that woke (or left) between reports drops out
+  // instead of double-counting.
+  const newestPodReport = new Map<string, { at: number; hibernated: number; reported: boolean }>()
   const byWorker = new Map<
     string,
     {
@@ -225,6 +238,14 @@ export function aggregateMetrics(
   for (const report of reports) {
     lastEventMs = Math.max(lastEventMs, report.sampledAtMs)
     for (const pod of report.pods) {
+      const prevPod = newestPodReport.get(pod.podId)
+      if (!prevPod || report.sampledAtMs >= prevPod.at) {
+        newestPodReport.set(pod.podId, {
+          at: report.sampledAtMs,
+          hibernated: pod.tenants.filter((t) => (t.hibernatedSeconds ?? 0) > 0).length,
+          reported: pod.tenants.some((t) => t.hibernatedSeconds !== undefined),
+        })
+      }
       for (const tenant of pod.tenants) cpuSeconds += tenant.cpuSeconds
       coldStarts += pod.wakes.ok
       launchesReady += pod.launches.ready
@@ -278,6 +299,9 @@ export function aggregateMetrics(
     }
   }
   const inflight = [...newest.values()].reduce((sum, v) => sum + v.inflight, 0)
+  const reportedPods = [...newestPodReport.values()].filter((v) => v.reported)
+  const hibernatedTenants =
+    reportedPods.length === 0 ? null : reportedPods.reduce((sum, v) => sum + v.hibernated, 0)
   return {
     windowMs,
     requests,
@@ -289,6 +313,7 @@ export function aggregateMetrics(
     inflight,
     cpuMs: workerIdFilter ? null : Math.round(cpuSeconds * 1000),
     coldStarts: workerIdFilter ? null : coldStarts,
+    hibernatedTenants: workerIdFilter ? null : hibernatedTenants,
     launches: workerIdFilter ? null : { ready: launchesReady, failed: launchesFailed },
     latency: {
       p50: percentile(buckets, durationCount, 0.5),
@@ -299,8 +324,8 @@ export function aggregateMetrics(
     lastEventAt: lastEventMs ? new Date(lastEventMs).toISOString() : null,
     source: 'runtime',
     note: workerIdFilter
-      ? 'request/latency metrics are per worker; CPU, launches and cold starts are reported per tenant/pod, so they stay null here'
-      : 'metrics from the runtime cell report; CPU is tenant CPU (all workers of the team); coldStarts are scale-to-zero wakes, launches are reported separately',
+      ? 'request/latency metrics are per worker; CPU, launches, cold starts and hibernation are reported per tenant/pod, so they stay null here'
+      : 'metrics from the runtime cell report; CPU is tenant CPU (all workers of the team); coldStarts are scale-to-zero wakes, hibernatedTenants are currently-asleep tenants (null until the runtime reports it), launches are reported separately',
     workers: (workerIdFilter
       ? byWorker.has(workerIdFilter)
         ? [[workerIdFilter, byWorker.get(workerIdFilter)!] as const]

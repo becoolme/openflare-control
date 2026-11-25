@@ -112,11 +112,51 @@ describe('aggregateMetrics', () => {
     ])
   })
 
+  it("counts hibernated tenants from each pod's newest report only", () => {
+    // Pre-s2z runtime: the field is absent everywhere → null, not 0.
+    expect(aggregateMetrics([report()], 60_000).hibernatedTenants).toBeNull()
+
+    const asleep = (tenantId: string, seconds: number) => ({
+      tenantId,
+      cpuSeconds: 0,
+      memoryRssBytes: 0,
+      hibernatedSeconds: seconds,
+      doStorage: [],
+    })
+    const pod = (over: object = {}) => ({ ...report().pods[0]!, ...over })
+    // Older report had two asleep; the newest kept only one (the other
+    // woke — its tenant row is simply absent, it cannot regress the
+    // count by lingering).
+    const older = report({
+      sampledAtMs: 1_000,
+      pods: [pod({ tenants: [asleep('team', 30), asleep('team-b', 5)] })],
+    })
+    const newer = report({
+      sampledAtMs: 2_000,
+      pods: [pod({ tenants: [asleep('team', 60), asleep('team-b', 0)] })],
+    })
+    const agg = aggregateMetrics([newer, older], 60_000)
+    // `0` counts as reported-but-awake: one asleep, and the pod did
+    // report the field → a real number, not null.
+    expect(agg.hibernatedTenants).toBe(1)
+
+    // A second pod reporting the field contributes its own count.
+    const twoPods = report({
+      sampledAtMs: 3_000,
+      pods: [
+        pod({ tenants: [asleep('team', 60)] }),
+        pod({ podId: 'pod-1', tenants: [asleep('team-b', 12), asleep('team-c', 3)] }),
+      ],
+    })
+    expect(aggregateMetrics([twoPods, newer, older], 60_000).hibernatedTenants).toBe(3)
+  })
+
   it('filters worker metrics and refuses to attribute tenant/pod numbers', () => {
     const agg = aggregateMetrics([report()], 60_000, 'team:w')
     expect(agg.requests).toBe(10)
     expect(agg.cpuMs).toBeNull()
     expect(agg.coldStarts).toBeNull()
+    expect(agg.hibernatedTenants).toBeNull()
 
     const other = aggregateMetrics([report()], 60_000, 'team:other')
     expect(other.requests).toBe(0)
