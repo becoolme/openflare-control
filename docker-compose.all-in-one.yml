@@ -185,11 +185,16 @@ services:
       # race. Require PID 1 + the metrics socket + a live workerd child:
       # the socket distinguishes "waiting for the controller" from a crash,
       # and workerd appears only after desired arrives (real readiness).
-      test: ['CMD-SHELL', "test -d /proc/1 && grep -Eq '^ *[0-9]+: 0100007F:2516 [0-9A-F:]+ 0A ' /proc/net/tcp && grep -q workerd /proc/[0-9]*/cmdline 2>/dev/null"]
+      test:
+        [
+          'CMD-SHELL',
+          "test -d /proc/1 && grep -Eq '^ *[0-9]+: 0100007F:2516 [0-9A-F:]+ 0A ' /proc/net/tcp && grep -q workerd /proc/[0-9]*/cmdline 2>/dev/null",
+        ]
       interval: 5s
       timeout: 3s
-      retries: 12
-      start_period: 10s
+      # Cold CI boots + first desired delivery can exceed one minute.
+      retries: 24
+      start_period: 20s
 
   cell-controller:
     <<: *vrt-cell

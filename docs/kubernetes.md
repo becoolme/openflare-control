@@ -77,7 +77,7 @@ revision fence.
   and validates the policy.
 
 - **vrt-host startup observability (M7).** The metrics listener
-  (`host-metrics`, :9494) binds *before* the initial-snapshot wait, so
+  (`host-metrics`, :9494) binds _before_ the initial-snapshot wait, so
   `GET /metrics` answers during the startup race: a cell waiting for the
   controller is distinguishable from a crashed one, and scrapes start on
   the first second. The cell is still not Ready until desired arrives —
