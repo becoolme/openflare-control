@@ -45,6 +45,7 @@
           "tenantId": "team-001",
           "cpuSeconds": 0.25,
           "memoryRssBytes": 104857600,
+          "hibernatedSeconds": 37.5,
           "doStorage": [
             {
               "workerId": "team-001:api",
