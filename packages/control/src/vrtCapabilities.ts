@@ -61,6 +61,10 @@ export const VRT_CELL_CAPABILITY_KEYS = [
   /** `{"type":"versionMetadata"}` bindings plus the `activeVersion`
    * `tag`/`createdAt` wire fields — also recognized-but-not-yet-emitted. */
   'versionMetadata',
+  /** `{"type":"browser"}` bindings render a service binding to the
+   * `facade-browser` system worker (Browser Rendering `/v1/*` over the
+   * vendored kitesurf engine). */
+  'browser',
 ] as const
 
 export type VrtCellCapabilityKey = (typeof VRT_CELL_CAPABILITY_KEYS)[number]
@@ -156,6 +160,9 @@ export function requiredCapabilities(needs: VrtCapabilityNeeds): VrtCellCapabili
     if (t === 'UNSAFE_EVAL') out.add('unsafeEval')
     // WORKER_LOADER renders the fork's `maxWorkers` capnp.
     if (t === 'WORKER_LOADER') out.add('workerLoader')
+    // BROWSER renders a service binding to facade-browser — a cell
+    // predating it fails the snapshot parse or the manifest parse.
+    if (t === 'BROWSER') out.add('browser')
   }
   if (needs.workflowCount > 0) out.add('workflows')
   if (needs.crossWorkerWorkflowCount > 0) out.add('workflowsCrossWorker')

@@ -427,6 +427,14 @@ export function serializeBinding(
       // CF Images: pure capability — the transform engine lives in the
       // facade-images system worker, so the wire carries name only.
       return { type: 'images', name }
+    case 'BROWSER':
+      // CF Browser Rendering: pure capability — sessions are
+      // tenant-scoped via the signed props on the facade-browser
+      // service binding, so the wire carries name only. `resourceId`
+      // is the constant sentinel minted by the adapter; anything else
+      // means a corrupted or hand-built record.
+      if (resourceId !== 'browser') throw invalid('bindings.browser')
+      return { type: 'browser', name }
     case 'SERVICE': {
       // Target membership in the same tenant is checked in build() where the
       // tenant worker set is known. Optional fields are emitted only when set,
