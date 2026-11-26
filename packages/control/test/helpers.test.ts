@@ -65,6 +65,7 @@ describe('capability bits', () => {
         streamingTailConsumers: false,
         unsafeEval: false,
         versionMetadata: false,
+        browser: false,
       }
     )
     expect(normalizeVrtCellCapabilities(null)).toBeNull()
