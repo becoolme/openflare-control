@@ -56,7 +56,9 @@ export const VRT_TENANT_MAX_COMMIT_MB = 512
 export const VRT_DEFAULT_CELL_MEMORY_BUDGET_MB = 32768
 export const VRT_MAX_CELL_MEMORY_BUDGET_MB = 1_048_576
 export const VRT_MAX_SUBREQUESTS = 10_000
-export const VRT_MAX_OUTBOUND_CONNECTIONS = 1024
+// Matches snapshot-protocol MAX_OUTBOUND_CONNECTIONS — the pinned
+// workerd itself rejects > 1000 at config load.
+export const VRT_MAX_OUTBOUND_CONNECTIONS = 1000
 
 /** Identifier charset identical to the protocol's `valid_identifier`. */
 export function validVrtIdentifier(value: string, maxLen = VRT_MAX_IDENTIFIER_LEN): boolean {
