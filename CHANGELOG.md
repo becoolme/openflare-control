@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-11-26 — 0.3.4: re-pin to OpenFlare `cea473ca`
+
+- Bumped `OPENFLARE_CONTRACT_REV` to `cea473ca` (meter `_overflow` hardening +
+  `docs/metering.md`; no wire-fixture change — all three vendored fixtures were
+  already identical).
+- No API change.
+
 ## 2026-11-26 — 0.3.3: prod-safe `prepare` + re-pin to OpenFlare `18017bc`
 
 - Moved `typescript` and `@types/node` from `devDependencies` to `dependencies`.
