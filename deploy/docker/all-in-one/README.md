@@ -21,7 +21,8 @@ openflare-system ─────────────────────
 (cd $OPENFLARE_DIR && node scripts/vrt-fetch-workerd.mjs)  # or fetch-workerd.sh
 export WORKERD_SHA256=$(node -e "const l=require('$OPENFLARE_DIR/deploy/docker/workerd.lock');const a=l.artifacts[process.arch==='arm64'?'linux-arm64':'linux-x64'];console.log(a.binarySha256)")
 
-# 2. Secrets (all required; generate with `openssl rand -hex 32`):
+# 2. Secrets (all required; generate with `openssl rand -hex 32`; Compose
+#    mounts them as files under /run/secrets — not as container env):
 export PLANE_ADMIN_TOKEN=...      # ≥32 chars, management API
 export PLANE_SIGNING_SECRET=...   # Ed25519 root — derives signing + secrets keys
 export PLANE_SECRETS_KEY=...      # ≥32 chars, secrets at rest
@@ -110,6 +111,11 @@ Unset `PLANE_API_HOST` publishes no route at all.
   to GET endpoints (no POST/exec).
 - **M10**: Redis requires a password; the cell gets
   `redis://:<REDIS_PASSWORD>@redis:6379`.
+- **M9**: the master secrets (`PLANE_ADMIN_TOKEN`, `PLANE_SIGNING_SECRET`,
+  `PLANE_SECRETS_KEY`, `CONSOLE_AUTH_PASSWORD`) are mounted as **files** via
+  Compose `secrets` (`<NAME>_FILE`), never as container environment, so they
+  are absent from `docker inspect` / `/proc/1/environ`. A missing env still
+  fails closed in the app at startup.
 
 ## vs standalone (`openflare/deploy/standalone`)
 

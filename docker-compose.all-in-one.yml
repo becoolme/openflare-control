@@ -55,11 +55,16 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: postgresql://vrt:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/vrt_plane
-      PLANE_ADMIN_TOKEN: ${PLANE_ADMIN_TOKEN:?set PLANE_ADMIN_TOKEN}
-      PLANE_SIGNING_SECRET: ${PLANE_SIGNING_SECRET:?set PLANE_SIGNING_SECRET}
-      PLANE_SECRETS_KEY: ${PLANE_SECRETS_KEY:?set PLANE_SECRETS_KEY}
+      # M9: secrets arrive as files (compose secrets), never container env.
+      PLANE_ADMIN_TOKEN_FILE: /run/secrets/plane_admin_token
+      PLANE_SIGNING_SECRET_FILE: /run/secrets/plane_signing_secret
+      PLANE_SECRETS_KEY_FILE: /run/secrets/plane_secrets_key
       PLANE_BUNDLE_DIR: /data/bundles
       PORT: '8787'
+    secrets:
+      - plane_admin_token
+      - plane_signing_secret
+      - plane_secrets_key
     ports: ['${PLANE_BIND:-127.0.0.1}:8787:8787']
     volumes: ['plane-bundles:/data/bundles']
     # C1: DB access on `backend`; Traefik/remote-cell access on `default`.
@@ -94,9 +99,13 @@ services:
     depends_on: [plane]
     environment:
       PLANE_URL: http://plane:8787
-      PLANE_ADMIN_TOKEN: ${PLANE_ADMIN_TOKEN:?set PLANE_ADMIN_TOKEN}
-      CONSOLE_AUTH_PASSWORD: ${CONSOLE_AUTH_PASSWORD:?set CONSOLE_AUTH_PASSWORD}
+      # M9: file-backed secrets.
+      PLANE_ADMIN_TOKEN_FILE: /run/secrets/plane_admin_token
+      CONSOLE_AUTH_PASSWORD_FILE: /run/secrets/console_auth_password
       PORT: '8788'
+    secrets:
+      - plane_admin_token
+      - console_auth_password
     ports: ['${CONSOLE_BIND:-127.0.0.1}:8788:8788']
     # C1: reaches the plane on `backend`; published by Traefik on `default`.
     networks: ['default', 'backend']
@@ -122,13 +131,17 @@ services:
         condition: service_healthy
     environment:
       PLANE_URL: http://plane:8787
-      PLANE_ADMIN_TOKEN: ${PLANE_ADMIN_TOKEN:?set PLANE_ADMIN_TOKEN}
-      PLANE_SIGNING_SECRET: ${PLANE_SIGNING_SECRET:?set PLANE_SIGNING_SECRET}
+      # M9: file-backed secrets.
+      PLANE_ADMIN_TOKEN_FILE: /run/secrets/plane_admin_token
+      PLANE_SIGNING_SECRET_FILE: /run/secrets/plane_signing_secret
       VRT_CELL_ID: ${VRT_CELL_ID:-local}
       # Trusted-XFF scope is the pinned Traefik address — nothing else on
       # the net is a legitimate proxy. Keep in sync with VRT_TRAEFIK_IP.
       VRT_TRUSTED_CIDR: ${VRT_TRUSTED_CIDR:-172.31.42.250/32}
       VRT_R2_BUCKET: ${VRT_R2_BUCKET:-vrt-r2}
+    secrets:
+      - plane_admin_token
+      - plane_signing_secret
     volumes:
       - ./deploy/docker/all-in-one:/init:ro
       - cell-run:/run/vrt
@@ -406,6 +419,18 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks: ['socketproxy']
+
+secrets:
+  # M9: sourced from the operator's host env at `compose up` time, but exposed
+  # to containers as files under /run/secrets (not `docker inspect` env).
+  plane_admin_token:
+    environment: PLANE_ADMIN_TOKEN
+  plane_signing_secret:
+    environment: PLANE_SIGNING_SECRET
+  plane_secrets_key:
+    environment: PLANE_SECRETS_KEY
+  console_auth_password:
+    environment: CONSOLE_AUTH_PASSWORD
 
 volumes:
   plane-db:

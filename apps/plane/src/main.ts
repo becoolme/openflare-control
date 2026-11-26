@@ -8,6 +8,7 @@ import { createSecretsCipher } from './secretsCipher.js'
 import { DirAssetStore } from './assetStore.js'
 import { pruneRetention, retentionFromEnv } from './retention.js'
 import { applySchema } from './applySchema.js'
+import { requireEnvSecret } from './envSecret.js'
 
 const env = (name: string, fallback?: string): string => {
   const value = process.env[name] ?? fallback
@@ -37,12 +38,12 @@ const retention = retentionFromEnv()
 // The admin API can publish arbitrary code to every cell, so its credential
 // must exist and carry real entropy. Cell-channel auth is per-cell
 // (plane_cell_tokens) — there is no shared cell token to compromise.
-const adminToken = env('PLANE_ADMIN_TOKEN')
+const adminToken = requireEnvSecret('PLANE_ADMIN_TOKEN')
 if (adminToken.length < 32) {
   throw new Error('PLANE_ADMIN_TOKEN must be at least 32 characters')
 }
 const assetStore = new DirAssetStore(env('PLANE_ASSET_DIR', './data/assets'))
-const secretsKey = env('PLANE_SECRETS_KEY')
+const secretsKey = requireEnvSecret('PLANE_SECRETS_KEY')
 if (secretsKey.length < 32) {
   throw new Error('PLANE_SECRETS_KEY must be at least 32 characters')
 }

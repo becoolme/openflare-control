@@ -6,9 +6,10 @@
  */
 import { createHash, createPrivateKey, createPublicKey, hkdfSync } from 'node:crypto'
 import type { SnapshotSigningContext } from 'openflare-control'
+import { envSecret } from './envSecret.js'
 
 export function resolvePlaneSigningKey(
-  secret = process.env.PLANE_SIGNING_SECRET
+  secret = envSecret('PLANE_SIGNING_SECRET')
 ): SnapshotSigningContext {
   if (!secret || secret.length < 32) {
     throw new Error('PLANE_SIGNING_SECRET must be at least 32 characters')

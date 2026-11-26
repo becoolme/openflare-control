@@ -5,10 +5,21 @@
 // Idempotent: existing files are never overwritten (no silent rotation).
 
 import { readFile, writeFile, mkdir, chown, access } from 'node:fs/promises'
+import { readFileSync } from 'node:fs'
 import { randomBytes } from 'node:crypto'
 
 const PLANE_URL = process.env.PLANE_URL ?? 'http://plane:8787'
-const ADMIN = process.env.PLANE_ADMIN_TOKEN
+// M9: compose secrets arrive as `<NAME>_FILE`; fall back to the env name.
+const secret = (name) => {
+  const file = process.env[`${name}_FILE`]
+  if (file) {
+    const value = readFileSync(file, 'utf8').trim()
+    if (!value) throw new Error(`${name}_FILE is empty`)
+    return value
+  }
+  return process.env[name]
+}
+const ADMIN = secret('PLANE_ADMIN_TOKEN')
 const CELL = process.env.VRT_CELL_ID ?? 'local'
 const R2_BUCKET = process.env.VRT_R2_BUCKET ?? 'vrt-r2'
 const CIDR = process.env.VRT_TRUSTED_CIDR ?? '172.31.42.250/32'
@@ -47,7 +58,7 @@ if (r.status !== 201 && r.status !== 200) {
 // The signing public key derives from PLANE_SIGNING_SECRET via the same
 // module the plane uses — no separate trust source to keep in sync.
 const { resolvePlaneSigningKey } = await import('/app/dist/signing.js')
-const key = resolvePlaneSigningKey(process.env.PLANE_SIGNING_SECRET)
+const key = resolvePlaneSigningKey(secret('PLANE_SIGNING_SECRET'))
 
 const writeOnce = async (path, content, mode, uid = VRT_UID) => {
   try {
