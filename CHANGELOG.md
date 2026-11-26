@@ -4,7 +4,7 @@
 
 - `VrtBindingType` gains `BROWSER`; computeDesired validates the sentinel
   `resourceId: 'browser'` and emits a name-only wire variant (`{type:"browser",
-  name}`) matching Rust's `deny_unknown_fields` BrowserBinding.
+name}`) matching Rust's `deny_unknown_fields` BrowserBinding.
 - Capability key `browser` gates deploys: a cell that has not reported the bit
   fails with `missingCapabilities` instead of receiving a wire variant it
   cannot render.
