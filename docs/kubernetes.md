@@ -76,6 +76,16 @@ revision fence.
   Keep added blocks inside private ranges; `scripts/vrt-k8s-check.mjs` renders
   and validates the policy.
 
+- **vrt-host startup observability (M7).** The metrics listener
+  (`host-metrics`, :9494) binds *before* the initial-snapshot wait, so
+  `GET /metrics` answers during the startup race: a cell waiting for the
+  controller is distinguishable from a crashed one, and scrapes start on
+  the first second. The cell is still not Ready until desired arrives —
+  pod readiness stays transitive through the controller's `/readyz`, and
+  the k8s startup/liveness probes stay on the ingress socket (the serving
+  check) with the 10-minute startup gate. The all-in-one healthcheck now
+  requires the metrics socket in addition to the live workerd child.
+
 - **Local-path storage (M6).** `components/local-path-perms` is an opt-in
   workaround for storage classes without `fsGroup` support (k3s local-path).
   It runs a root `chown` init container and therefore lowers the namespace to
