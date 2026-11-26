@@ -18,12 +18,16 @@
  * TS-produced envelope verifies under the Rust crate, so drift in either
  * direction fails closed in CI.
  */
-import { createHash, sign, type KeyObject } from 'node:crypto'
+import { createHash, createPublicKey, sign, verify, type KeyObject } from 'node:crypto'
 import { canonicalControlPlaneSnapshotV2 } from './canonicalSnapshot.js'
 
 export const SNAPSHOT_PROTOCOL_VERSION = 1
 export const SNAPSHOT_PROTOCOL_CANONICAL_VERSION = 1
 export const SNAPSHOT_KIND_COMPUTE_DESIRED = 'compute.desired'
+/** Domain-separated message for the revision-fence attestation (issue #63). */
+export const SNAPSHOT_KIND_FENCE_ATTESTATION = 'compute.desired.fence'
+/** Upper bound on an attestation string at the wire boundary. */
+export const FENCE_ATTESTATION_MAX_CHARS = 512
 /** Minimum/maximum snapshot lifetime — identical to the protocol crate. */
 export const SNAPSHOT_MIN_TTL_MS = 60_000
 export const SNAPSHOT_MAX_TTL_MS = 24 * 60 * 60 * 1000
@@ -119,4 +123,126 @@ export function signSnapshotProtocolEnvelope(input: {
     payloadDigest,
     envelopeDigest: createHash('sha256').update(canonical).digest('hex'),
   }
+}
+
+export interface FenceAttestation {
+  readonly revision: number
+  readonly payloadDigest: string
+  readonly envelopeDigest: string
+  readonly attestation: string
+}
+
+function fenceAttestationMessage(input: {
+  scope: string
+  revision: number
+  payloadDigest: string
+  envelopeDigest: string
+}): Buffer {
+  return Buffer.from(
+    canonicalControlPlaneSnapshotV2({
+      kind: SNAPSHOT_KIND_FENCE_ATTESTATION,
+      scope: input.scope,
+      revision: input.revision,
+      payloadDigest: input.payloadDigest,
+      envelopeDigest: input.envelopeDigest,
+    }),
+    'utf8'
+  )
+}
+
+/**
+ * Sign the compact revision-fence attestation for one publication. It proves
+ * "the control plane signed revision N with these digests" WITHOUT shipping
+ * the (up to 512 KiB) envelope: the cell persists this string when it accepts
+ * a document and echoes it in an ack when its persisted fence is ahead of the
+ * acked revision (e.g. after a control-plane restore).
+ *
+ * Ed25519 signatures are deterministic, so callers may also re-derive the same
+ * string from a stored envelope at read time (`fenceAttestationForEnvelope`).
+ */
+export function signFenceAttestation(input: {
+  scope: string
+  revision: number
+  payloadDigest: string
+  envelopeDigest: string
+  signing: SnapshotSigningContext
+}): string {
+  if (!Number.isSafeInteger(input.revision) || input.revision < 1) {
+    throw new Error('Invalid fence revision')
+  }
+  const signature = sign(null, fenceAttestationMessage(input), input.signing.privateKey).toString(
+    'base64'
+  )
+  if (signature.length > FENCE_ATTESTATION_MAX_CHARS) {
+    throw new Error('Fence attestation exceeds the wire bound')
+  }
+  return signature
+}
+
+/** Verify an echoed fence attestation against the control plane's public key. */
+export function verifyFenceAttestation(input: {
+  scope: string
+  revision: number
+  payloadDigest: string
+  envelopeDigest: string
+  attestation: string
+  publicKey: string
+}): boolean {
+  if (!Number.isSafeInteger(input.revision) || input.revision < 1) return false
+  if (input.attestation.length === 0 || input.attestation.length > FENCE_ATTESTATION_MAX_CHARS) {
+    return false
+  }
+  let key: KeyObject
+  let signature: Buffer
+  try {
+    key = createPublicKey({
+      key: Buffer.from(input.publicKey, 'base64'),
+      format: 'der',
+      type: 'spki',
+    })
+    signature = Buffer.from(input.attestation, 'base64')
+  } catch {
+    return false
+  }
+  if (signature.length === 0) return false
+  try {
+    return verify(null, fenceAttestationMessage(input), key, signature)
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Re-derive the fence attestation for a stored signed envelope. Returns null
+ * when the envelope is not a well-formed signed snapshot. The plane serves the
+ * result in the `x-vrt-fence-attestation` response header, so no schema change
+ * (and no envelope-digest change) is needed.
+ */
+export function fenceAttestationForEnvelope(
+  envelope: unknown,
+  scope: string,
+  signing: SnapshotSigningContext
+): FenceAttestation | null {
+  if (envelope === null || typeof envelope !== 'object' || Array.isArray(envelope)) return null
+  const record = envelope as Record<string, unknown>
+  const revision = Number(record.revision)
+  const payloadDigest = record.payloadDigest
+  if (!Number.isSafeInteger(revision) || revision < 1) return null
+  if (typeof payloadDigest !== 'string' || !/^[0-9a-f]{64}$/.test(payloadDigest)) return null
+  let envelopeDigest: string
+  try {
+    envelopeDigest = createHash('sha256')
+      .update(canonicalControlPlaneSnapshotV2(envelope))
+      .digest('hex')
+  } catch {
+    return null
+  }
+  const attestation = signFenceAttestation({
+    scope,
+    revision,
+    payloadDigest,
+    envelopeDigest,
+    signing,
+  })
+  return { revision, payloadDigest, envelopeDigest, attestation }
 }

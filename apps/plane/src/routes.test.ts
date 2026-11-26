@@ -5,6 +5,7 @@ import { Pool } from 'pg'
 import {
   bundleKeyFor,
   canonicalControlPlaneSnapshotV2,
+  verifyFenceAttestation,
   type BundleStore,
   type SnapshotSigningContext,
   type VrtControlStore,
@@ -72,7 +73,7 @@ maybe('reference plane routes', () => {
     store = createPlaneStore(pool)
     signing = resolvePlaneSigningKey('routes-test-secret-0123456789abcdef')
     bundles = new MemoryBundles()
-    app = createApp({ store, pool, bundleStore: bundles, secrets: TEST_SECRETS_CIPHER })
+    app = createApp({ store, pool, bundleStore: bundles, secrets: TEST_SECRETS_CIPHER, signing })
     await provisionCellToken(cluster)
   })
   afterAll(async () => {
@@ -147,11 +148,29 @@ maybe('reference plane routes', () => {
     expect(desired.status).toBe(200)
     expect(desired.headers.get('cache-control')).toBe('no-store')
     const envelope = (await desired.json()) as {
+      revision: number
       payload: { tenants: { tenantId: string; workers: { workerId: string }[] }[] }
       payloadDigest: string
     }
     expect(envelope.payload.tenants[0]!.tenantId).toBe(team)
     expect(envelope.payload.tenants[0]!.workers.map((w) => w.workerId)).toContain(workerId)
+
+    // Issue #63: the compact fence attestation rides an out-of-band header (so
+    // the signed envelope and its digest are unchanged) and verifies against
+    // the plane key for this revision/digests.
+    const fenceAttestation = desired.headers.get('x-vrt-fence-attestation')
+    expect(desired.headers.get('x-vrt-fence-revision')).toBe(String(envelope.revision))
+    expect(fenceAttestation).toBeTruthy()
+    expect(
+      verifyFenceAttestation({
+        scope: `cell:${cluster}`,
+        revision: envelope.revision,
+        payloadDigest: envelope.payloadDigest,
+        envelopeDigest: sha256(canonicalControlPlaneSnapshotV2(envelope)),
+        attestation: fenceAttestation as string,
+        publicKey: signing.publicKey,
+      })
+    ).toBe(true)
 
     const inputs = await app.request(`/api/internal/clusters/${cluster}/vrt/render-inputs`, {
       headers: auth,

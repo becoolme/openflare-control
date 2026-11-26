@@ -1,5 +1,20 @@
 # Changelog
 
+## 2026-11-26 — 0.4.0: cryptographic revision-fence proofs (#63)
+
+- The ack now accepts an optional `fenceProof`
+  (`{revision, payloadDigest, envelopeDigest, attestation}`). The plane verifies
+  a domain-separated Ed25519 attestation and only then raises the revision floor
+  past `VRT_FENCE_RAISE_MAX_DELTA`. This closes forgery/grinding and the
+  restored-backup deadlock; old cells keep the bounded path.
+- `GET /vrt/desired` also serves `x-vrt-fence-attestation` /
+  `x-vrt-fence-revision` (derived from the stored envelope; the signed envelope
+  and digest are unchanged) for the cell to persist and echo.
+- New exports: `signFenceAttestation`, `verifyFenceAttestation`,
+  `fenceAttestationForEnvelope`, `vrtFenceProofSchema`; diagnostics counters
+  `fenceProofAccepted` / `fenceProofRejected` / `fenceRaiseRejected`.
+- Design + threat model: `docs/fence-proof.md`.
+
 ## 2026-11-26 — 0.3.4: re-pin to OpenFlare `cea473ca`
 
 - Bumped `OPENFLARE_CONTRACT_REV` to `cea473ca` (meter `_overflow` hardening +

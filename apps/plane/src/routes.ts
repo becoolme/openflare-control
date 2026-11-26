@@ -3,6 +3,8 @@ import { createHash, randomUUID, timingSafeEqual } from 'node:crypto'
 import {
   VrtControlError,
   bundleKeyFor,
+  computeDesiredScope,
+  fenceAttestationForEnvelope,
   latestDesiredEnvelope,
   recordDesiredAck,
   signAndRecordCellPublication,
@@ -137,7 +139,23 @@ export function createApp(deps: AppDeps): Hono {
     try {
       const cellId = await auth(c, deps)
       const envelope = await latestDesiredEnvelope(deps.store, cellId)
-      return c.body(JSON.stringify(envelope), 200, { 'Content-Type': 'application/json' })
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+      // Issue #63: deliver the compact fence attestation out-of-band (a
+      // response header, so the signed envelope and its digest are unchanged).
+      // The cell persists it with the accepted document and echoes it in an ack
+      // whose fence is ahead of the acked revision.
+      if (deps.signing) {
+        const attestation = fenceAttestationForEnvelope(
+          envelope,
+          computeDesiredScope(cellId),
+          deps.signing
+        )
+        if (attestation) {
+          headers['x-vrt-fence-attestation'] = attestation.attestation
+          headers['x-vrt-fence-revision'] = String(attestation.revision)
+        }
+      }
+      return c.body(JSON.stringify(envelope), 200, headers)
     } catch (error) {
       return errorResponse(c, error)
     }
@@ -156,17 +174,23 @@ export function createApp(deps: AppDeps): Hono {
           'VRT_CELL_MISMATCH'
         )
       }
-      const updated = await recordDesiredAck(deps.store, cellId, {
-        revision: parsed.data.revision,
-        payloadDigest: parsed.data.payloadDigest,
-        envelopeDigest: parsed.data.envelopeDigest,
-        fenceRevision: parsed.data.fenceRevision,
-        status: parsed.data.status,
-        reason: parsed.data.reason,
-        capabilities: parsed.data.capabilities,
-        tenantFailures: parsed.data.tenantFailures,
-        podsApplied: parsed.data.podsApplied,
-      })
+      const updated = await recordDesiredAck(
+        deps.store,
+        cellId,
+        {
+          revision: parsed.data.revision,
+          payloadDigest: parsed.data.payloadDigest,
+          envelopeDigest: parsed.data.envelopeDigest,
+          fenceRevision: parsed.data.fenceRevision,
+          status: parsed.data.status,
+          reason: parsed.data.reason,
+          capabilities: parsed.data.capabilities,
+          tenantFailures: parsed.data.tenantFailures,
+          podsApplied: parsed.data.podsApplied,
+          fenceProof: parsed.data.fenceProof,
+        },
+        { signing: deps.signing ? { publicKey: deps.signing.publicKey } : undefined }
+      )
       return c.json({
         data: {
           revision: updated.revision,

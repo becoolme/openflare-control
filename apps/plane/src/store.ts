@@ -456,14 +456,15 @@ export class PlaneStore {
 
   async raiseCellRevisionFloor(
     clusterId: string,
-    reported: number
+    reported: number,
+    opts?: { proven?: boolean }
   ): Promise<'raised' | 'ok' | 'rejected'> {
     if (!Number.isSafeInteger(reported) || reported < 0) return 'rejected'
     const [row] = await this.rows('select revision from plane_cells where cluster_id=$1', [
       clusterId,
     ])
     if (row && reported <= Number(row.revision)) return 'ok'
-    return this.runCellTransaction(clusterId, (tx) => tx.raiseRevisionFloor(reported))
+    return this.runCellTransaction(clusterId, (tx) => tx.raiseRevisionFloor(reported, opts))
   }
 
   async cellCapabilities(clusterId: string): Promise<VrtCellCapabilities | null> {
@@ -836,14 +837,19 @@ class PlaneCellTx {
     return r ? mapPublication(r) : null
   }
 
-  async raiseRevisionFloor(reported: number): Promise<'raised' | 'ok' | 'rejected'> {
+  async raiseRevisionFloor(
+    reported: number,
+    opts?: { proven?: boolean }
+  ): Promise<'raised' | 'ok' | 'rejected'> {
     const [row] = await this.rows(
       'select revision from plane_cells where cluster_id=$1 for update',
       [this.clusterId]
     )
     const current = Number(row?.revision ?? 0)
     if (!Number.isSafeInteger(reported) || reported <= current) return 'ok'
-    if (reported - current > 1000) return 'rejected'
+    // Issue #63: a verified fence attestation may jump past the bounded delta
+    // (notably after a control-plane restore). Unproven reports stay capped.
+    if (!opts?.proven && reported - current > 1000) return 'rejected'
     await this.client.query('update plane_cells set revision=$2 where cluster_id=$1', [
       this.clusterId,
       reported,

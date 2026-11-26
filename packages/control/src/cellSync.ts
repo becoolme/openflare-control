@@ -21,6 +21,8 @@ import {
   type VrtCellApplyFailedMark,
 } from './cellContract.js'
 import { VrtControlError } from './errors.js'
+import { computeDesiredScope } from './computeDesired.js'
+import { verifyFenceAttestation } from './snapshotSigner.js'
 import { noopControlLogger, type ControlLogger } from './logging.js'
 
 export * from './cellContract.js'
@@ -73,6 +75,10 @@ export async function recordDesiredAck(
     onCellApplyFailed?: (marks: readonly VrtCellApplyFailedMark[]) => Promise<void>
     /** Optional platform logger; tests/CLI default to a no-op. */
     logger?: ControlLogger
+    /** Issue #63: the control plane's trusted public key (base64 SPKI) used
+     * to verify an echoed fence attestation. Absent ⇒ any `fenceProof` is
+     * rejected (fail closed); the legacy bounded path still works. */
+    signing?: { publicKey: string }
   } = {}
 ): Promise<VrtStorePublicationDetail> {
   const log = opts.logger ?? noopControlLogger
@@ -101,11 +107,43 @@ export async function recordDesiredAck(
       'VRT_ACK_DIGEST_MISMATCH'
     )
   }
-  // F5: the cell's persisted fence is the floor the control plane must
-  // not sign under — raise the stored counter toward it inside the
-  // per-cell lock (bounded delta; anomalies are warned, not raised).
-  const floor = await store.raiseCellRevisionFloor(publication.clusterId, input.fenceRevision)
+  // F5 + issue #63: the cell's persisted fence is the floor the control plane
+  // must not sign under. A fence ahead of the acked revision is only trusted
+  // past the bounded delta when the cell echoes the attestation the plane
+  // delivered with that document — otherwise a compromised cell could grind
+  // the counter, and a restored plane could never heal past its bound.
+  let proven = false
+  if (input.fenceProof) {
+    const proof = input.fenceProof
+    const valid =
+      proof.revision === input.fenceRevision &&
+      opts.signing !== undefined &&
+      verifyFenceAttestation({
+        scope: computeDesiredScope(publication.cellId),
+        revision: proof.revision,
+        payloadDigest: proof.payloadDigest,
+        envelopeDigest: proof.envelopeDigest,
+        attestation: proof.attestation,
+        publicKey: opts.signing.publicKey,
+      })
+    if (!valid) {
+      vrtAckDiagnostics.fenceProofRejected++
+      log.warn(
+        { cellId, revision: input.revision, fenceRevision: input.fenceRevision },
+        '[Workers] fence proof did not verify — ack rejected'
+      )
+      throw new VrtControlError(400, 'Fence proof did not verify', 'VRT_FENCE_PROOF_INVALID')
+    }
+    vrtAckDiagnostics.fenceProofAccepted++
+    proven = true
+  }
+  const floor = await store.raiseCellRevisionFloor(
+    publication.clusterId,
+    input.fenceRevision,
+    proven ? { proven: true } : undefined
+  )
   if (floor === 'rejected') {
+    vrtAckDiagnostics.fenceRaiseRejected++
     log.warn(
       { cellId, revision: input.revision, fenceRevision: input.fenceRevision },
       '[Workers] cell-reported fenceRevision rejected by the bounded revision floor'

@@ -33,6 +33,21 @@ export type VrtAckTenantFailure = z.infer<typeof vrtAckTenantFailureSchema>
  * the service so the cross-language wire fixtures feed THE schema the
  * route uses). `.strict()` — unknown fields are a malformed ack.
  */
+/**
+ * Revision-fence proof (issue #63). A cell that persisted a signed document
+ * whose revision is ahead of the acked one echoes the compact attestation the
+ * plane delivered with that document. Only then may the floor be raised past
+ * the bounded delta. `.strict()`: unknown fields are a malformed proof.
+ */
+export const vrtFenceProofSchema = z
+  .object({
+    revision: z.number().int().min(1).max(Number.MAX_SAFE_INTEGER),
+    payloadDigest: z.string().regex(/^[0-9a-f]{64}$/),
+    envelopeDigest: z.string().regex(/^[0-9a-f]{64}$/),
+    attestation: z.string().min(1).max(512),
+  })
+  .strict()
+
 export const vrtDesiredAckSchema = z
   .object({
     revision: z.number().int().min(1).max(Number.MAX_SAFE_INTEGER),
@@ -43,6 +58,10 @@ export const vrtDesiredAckSchema = z
     // T11/F5: the cell reports its persisted revision fence so a restored
     // control-plane DB never re-signs an already-fenced revision.
     fenceRevision: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
+    // Issue #63: optional cryptographic proof for a fence ahead of the acked
+    // revision (typically after a control-plane restore). Old cells omit it and
+    // keep the bounded-integer path.
+    fenceProof: vrtFenceProofSchema.optional(),
     status: z.enum(['APPLIED', 'REJECTED', 'PARTIAL']),
     reason: z.string().max(256).optional(),
     appliedAt: z.string().datetime({ offset: true }).optional(),
@@ -79,6 +98,14 @@ export interface VrtDesiredAckInput {
    * raises its own counter toward it (bounded) so a restored DB cannot
    * sign a revision the cell already fenced. */
   readonly fenceRevision: number
+  /** Optional proof for `fenceRevision` when it is ahead of `revision`
+   * (issue #63). Required for raises beyond VRT_FENCE_RAISE_MAX_DELTA. */
+  readonly fenceProof?: {
+    readonly revision: number
+    readonly payloadDigest: string
+    readonly envelopeDigest: string
+    readonly attestation: string
+  }
   readonly status: VrtAckStatus
   readonly reason?: string
   /** T21: cell-declared capabilities — persisted verbatim (latest wins);
@@ -113,6 +140,12 @@ export const vrtAckDiagnostics = {
   /** PARTIAL acks accepted while the publication was already older than
    * `VRT_PARTIAL_STUCK_MS`. */
   stuckPartialAcks: 0,
+  /** Issue #63: fence proofs that verified and unlocked an unbounded raise. */
+  fenceProofAccepted: 0,
+  /** Issue #63: fence proofs present but invalid (rejected, ack failed). */
+  fenceProofRejected: 0,
+  /** Legacy bounded raises refused because the delta exceeded the cap. */
+  fenceRaiseRejected: 0,
 }
 
 /** Reason codes the API may echo — cell-reported `ackReason` is untrusted

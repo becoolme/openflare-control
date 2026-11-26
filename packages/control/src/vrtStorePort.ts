@@ -426,9 +426,13 @@ export interface VrtCellTx {
    * idempotency depends on re-reading remaining lifetime here, not on a
    * stale view from before the lock. */
   latestPublication(): Promise<VrtStorePublicationDetail | null>
-  /** Raise the stored revision floor toward a cell-reported fence value
-   * (bounded by VRT_FENCE_RAISE_MAX_DELTA — T11/F5). */
-  raiseRevisionFloor(reported: number): Promise<'raised' | 'ok' | 'rejected'>
+  /** Raise the stored revision floor toward a cell-reported fence value.
+   * Bounded by VRT_FENCE_RAISE_MAX_DELTA unless `proven` (a verified fence
+   * attestation, issue #63) — T11/F5. */
+  raiseRevisionFloor(
+    reported: number,
+    opts?: { proven?: boolean }
+  ): Promise<'raised' | 'ok' | 'rejected'>
   /** T21: persist the latest ACK-reported capability bits (last write
    * wins — capabilities only ever change with a cell binary rollout). */
   setCapabilities(caps: VrtCellCapabilities): Promise<void>
@@ -706,7 +710,11 @@ export interface VrtControlStore {
   runCellTransaction<T>(clusterId: string, fn: (tx: VrtCellTx) => Promise<T>): Promise<T>
   /** Raise the stored revision floor toward a cell-reported fence value,
    * bounded (T11/F5) — called from the ACK path. */
-  raiseCellRevisionFloor(clusterId: string, reported: number): Promise<'raised' | 'ok' | 'rejected'>
+  raiseCellRevisionFloor(
+    clusterId: string,
+    reported: number,
+    opts?: { proven?: boolean }
+  ): Promise<'raised' | 'ok' | 'rejected'>
   /** T21: latest ACK-reported capability bits, or null when the cell has
    * never declared any (pre-T21 cells → every capability is unsupported). */
   cellCapabilities(clusterId: string): Promise<VrtCellCapabilities | null>
