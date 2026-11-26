@@ -180,15 +180,17 @@ services:
       vrt-sql:
         condition: service_started
     healthcheck:
-      # NOT a port check: vrt-host binds its control listener only
-      # after the first desired snapshot arrives, which only
-      # cell-controller can deliver — gating on a port deadlocks.
-      # The netns exists once PID 1 exists, which is all the
-      # network_mode:service:vrt-host joiners need.
-      test: ['CMD-SHELL', 'test -d /proc/1']
-      interval: 1s
+      # M7: the control listener binds only after the first desired snapshot,
+      # so it cannot gate liveness — but the metrics listener (127.0.0.1:9494)
+      # binds at startup. Check it is LISTENing (0x2516) AND that a workerd
+      # child exists; this catches a crashed/hung host that a bare
+      # `test -d /proc/1` would report healthy. (Residual: an event-loop hang
+      # after binding needs an HTTP probe; the image has no curl.)
+      test: ['CMD-SHELL', "grep -Eq '^ *[0-9]+: 0100007F:2516 [0-9A-F:]+ 0A ' /proc/net/tcp && grep -q workerd /proc/[0-9]*/cmdline 2>/dev/null"]
+      interval: 5s
       timeout: 3s
-      retries: 30
+      retries: 12
+      start_period: 10s
 
   cell-controller:
     <<: *vrt-cell
@@ -217,6 +219,13 @@ services:
       plane-loopback:
         # control_plane_url is loopback http through this forwarder.
         condition: service_started
+    healthcheck:
+      # L13: health_listen = 127.0.0.1:9090 (0x2382), same netns as vrt-host.
+      test: ['CMD-SHELL', "grep -Eq '^ *[0-9]+: 0100007F:2382 [0-9A-F:]+ 0A ' /proc/net/tcp"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
 
   # Loopback path to the plane for vrt-host: its config fail-closed on
   # non-loopback http control-plane URLs, and the compose-network
@@ -252,6 +261,14 @@ services:
     depends_on:
       cell-init:
         condition: service_completed_successfully
+    healthcheck:
+      # L13: pgProxy listener = 127.0.0.1:19543 (0x4C57). The provider has no
+      # HTTP endpoint; this catches a dead listener without shell tooling.
+      test: ['CMD-SHELL', "grep -Eq '^ *[0-9]+: 0100007F:4C57 [0-9A-F:]+ 0A ' /proc/net/tcp"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
 
   vrt-sql:
     <<: *vrt-cell
@@ -272,6 +289,13 @@ services:
       cell-init:
         condition: service_completed_successfully
     restart: unless-stopped
+    healthcheck:
+      # L13: listenTcp = 0.0.0.0:8082 (0x1F92).
+      test: ['CMD-SHELL', "grep -Eq '^ *[0-9]+: 00000000:1F92 [0-9A-F:]+ 0A ' /proc/net/tcp"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
 
   # Optional follower/premote listener for the D1 failover drill. The
   # config is written by scripts/e2e-d1-failover-docker.mjs after the
@@ -301,10 +325,18 @@ services:
     volumes: ['kv-data:/data']
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD}
+      # redis-cli reads REDISCLI_AUTH, keeping the password out of argv.
+      REDISCLI_AUTH: ${REDIS_PASSWORD:?set REDIS_PASSWORD}
     command:
       - sh
       - -c
       - exec redis-server --appendonly yes --save '' --requirepass "$$REDIS_PASSWORD"
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
 
   # ---- R2: bundled S3 object store (Silo — pgsty's maintained MinIO
   #      fork; upstream stopped shipping images). The .svc alias

@@ -1,6 +1,9 @@
 # Minimal plane-on-kind deployment for e2e. This is deliberately smaller than
 # the production cell overlay: it proves the plane image, k8s Service/Deployment,
 # Secret wiring and port-forward path, not a full workerd cell.
+#
+# TEST-ONLY (L14): committed `vrt/vrt` Postgres, no securityContext, resource
+# limits or NetworkPolicy. Never deploy this outside the kind e2e.
 apiVersion: v1
 kind: Namespace
 metadata:
