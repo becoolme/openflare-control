@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-11-26 — 0.5.0: BROWSER binding type + browser capability bit (#83)
+
+- `VrtBindingType` gains `BROWSER`; computeDesired validates the sentinel
+  `resourceId: 'browser'` and emits a name-only wire variant (`{type:"browser",
+  name}`) matching Rust's `deny_unknown_fields` BrowserBinding.
+- Capability key `browser` gates deploys: a cell that has not reported the bit
+  fails with `missingCapabilities` instead of receiving a wire variant it
+  cannot render.
+- Contract pin `OPENFLARE_CONTRACT_REV` is `6c197c7` (OpenFlare #161 — the
+  browser binding over the vendored kitesurf engine).
+
 ## 2026-11-26 — 0.4.0: cryptographic revision-fence proofs (#63)
 
 - The ack now accepts an optional `fenceProof`
