@@ -180,18 +180,21 @@ services:
       vrt-sql:
         condition: service_started
     healthcheck:
-      # M7: vrt-host binds its control AND metrics listeners only after the
-      # first desired snapshot arrives (cell-controller-delivered), so a port
-      # probe deadlocks. Instead require PID 1 to be alive AND a workerd child
-      # to exist — this catches a crashed/hung host whose workerd died, which
-      # the old bare `test -d /proc/1` reported healthy. Residual: an
-      # event-loop hang after bind still needs an HTTP probe, which requires
-      # vrt-host to bind metrics before the first snapshot (tracked upstream).
-      test: ['CMD-SHELL', 'test -d /proc/1 && grep -q workerd /proc/[0-9]*/cmdline 2>/dev/null']
+      # M7: vrt-host binds the metrics listener BEFORE the initial-snapshot
+      # wait (openflare #166), so a port probe is valid during the startup
+      # race. Require PID 1 + the metrics socket + a live workerd child:
+      # the socket distinguishes "waiting for the controller" from a crash,
+      # and workerd appears only after desired arrives (real readiness).
+      test:
+        [
+          'CMD-SHELL',
+          "test -d /proc/1 && grep -Eq '^ *[0-9]+: 0100007F:2516 [0-9A-F:]+ 0A ' /proc/net/tcp && grep -q workerd /proc/[0-9]*/cmdline 2>/dev/null",
+        ]
       interval: 5s
       timeout: 3s
-      retries: 12
-      start_period: 10s
+      # Cold CI boots + first desired delivery can exceed one minute.
+      retries: 24
+      start_period: 20s
 
   cell-controller:
     <<: *vrt-cell
