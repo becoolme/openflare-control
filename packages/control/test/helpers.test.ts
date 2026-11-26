@@ -127,6 +127,48 @@ describe('quotas and cron validation', () => {
     expect(validVrtCronExpression('60 * * * *')).toBe(false)
     expect(validVrtCronExpression('* * * * * *')).toBe(false)
   })
+
+  it('uses Cloudflare day-of-week numbering (1=Sunday..7=Saturday, no 0)', () => {
+    expect(validVrtCronExpression('0 0 * * 1-7')).toBe(true)
+    expect(validVrtCronExpression('0 0 * * 5-7')).toBe(true)
+    expect(validVrtCronExpression('0 0 * * 0')).toBe(false)
+    expect(validVrtCronExpression('0 0 * * 0-7')).toBe(false)
+    expect(validVrtCronExpression('0 0 * * 7-5')).toBe(false)
+    expect(validVrtCronExpression('0 0 * * 6-8')).toBe(false)
+    // Mixed name/numeric ranges order on the same internal scale:
+    // 2 and MON are the same day, so 2-MON is a valid degenerate range.
+    expect(validVrtCronExpression('0 0 * * 2-MON')).toBe(true)
+    expect(validVrtCronExpression('0 0 * * MON-2')).toBe(true)
+    expect(validVrtCronExpression('0 0 * * FRI-SUN')).toBe(true)
+    expect(validVrtCronExpression('0 0 * * SUN-SUN')).toBe(true)
+    expect(validVrtCronExpression('0 0 * * SAT-SUN')).toBe(true)
+  })
+
+  it('accepts Cloudflare day modifiers in dom/dow positions only', () => {
+    // day-of-month: L (last day), LW (last weekday), nW (nearest weekday)
+    expect(validVrtCronExpression('0 0 L * *')).toBe(true)
+    expect(validVrtCronExpression('0 0 LW * *')).toBe(true)
+    expect(validVrtCronExpression('0 0 lw * *')).toBe(true)
+    expect(validVrtCronExpression('0 0 15W * *')).toBe(true)
+    expect(validVrtCronExpression('0 0 15w * *')).toBe(true)
+    expect(validVrtCronExpression('0 0 L,15W * *')).toBe(true)
+    expect(validVrtCronExpression('0 0 32W * *')).toBe(false)
+    expect(validVrtCronExpression('0 0 W * *')).toBe(false)
+    expect(validVrtCronExpression('0 0 L/2 * *')).toBe(false)
+    // day-of-week: xL (last x-weekday), x#n (nth x-weekday, n 1-5)
+    expect(validVrtCronExpression('0 0 * * 6L')).toBe(true)
+    expect(validVrtCronExpression('0 0 * * FRIL')).toBe(true)
+    expect(validVrtCronExpression('0 0 * * MON#2')).toBe(true)
+    expect(validVrtCronExpression('0 0 * * 5#3')).toBe(true)
+    expect(validVrtCronExpression('0 0 * * MON#6')).toBe(false)
+    expect(validVrtCronExpression('0 0 * * L#2')).toBe(false)
+    expect(validVrtCronExpression('0 0 * * L')).toBe(false)
+    expect(validVrtCronExpression('0 0 * * 8L')).toBe(false)
+    // modifiers are not valid in other positions
+    expect(validVrtCronExpression('L * * * *')).toBe(false)
+    expect(validVrtCronExpression('0 L * * *')).toBe(false)
+    expect(validVrtCronExpression('0 0 * L *')).toBe(false)
+  })
 })
 
 describe('service entrypoints and R2 bucket names', () => {
