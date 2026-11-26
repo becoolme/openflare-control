@@ -52,6 +52,11 @@ describe('new binding kinds (control-plane parity)', () => {
       name: 'B',
     })
     expect(binding({ type: 'IMAGES' })).toEqual({ type: 'images', name: 'B' })
+    expect(binding({ type: 'BROWSER', resourceId: 'browser' })).toEqual({
+      type: 'browser',
+      name: 'B',
+    })
+    expect(() => binding({ type: 'BROWSER', resourceId: 'nope' })).toThrow(/browser/)
     expect(() => binding({ type: 'WORKER_LOADER', resourceId: 'nope' })).toThrow(/workerLoader/)
     expect(() => binding({ type: 'UNSAFE_EVAL', resourceId: 'nope' })).toThrow(/unsafeEval/)
   })
@@ -231,5 +236,6 @@ describe('capability gating for the new binding kinds', () => {
     expect(types('ANALYTICS_ENGINE')).toEqual(['analyticsEngine'])
     expect(types('UNSAFE_EVAL')).toEqual(['unsafeEval'])
     expect(types('WORKER_LOADER')).toEqual(['workerLoader'])
+    expect(types('BROWSER')).toEqual(['browser'])
   })
 })

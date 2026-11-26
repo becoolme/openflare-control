@@ -131,6 +131,14 @@ export const bindingRecordSchema = z.discriminatedUnion('type', [
   z
     .object({
       ...base,
+      type: z.literal('BROWSER'),
+      resourceId: z.string().optional().default('browser'),
+      ...permissions,
+    })
+    .strict(),
+  z
+    .object({
+      ...base,
       type: z.literal('SECRETS_STORE'),
       resourceId: z.string().min(1).max(256),
       storeId: z.string().regex(/^[A-Za-z0-9_.-]{1,100}$/),

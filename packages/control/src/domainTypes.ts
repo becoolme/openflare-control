@@ -32,6 +32,7 @@ export interface VrtBindingRecord {
     | 'IMAGES'
     | 'VECTORIZE'
     | 'SECRETS_STORE'
+    | 'BROWSER'
   readonly resourceId: string
   readonly permissionRead: boolean
   readonly permissionWrite: boolean

@@ -3,6 +3,7 @@
   "capabilities": {
     "analyticsEngine": true,
     "assets": true,
+    "browser": true,
     "cron": true,
     "d1": true,
     "d1CellOps": true,

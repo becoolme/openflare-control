@@ -56,8 +56,16 @@ describe('capability requirements', () => {
       'streamingTailConsumers',
       'unsafeEval',
       'versionMetadata',
+      'browser',
     ]) {
       expect(VRT_CELL_CAPABILITY_KEYS).toContain(key)
     }
+  })
+
+  it('gates BROWSER bindings on the browser capability bit', () => {
+    const required = requiredCapabilities(needs({ bindingTypes: ['BROWSER'] }))
+    expect(required).toContain('browser')
+    expect(missingCapabilities(required, { browser: true })).toEqual([])
+    expect(missingCapabilities(required, null)).toEqual(['browser'])
   })
 })
