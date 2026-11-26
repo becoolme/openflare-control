@@ -437,13 +437,6 @@ async function createVersion(
     })
   )
   const effectiveQuotas = body.quotas ?? VRT_DEFAULT_QUOTAS
-  if (effectiveQuotas.outboundConnections !== VRT_DEFAULT_QUOTAS.outboundConnections) {
-    throw new VrtControlError(
-      400,
-      'outboundConnections is not enforceable by the pinned runtime',
-      'VRT_QUOTA_UNSUPPORTED'
-    )
-  }
   const input: VrtCreateVersionInput = {
     workerId,
     versionId: body.versionId,
