@@ -51,7 +51,9 @@ spec:
       ports:
         - { port: 8080, protocol: TCP }
     # cell-controller health port — kubelet probes (node-level, not
-    # pod-labeled).
+    # pod-labeled). M4/L12: bare `ports:` = any source. Whether a CNI
+    # enforces that on host->pod traffic varies; scope it with an ipBlock for
+    # the node/pod CIDR — see docs/kubernetes.md "Probe ingress".
     - ports:
         - { port: 9090, protocol: TCP }
     # B12: metrics scrape — vmagent only, never tenant or public pods.
@@ -245,7 +247,9 @@ spec:
               app.kubernetes.io/name: vrt-host
       ports:
         - { port: 8082, protocol: TCP }
-    # health probes from kubelet
+    # health probes from kubelet. M4/L12: bare `ports:` = any source; scope
+    # it with an ipBlock for the node/pod CIDR — see docs/kubernetes.md
+    # "Probe ingress".
     - ports:
         - { port: 8082, protocol: TCP }
     - from:

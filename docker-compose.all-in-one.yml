@@ -14,6 +14,9 @@
 # `cell-init` provisions the cell, issues its pull token, renders the
 # service configs and seeds the shared secrets — all idempotent.
 #
+# Required secrets: PLANE_ADMIN_TOKEN, PLANE_SIGNING_SECRET, PLANE_SECRETS_KEY,
+# CONSOLE_AUTH_PASSWORD, POSTGRES_PASSWORD, REDIS_PASSWORD (no defaults).
+#
 # TLS: `--profile tls` adds Traefik on :80/:443 — per-hostname LE certs
 # at first handshake (Dokploy-style; VRT_TLS_EMAIL optional, enables
 # expiry notices). Console on ${CONSOLE_HOST}, every
@@ -32,9 +35,12 @@ services:
     image: postgres:16
     environment:
       POSTGRES_USER: vrt
-      POSTGRES_PASSWORD: vrt
+      # C1: no committed default. The control-plane DB is only reachable on
+      # the `backend` network, never from the tenant data-plane network.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
       POSTGRES_DB: vrt_plane
     volumes: ['plane-db:/var/lib/postgresql/data']
+    networks: ['backend']
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U vrt -d vrt_plane']
       interval: 2s
@@ -48,14 +54,21 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgresql://vrt:vrt@postgres:5432/vrt_plane
-      PLANE_ADMIN_TOKEN: ${PLANE_ADMIN_TOKEN:?set PLANE_ADMIN_TOKEN}
-      PLANE_SIGNING_SECRET: ${PLANE_SIGNING_SECRET:?set PLANE_SIGNING_SECRET}
-      PLANE_SECRETS_KEY: ${PLANE_SECRETS_KEY:?set PLANE_SECRETS_KEY}
+      DATABASE_URL: postgresql://vrt:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/vrt_plane
+      # M9: secrets arrive as files (compose secrets), never container env.
+      PLANE_ADMIN_TOKEN_FILE: /run/secrets/plane_admin_token
+      PLANE_SIGNING_SECRET_FILE: /run/secrets/plane_signing_secret
+      PLANE_SECRETS_KEY_FILE: /run/secrets/plane_secrets_key
       PLANE_BUNDLE_DIR: /data/bundles
       PORT: '8787'
+    secrets:
+      - plane_admin_token
+      - plane_signing_secret
+      - plane_secrets_key
     ports: ['${PLANE_BIND:-127.0.0.1}:8787:8787']
     volumes: ['plane-bundles:/data/bundles']
+    # C1: DB access on `backend`; Traefik/remote-cell access on `default`.
+    networks: ['default', 'backend']
     healthcheck:
       # node:slim has no curl — use the runtime itself.
       test:
@@ -73,7 +86,10 @@ services:
       # /api/internal wants a per-cell token — bearer auth rides inside
       # TLS either way.
       traefik.enable: 'true'
-      traefik.http.routers.plane-api.rule: Host(`${PLANE_API_HOST:-api.invalid}`)
+      # M11: the public router serves ONLY the remote-cell API. The
+      # management API (/api/v1) is never published: use the loopback
+      # PLANE_BIND, or an explicit allowlist/mTLS reverse proxy in front.
+      traefik.http.routers.plane-api.rule: Host(`${PLANE_API_HOST:-api.invalid}`) && PathPrefix(`/api/internal/`)
       traefik.http.routers.plane-api.entrypoints: websecure
       traefik.http.routers.plane-api.tls.certresolver: le
       traefik.http.services.plane-api.loadbalancer.server.port: '8787'
@@ -83,10 +99,16 @@ services:
     depends_on: [plane]
     environment:
       PLANE_URL: http://plane:8787
-      PLANE_ADMIN_TOKEN: ${PLANE_ADMIN_TOKEN:?set PLANE_ADMIN_TOKEN}
-      CONSOLE_AUTH_PASSWORD: ${CONSOLE_AUTH_PASSWORD:?set CONSOLE_AUTH_PASSWORD}
+      # M9: file-backed secrets.
+      PLANE_ADMIN_TOKEN_FILE: /run/secrets/plane_admin_token
+      CONSOLE_AUTH_PASSWORD_FILE: /run/secrets/console_auth_password
       PORT: '8788'
+    secrets:
+      - plane_admin_token
+      - console_auth_password
     ports: ['${CONSOLE_BIND:-127.0.0.1}:8788:8788']
+    # C1: reaches the plane on `backend`; published by Traefik on `default`.
+    networks: ['default', 'backend']
     labels:
       # Traefik (tls profile) publishes the management UI here.
       traefik.enable: 'true'
@@ -109,17 +131,23 @@ services:
         condition: service_healthy
     environment:
       PLANE_URL: http://plane:8787
-      PLANE_ADMIN_TOKEN: ${PLANE_ADMIN_TOKEN:?set PLANE_ADMIN_TOKEN}
-      PLANE_SIGNING_SECRET: ${PLANE_SIGNING_SECRET:?set PLANE_SIGNING_SECRET}
+      # M9: file-backed secrets.
+      PLANE_ADMIN_TOKEN_FILE: /run/secrets/plane_admin_token
+      PLANE_SIGNING_SECRET_FILE: /run/secrets/plane_signing_secret
       VRT_CELL_ID: ${VRT_CELL_ID:-local}
       # Trusted-XFF scope is the pinned Traefik address — nothing else on
       # the net is a legitimate proxy. Keep in sync with VRT_TRAEFIK_IP.
       VRT_TRUSTED_CIDR: ${VRT_TRUSTED_CIDR:-172.31.42.250/32}
       VRT_R2_BUCKET: ${VRT_R2_BUCKET:-vrt-r2}
+    secrets:
+      - plane_admin_token
+      - plane_signing_secret
     volumes:
       - ./deploy/docker/all-in-one:/init:ro
       - cell-run:/run/vrt
       - cell-config:/etc/vrt
+    # C1: bootstrap only talks to the plane (backend); no data-plane access.
+    networks: ['backend']
     restart: 'no'
     entrypoint: ['node', '/init/init-cell.mjs']
 
@@ -152,15 +180,18 @@ services:
       vrt-sql:
         condition: service_started
     healthcheck:
-      # NOT a port check: vrt-host binds its control listener only
-      # after the first desired snapshot arrives, which only
-      # cell-controller can deliver — gating on a port deadlocks.
-      # The netns exists once PID 1 exists, which is all the
-      # network_mode:service:vrt-host joiners need.
-      test: ['CMD-SHELL', 'test -d /proc/1']
-      interval: 1s
+      # M7: vrt-host binds its control AND metrics listeners only after the
+      # first desired snapshot arrives (cell-controller-delivered), so a port
+      # probe deadlocks. Instead require PID 1 to be alive AND a workerd child
+      # to exist — this catches a crashed/hung host whose workerd died, which
+      # the old bare `test -d /proc/1` reported healthy. Residual: an
+      # event-loop hang after bind still needs an HTTP probe, which requires
+      # vrt-host to bind metrics before the first snapshot (tracked upstream).
+      test: ['CMD-SHELL', 'test -d /proc/1 && grep -q workerd /proc/[0-9]*/cmdline 2>/dev/null']
+      interval: 5s
       timeout: 3s
-      retries: 30
+      retries: 12
+      start_period: 10s
 
   cell-controller:
     <<: *vrt-cell
@@ -173,7 +204,7 @@ services:
     # delivery dir is on the shared cell-run volume.
     network_mode: 'service:vrt-host'
     environment:
-      VRT_KVROCKS_URL: ${VRT_KVROCKS_URL:-redis://redis:6379}
+      VRT_KVROCKS_URL: ${VRT_KVROCKS_URL:-redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD}@redis:6379}
       VRT_R2_BINDING_ACCESS_KEY: ${VRT_R2_BINDING_ACCESS_KEY:-openflare-r2-binding}
       VRT_R2_BINDING_SECRET_KEY: ${VRT_R2_BINDING_SECRET_KEY:-openflare-r2-binding-secret}
     volumes:
@@ -189,6 +220,13 @@ services:
       plane-loopback:
         # control_plane_url is loopback http through this forwarder.
         condition: service_started
+    healthcheck:
+      # L13: health_listen = 127.0.0.1:9090 (0x2382), same netns as vrt-host.
+      test: ['CMD-SHELL', "grep -Eq '^ *[0-9]+: 0100007F:2382 [0-9A-F:]+ 0A ' /proc/net/tcp"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
 
   # Loopback path to the plane for vrt-host: its config fail-closed on
   # non-loopback http control-plane URLs, and the compose-network
@@ -214,7 +252,7 @@ services:
     pull_policy: never
     entrypoint: ['/usr/local/bin/vrt-provider', '--config', '/etc/vrt/vrt-provider.toml']
     environment:
-      VRT_KVROCKS_URL: ${VRT_KVROCKS_URL:-redis://redis:6379}
+      VRT_KVROCKS_URL: ${VRT_KVROCKS_URL:-redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD}@redis:6379}
       VRT_R2_BINDING_ACCESS_KEY: ${VRT_R2_BINDING_ACCESS_KEY:-openflare-r2-binding}
       VRT_R2_BINDING_SECRET_KEY: ${VRT_R2_BINDING_SECRET_KEY:-openflare-r2-binding-secret}
     volumes:
@@ -224,6 +262,14 @@ services:
     depends_on:
       cell-init:
         condition: service_completed_successfully
+    healthcheck:
+      # L13: pgProxy listener = 127.0.0.1:19543 (0x4C57). The provider has no
+      # HTTP endpoint; this catches a dead listener without shell tooling.
+      test: ['CMD-SHELL', "grep -Eq '^ *[0-9]+: 0100007F:4C57 [0-9A-F:]+ 0A ' /proc/net/tcp"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
 
   vrt-sql:
     <<: *vrt-cell
@@ -244,6 +290,13 @@ services:
       cell-init:
         condition: service_completed_successfully
     restart: unless-stopped
+    healthcheck:
+      # L13: listenTcp = 0.0.0.0:8082 (0x1F92).
+      test: ['CMD-SHELL', "grep -Eq '^ *[0-9]+: 00000000:1F92 [0-9A-F:]+ 0A ' /proc/net/tcp"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
 
   # Optional follower/premote listener for the D1 failover drill. The
   # config is written by scripts/e2e-d1-failover-docker.mjs after the
@@ -266,10 +319,25 @@ services:
 
   redis:
     # RESP store backing the KV binding + purge ops (kvrocks-shaped).
+    # M10: password-protected — every tenant KV lives here and the data-plane
+    # network is reachable by a tenant escaping to the host container.
     image: redis:7-alpine
     restart: unless-stopped
     volumes: ['kv-data:/data']
-    command: ['redis-server', '--appendonly', 'yes', '--save', '']
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD}
+      # redis-cli reads REDISCLI_AUTH, keeping the password out of argv.
+      REDISCLI_AUTH: ${REDIS_PASSWORD:?set REDIS_PASSWORD}
+    command:
+      - sh
+      - -c
+      - exec redis-server --appendonly yes --save '' --requirepass "$$REDIS_PASSWORD"
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
 
   # ---- R2: bundled S3 object store (Silo — pgsty's maintained MinIO
   #      fork; upstream stopped shipping images). The .svc alias
@@ -330,6 +398,9 @@ services:
       - --entrypoints.web.http.redirections.entrypoint.to=websecure
       - --entrypoints.web.http.redirections.entrypoint.scheme=https
       - --entrypoints.websecure.address=:443
+      # H3: never mount the raw Docker socket into the ACME-facing proxy.
+      # A filtered read-only socket-proxy is the only Docker API access.
+      - --providers.docker.endpoint=tcp://docker-socket-proxy:2375
       - --providers.docker=true
       - --providers.docker.exposedByDefault=false
       - --providers.file.directory=/dynamic
@@ -344,7 +415,6 @@ services:
       - '${VRT_TLS_BIND:-0.0.0.0}:80:80'
       - '${VRT_TLS_BIND:-0.0.0.0}:443:443'
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./deploy/docker/all-in-one/traefik:/dynamic:ro
       - traefik-acme:/acme
     # Pinned inside VRT_NET_SUBNET so vrt-host can trust X-Forwarded-For
@@ -353,11 +423,47 @@ services:
     networks:
       default:
         ipv4_address: ${VRT_TRAEFIK_IP:-172.31.42.250}
+      socketproxy: {}
     depends_on:
       console:
         condition: service_started
       vrt-host:
         condition: service_started
+      docker-socket-proxy:
+        condition: service_started
+
+  # H3: read-only, filtered Docker API for Traefik. Only the endpoints the
+  # docker provider needs are enabled; POST is disabled. The raw socket is
+  # never mounted into an internet-facing container.
+  docker-socket-proxy:
+    profiles: ['tls']
+    image: ${DOCKER_SOCKET_PROXY_IMAGE:-tecnativa/docker-socket-proxy:0.2.0}
+    restart: unless-stopped
+    environment:
+      CONTAINERS: '1'
+      EVENTS: '1'
+      INFO: '1'
+      NETWORKS: '1'
+      PING: '1'
+      SERVICES: '1'
+      TASKS: '1'
+      VERSION: '1'
+      POST: '0'
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks: ['socketproxy']
+
+secrets:
+  # M9: sourced from the operator's host env at `compose up` time, but exposed
+  # to containers as files under /run/secrets (not `docker inspect` env).
+  plane_admin_token:
+    environment: PLANE_ADMIN_TOKEN
+  plane_signing_secret:
+    environment: PLANE_SIGNING_SECRET
+  plane_secrets_key:
+    environment: PLANE_SECRETS_KEY
+  console_auth_password:
+    environment: CONSOLE_AUTH_PASSWORD
 
 volumes:
   plane-db:
@@ -372,6 +478,15 @@ volumes:
   traefik-acme:
 
 networks:
+  # H3: Traefik <-> docker-socket-proxy only. Internal: no egress, and no
+  # tenant/cell container joins it.
+  socketproxy:
+    internal: true
+  # C1: control-plane persistence network. `internal` blocks egress; only
+  # postgres/plane/console/cell-init join it, so a tenant escaping the
+  # cell netns cannot reach the control-plane database.
+  backend:
+    internal: true
   default:
     ipam:
       config:

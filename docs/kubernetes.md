@@ -57,3 +57,31 @@ ConfigMaps are content-hashed, so changing a TOML restarts the pod. The
 Rolling back a plane release means re-applying the previous overlay revision;
 the cell immediately converges because the snapshot carries a monotonic
 revision fence.
+
+## Probe ingress, storage class and test-only manifests (#65)
+
+- **Kubelet probes and NetworkPolicy (M4/L12).** The cell policy must admit
+  kubelet probes to `vrt-host:9090` and `vrt-sql:8082`. The base rules use a
+  bare `ports:` entry because probes originate from the node, not a pod
+  label. Whether the CNI enforces NetworkPolicy on host/pod traffic varies
+  (Calico does, several others do not). To scope the rules, patch `from:`
+  with an `ipBlock` for the node/pod CIDR:
+
+  ```yaml
+  - from:
+      - ipBlock: { cidr: 10.42.0.0/16 } # k3s default pod CIDR
+    ports: [{ port: 8082, protocol: TCP }]
+  ```
+
+  Keep added blocks inside private ranges; `scripts/vrt-k8s-check.mjs` renders
+  and validates the policy.
+
+- **Local-path storage (M6).** `components/local-path-perms` is an opt-in
+  workaround for storage classes without `fsGroup` support (k3s local-path).
+  It runs a root `chown` init container and therefore lowers the namespace to
+  `baseline`. Prefer a storage class that honors `fsGroup` (Longhorn, EBS,
+  CephFS, ...) and do not include the component there.
+
+- **`deploy/k8s/e2e/plane.yaml` is test-only (L14).** It ships a committed
+  `vrt/vrt` Postgres with no securityContext, resource limits or
+  NetworkPolicy. Never use it outside the kind e2e.

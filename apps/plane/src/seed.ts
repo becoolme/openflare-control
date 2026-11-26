@@ -12,6 +12,7 @@ import { createPlaneStore } from './store.js'
 import { resolvePlaneSigningKey } from './signing.js'
 import { createSecretsCipher } from './secretsCipher.js'
 import { publishCell } from './publish.js'
+import { envSecret } from './envSecret.js'
 
 const args = process.argv.slice(2)
 const opt = (name: string): string | undefined => {
@@ -80,7 +81,7 @@ try {
   }
   const secretKeys = all('secret')
   if (secretKeys.length > 0) {
-    const secretsKey = process.env.PLANE_SECRETS_KEY
+    const secretsKey = envSecret('PLANE_SECRETS_KEY')
     if (!secretsKey || secretsKey.length < 32) {
       throw new Error('PLANE_SECRETS_KEY must be at least 32 characters when --secret is used')
     }
