@@ -83,7 +83,7 @@ describe('signAndRecordCellPublication', () => {
       cellId: 'c1',
       cellView: async () => [view()],
       pendingDoTombstones: async () => [],
-    flagshipApps: async () => [],
+      flagshipApps: async () => [],
       createPublication: async (input: {
         revision: number
         payloadDigest: string

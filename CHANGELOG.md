@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-11-26 — 0.3.2-prepare (maintenance tag)
+
+- Moved `typescript` and `@types/node` from `devDependencies` to `dependencies`
+  so `prepare` works under production-only installs (`pnpm deploy --prod`,
+  Docker images), which skip devDependencies. No API or wire-contract change —
+  this tag is cut from `v0.3.2` so consumers that have not migrated to the
+  newer interfaces can drop their build workaround.
+
 ## 2026-11-22 — re-pin the wire contract to OpenFlare `5751f90`
 
 - Bumped `OPENFLARE_CONTRACT_REV` from `99a834b` to `5751f90` (versioned

@@ -291,9 +291,7 @@ export interface VrtCellTx {
   /** CF Flagship: every team's `{appId, config}` — tenant-level flag model
    * that rides the desired document so a flag edit republishes without a
    * redeploy. Empty when no app exists. */
-  flagshipApps(): Promise<
-    readonly { tenantId: string; appId: string; config: string }[]
-  >
+  flagshipApps(): Promise<readonly { tenantId: string; appId: string; config: string }[]>
   /** Activate `versionId` for `workerId`: supersede the worker's other ACTIVE
    * versions and point `workers.activeVrtVersionId` at it. */
   activateVersion(workerId: string, versionId: string): Promise<void>
