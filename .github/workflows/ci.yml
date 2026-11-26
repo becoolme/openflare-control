@@ -204,6 +204,8 @@ jobs:
       PLANE_SIGNING_SECRET: aio-e2e-signing-secret-0123456789
       PLANE_SECRETS_KEY: aio-e2e-secrets-key-0123456789abcdef
       CONSOLE_AUTH_PASSWORD: aio-e2e-console-password
+      POSTGRES_PASSWORD: aio-e2e-postgres-password
+      REDIS_PASSWORD: aio-e2e-redis-password
       OPENFLARE_DIR: ${{ github.workspace }}/openflare
       VRT_CELL_ID: aio-e2e
     steps:

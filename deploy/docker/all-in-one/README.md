@@ -26,6 +26,8 @@ export PLANE_ADMIN_TOKEN=...      # ≥32 chars, management API
 export PLANE_SIGNING_SECRET=...   # Ed25519 root — derives signing + secrets keys
 export PLANE_SECRETS_KEY=...      # ≥32 chars, secrets at rest
 export CONSOLE_AUTH_PASSWORD=...  # console Basic auth (user: admin)
+export POSTGRES_PASSWORD=...       # control-plane DB (no committed default)
+export REDIS_PASSWORD=...          # tenant KV / purge store (M10)
 export OPENFLARE_DIR=../openflare # sibling checkout with the cell Dockerfiles
 
 # 3. Dev (loopback only):  console :8788, plane :8787, ingress :8080
@@ -47,13 +49,13 @@ are never overwritten — re-running `up` never rotates credentials.
 
 ## What works / what doesn't (fail closed)
 
-| Capability                                                           | Status                                                              |
-| -------------------------------------------------------------------- | ------------------------------------------------------------------- |
-| Workers, versions, hostnames, secrets, assets, D1, queue, cron, logs | ✅                                                                  |
-| KV                                                                   | ✅ via bundled `redis` service (override `VRT_KVROCKS_URL`)         |
-| R2                                                                   | ✅ via bundled `silo` (maintained MinIO fork; `VRT_R2_*` → real S3) |
-| Hyperdrive/pg                                                        | ✅ register origin via admin API; worker connects through `pgProxy` |
-| TLS                                                                  | Traefik profile; cert per SNI hostname on first handshake           |
+| Capability                                                           | Status                                                                           |
+| -------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| Workers, versions, hostnames, secrets, assets, D1, queue, cron, logs | ✅                                                                               |
+| KV                                                                   | ✅ via bundled, **password-protected** `redis` (override `VRT_KVROCKS_URL`; M10) |
+| R2                                                                   | ✅ via bundled `silo` (maintained MinIO fork; `VRT_R2_*` → real S3)              |
+| Hyperdrive/pg                                                        | ✅ register origin via admin API; worker connects through `pgProxy`              |
+| TLS                                                                  | Traefik profile; cert per SNI hostname on first handshake                        |
 
 ## Hyperdrive
 
@@ -89,9 +91,25 @@ dedicated opt-in router: `export PLANE_API_HOST=api.example.com` (DNS →
 this host, tls profile up) gives plane its own `Host()` route + LE
 cert — the tenant catch-all does not cover it. On the remote cell point
 `control_plane_url`, `bundles.baseUrl` and `assets.baseUrl` at
-`https://api.example.com`; every request still carries a bearer token
-(`/api/internal` = per-cell token, `/api/v1` = admin token). Unset
-`PLANE_API_HOST` publishes no route at all.
+`https://api.example.com`.
+
+**Only `/api/internal/*` is published on that router (M11).** The management
+API (`/api/v1`) is never exposed publicly: use the loopback `PLANE_BIND`
+(`127.0.0.1:8787`) over SSH, or front it with your own allowlist/mTLS proxy.
+Unset `PLANE_API_HOST` publishes no route at all.
+
+## Isolation (C1/H3/M10)
+
+- **C1**: the control-plane Postgres lives on an `internal` `backend` network
+  shared only with `plane`, `console` and `cell-init`. The cell data-plane
+  (`default`) cannot reach it, so a tenant escaping to the host container
+  cannot touch the control-plane database. Credentials are required (no
+  `vrt/vrt` default).
+- **H3**: Traefik never mounts the raw Docker socket. It talks to a
+  read-only, filtered `docker-socket-proxy` on an internal network restricted
+  to GET endpoints (no POST/exec).
+- **M10**: Redis requires a password; the cell gets
+  `redis://:<REDIS_PASSWORD>@redis:6379`.
 
 ## vs standalone (`openflare/deploy/standalone`)
 
