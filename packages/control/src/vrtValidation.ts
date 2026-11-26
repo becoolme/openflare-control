@@ -188,7 +188,10 @@ const CRON_DOW_NAMES = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']
 
 /** Standard 5-field cron expression: `minute hour day-of-month month
  * day-of-week`, supporting `*`, lists, ranges, steps and JAN–DEC / SUN–SAT
- * names — mirrors `compute_desired.rs::valid_cron_expression` exactly. */
+ * names plus the Cloudflare day modifiers (`L`/`LW`/`nW` in day-of-month,
+ * `xL`/`x#n` in day-of-week). Day-of-week numbering is Cloudflare's
+ * 1=Sunday..7=Saturday — mirrors `compute_desired.rs::valid_cron_expression`
+ * exactly. */
 export function validVrtCronExpression(value: string): boolean {
   // RV-R69 #3: Rust measures BYTES and splits on ASCII whitespace only
   // (`split_ascii_whitespace`: space \t \n \f \r). Reject every non-ASCII
@@ -204,13 +207,63 @@ export function validVrtCronExpression(value: string): boolean {
     [0, 23, []],
     [1, 31, []],
     [1, 12, CRON_MONTH_NAMES],
-    [0, 7, CRON_DOW_NAMES],
+    [1, 7, CRON_DOW_NAMES],
   ]
-  return fields.every(
-    (field, index) =>
-      field.length > 0 &&
-      field.split(',').every((part) => validCronPart(part, ...spec[index]!, index === 4))
-  )
+  return fields.every((field, index) => {
+    if (field.length === 0) return false
+    if (index === 2) return validCronDomField(field)
+    if (index === 4) return validCronDowField(field, CRON_DOW_NAMES)
+    return field.split(',').every((part) => validCronPart(part, ...spec[index]!, false))
+  })
+}
+
+/** Day-of-month field: plain cron parts plus the Cloudflare modifiers —
+ * bare `L` (last day) and `LW` (last weekday), case-insensitive, and `nW`
+ * (the weekday nearest day `n`, 1–31). */
+function validCronDomField(field: string): boolean {
+  return field.split(',').every((part) => {
+    if (part.toLowerCase() === 'l' || part.toLowerCase() === 'lw') return true
+    const day = stripAsciiModifier(part, 'W')
+    if (day !== null) {
+      if (!/^\d+$/.test(day)) return false
+      const n = parseInt(day, 10)
+      return n >= 1 && n <= 31
+    }
+    return validCronPart(part, 1, 31, [], false)
+  })
+}
+
+/** Day-of-week field: plain cron parts plus `x#n` (the nth x-weekday,
+ * n 1–5) and `xL` (the last x-weekday), where x is a day name or 1–7. */
+function validCronDowField(field: string, names: string[]): boolean {
+  return field.split(',').every((part) => {
+    const hash = part.indexOf('#')
+    if (hash >= 0) {
+      const day = part.slice(0, hash)
+      const occurrence = part.slice(hash + 1)
+      if (!/^\d+$/.test(occurrence)) return false
+      const n = parseInt(occurrence, 10)
+      return validCronDowAtom(day, names) && n >= 1 && n <= 5
+    }
+    const day = stripAsciiModifier(part, 'L')
+    if (day !== null) return validCronDowAtom(day, names)
+    return validCronPart(part, 1, 7, names, true)
+  })
+}
+
+function validCronDowAtom(value: string, names: string[]): boolean {
+  if (names.some((n) => value.toLowerCase() === n)) return true
+  if (!/^\d+$/.test(value)) return false
+  const n = parseInt(value, 10)
+  return n >= 1 && n <= 7
+}
+
+/** Strip exactly one trailing `modifier` (either case); null when absent. */
+function stripAsciiModifier(value: string, modifier: string): string | null {
+  if (value.endsWith(modifier) || value.endsWith(modifier.toLowerCase())) {
+    return value.slice(0, -1)
+  }
+  return null
 }
 
 function validCronPart(
@@ -239,12 +292,17 @@ function validCronPart(
   const atomValue = (value: string, rangeHi = false): number | null => {
     if (/^\d+$/.test(value)) {
       const n = parseInt(value, 10)
-      return n >= min && n <= max ? n : null
+      if (n < min || n > max) return null
+      // Numeric DOW atoms convert from Cloudflare's 1=Sunday..7=Saturday to
+      // internal 0-based ordering; other fields order on the value itself.
+      return dow ? n - 1 : n
     }
     const idx = names.indexOf(value.toLowerCase())
     if (idx < 0) return null
-    // DOW range upper bound: name SUN reads as 7 (`FRI-SUN`).
-    return rangeHi && dow && idx === 0 ? 7 : idx + min
+    // DOW range upper bound: name SUN reads as 7 (`FRI-SUN`). DOW names
+    // otherwise order on their 0-based index; non-DOW names on idx + min.
+    if (rangeHi && dow && idx === 0) return 7
+    return dow ? idx : idx + min
   }
   const dash = base.indexOf('-')
   if (dash >= 0) {

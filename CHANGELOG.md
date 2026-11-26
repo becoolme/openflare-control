@@ -1,5 +1,21 @@
 # Changelog
 
+## 2026-11-26 — 0.6.0: Cloudflare cron day modifiers + weekday numbering
+
+- `validVrtCronExpression` now mirrors the runtime's Cloudflare cron extensions
+  (openflare #30): day-of-month accepts bare `L` (last day), `LW` (last
+  weekday) and `nW` (nearest weekday to day n, 1–31, case-insensitive);
+  day-of-week accepts `xL` (last x-weekday) and `x#n` (nth x-weekday, n 1–5),
+  where x is a day name or 1–7.
+- Day-of-week numbering is Cloudflare's 1=Sunday..7=Saturday (openflare #11):
+  numeric `0` is no longer accepted, and mixed name/numeric ranges order on the
+  internal 0-based scale, so `2-MON` (the same day) is a valid range while
+  `7-5` is rejected. Previously accepted expressions using numeric `0` in the
+  day-of-week position now fail closed — they never meant anything coherent on
+  Cloudflare, where `0` is not a valid weekday.
+- Contract pin `OPENFLARE_CONTRACT_REV` advances to `2b8996c` (OpenFlare main —
+  browser bindings, D1 auto-failover, reference conformance tooling).
+
 ## 2026-11-26 — 0.5.0: BROWSER binding type + browser capability bit (#83)
 
 - `VrtBindingType` gains `BROWSER`; computeDesired validates the sentinel
