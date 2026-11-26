@@ -180,13 +180,14 @@ services:
       vrt-sql:
         condition: service_started
     healthcheck:
-      # M7: the control listener binds only after the first desired snapshot,
-      # so it cannot gate liveness — but the metrics listener (127.0.0.1:9494)
-      # binds at startup. Check it is LISTENing (0x2516) AND that a workerd
-      # child exists; this catches a crashed/hung host that a bare
-      # `test -d /proc/1` would report healthy. (Residual: an event-loop hang
-      # after binding needs an HTTP probe; the image has no curl.)
-      test: ['CMD-SHELL', "grep -Eq '^ *[0-9]+: 0100007F:2516 [0-9A-F:]+ 0A ' /proc/net/tcp && grep -q workerd /proc/[0-9]*/cmdline 2>/dev/null"]
+      # M7: vrt-host binds its control AND metrics listeners only after the
+      # first desired snapshot arrives (cell-controller-delivered), so a port
+      # probe deadlocks. Instead require PID 1 to be alive AND a workerd child
+      # to exist — this catches a crashed/hung host whose workerd died, which
+      # the old bare `test -d /proc/1` reported healthy. Residual: an
+      # event-loop hang after bind still needs an HTTP probe, which requires
+      # vrt-host to bind metrics before the first snapshot (tracked upstream).
+      test: ['CMD-SHELL', 'test -d /proc/1 && grep -q workerd /proc/[0-9]*/cmdline 2>/dev/null']
       interval: 5s
       timeout: 3s
       retries: 12
