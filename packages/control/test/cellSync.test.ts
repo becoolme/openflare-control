@@ -1,13 +1,26 @@
 import { describe, expect, it } from 'vitest'
+import { createHash, generateKeyPairSync } from 'node:crypto'
 import {
   latestDesiredEnvelope,
   recordDesiredAck,
+  signFenceAttestation,
   vrtAckDiagnostics,
   VrtControlError,
   type VrtCellApplyFailedMark,
+  type SnapshotSigningContext,
   type VrtControlStore,
   type VrtStorePublicationDetail,
 } from '../src/index.js'
+
+function fenceSigning(): SnapshotSigningContext {
+  const { privateKey, publicKey } = generateKeyPairSync('ed25519')
+  const spki = publicKey.export({ format: 'der', type: 'spki' }).toString('base64')
+  return {
+    keyId: createHash('sha256').update(spki).digest('hex').slice(0, 24),
+    publicKey: spki,
+    privateKey,
+  }
+}
 
 const envelope = { schemaVersion: 1, cellId: 'c1', revision: 1, tenants: [] }
 
@@ -240,5 +253,117 @@ describe('recordDesiredAck', () => {
     expect(error).toBeInstanceOf(VrtControlError)
     expect(error.errorCode).toBe('VRT_ACK_TERMINAL')
     expect(error.status).toBe(409)
+  })
+})
+
+describe('recordDesiredAck fence proof (#63)', () => {
+  const signing = fenceSigning()
+  const baseInput = {
+    revision: 1,
+    payloadDigest: 'a'.repeat(64),
+    envelopeDigest: 'b'.repeat(64),
+    status: 'APPLIED' as const,
+  }
+  const proofFor = (revision: number) => {
+    const payloadDigest = 'c'.repeat(64)
+    const envelopeDigest = 'd'.repeat(64)
+    return {
+      revision,
+      payloadDigest,
+      envelopeDigest,
+      attestation: signFenceAttestation({
+        scope: 'cell:c1',
+        revision,
+        payloadDigest,
+        envelopeDigest,
+        signing,
+      }),
+    }
+  }
+  const verifier = { signing: { publicKey: signing.publicKey } }
+
+  it('accepts a verified proof and raises the floor as proven', async () => {
+    let called: unknown
+    const base = store({
+      findPublication: async () => publication({ ackStatus: 'PENDING' }),
+      raiseCellRevisionFloor: async (_c, _r, opts) => {
+        called = opts
+        return 'raised'
+      },
+      recordPublicationAck: async () => 'written',
+    })
+    const before = vrtAckDiagnostics.fenceProofAccepted
+    await recordDesiredAck(
+      base,
+      'c1',
+      { ...baseInput, fenceRevision: 5000, fenceProof: proofFor(5000) },
+      verifier
+    )
+    expect(called).toEqual({ proven: true })
+    expect(vrtAckDiagnostics.fenceProofAccepted).toBe(before + 1)
+  })
+
+  it('rejects an invalid proof before any write (fail closed)', async () => {
+    let raised = false
+    let acked = false
+    const base = store({
+      findPublication: async () => publication({ ackStatus: 'PENDING' }),
+      raiseCellRevisionFloor: async () => {
+        raised = true
+        return 'raised'
+      },
+      recordPublicationAck: async () => {
+        acked = true
+        return 'written'
+      },
+    })
+    const proof = proofFor(5000)
+    const error = await recordDesiredAck(
+      base,
+      'c1',
+      {
+        ...baseInput,
+        fenceRevision: 5000,
+        fenceProof: { ...proof, attestation: Buffer.from('bad').toString('base64') },
+      },
+      verifier
+    ).catch((e) => e)
+    expect(error).toBeInstanceOf(VrtControlError)
+    expect(error.errorCode).toBe('VRT_FENCE_PROOF_INVALID')
+    expect(raised).toBe(false)
+    expect(acked).toBe(false)
+  })
+
+  it('rejects a proof whose revision differs from fenceRevision', async () => {
+    const base = store({ findPublication: async () => publication({ ackStatus: 'PENDING' }) })
+    const error = await recordDesiredAck(
+      base,
+      'c1',
+      { ...baseInput, fenceRevision: 5000, fenceProof: proofFor(4999) },
+      verifier
+    ).catch((e) => e)
+    expect(error.errorCode).toBe('VRT_FENCE_PROOF_INVALID')
+  })
+
+  it('requires a verifier: a proof without signing fails closed', async () => {
+    const base = store({ findPublication: async () => publication({ ackStatus: 'PENDING' }) })
+    const error = await recordDesiredAck(base, 'c1', {
+      ...baseInput,
+      fenceRevision: 5000,
+      fenceProof: proofFor(5000),
+    }).catch((e) => e)
+    expect(error.errorCode).toBe('VRT_FENCE_PROOF_INVALID')
+  })
+
+  it('legacy bounded raises stay capped but are counted', async () => {
+    const base = store({
+      findPublication: async () => publication({ ackStatus: 'PENDING' }),
+      raiseCellRevisionFloor: async () => 'rejected',
+      recordPublicationAck: async () => 'written',
+    })
+    const before = vrtAckDiagnostics.fenceRaiseRejected
+    const updated = await recordDesiredAck(base, 'c1', { ...baseInput, fenceRevision: 5000 })
+    expect(updated).toBeDefined()
+    expect(vrtAckDiagnostics.fenceRaiseRejected).toBe(before + 1)
   })
 })

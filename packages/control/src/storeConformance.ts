@@ -236,6 +236,12 @@ export const storeConformanceCases: readonly StoreConformanceCase[] = [
         (await h.store.raiseCellRevisionFloor(h.clusterId, revision + 1_000_000)) === 'rejected',
         'a jump beyond VRT_FENCE_RAISE_MAX_DELTA must be rejected'
       )
+      assert(
+        (await h.store.raiseCellRevisionFloor(h.clusterId, revision + 1_000_000, {
+          proven: true,
+        })) === 'raised',
+        'a proven fence attestation may raise beyond the bounded delta'
+      )
     },
   },
 ]
