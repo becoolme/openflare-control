@@ -1,5 +1,19 @@
 # Changelog
 
+## 2026-11-26 — 0.3.3: prod-safe `prepare` + re-pin to OpenFlare `18017bc`
+
+- Moved `typescript` and `@types/node` from `devDependencies` to `dependencies`.
+  The package ships only `dist` and builds it in `prepare`; consumers that
+  install it from git with production-only semantics (`pnpm deploy --prod`,
+  Docker builds) skip devDependencies, so `prepare` failed with
+  `tsc: not found`. Making the build toolchain a production dependency keeps
+  git installs working without a consumer-side workaround.
+- Re-pinned `OPENFLARE_CONTRACT_REV` to `18017bc` (worker usage metering in the
+  runtime; no wire-fixture change — all three vendored fixtures were already
+  identical).
+- Backfilled this changelog for the `e805c4e` re-pin (#80), which had been
+  missing.
+
 ## 2026-11-25 — re-pin the wire contract to OpenFlare `4a18cd1`
 
 - Bumped `OPENFLARE_CONTRACT_REV` from `5ebe1e0` to `4a18cd1` (configurable
