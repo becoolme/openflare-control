@@ -114,6 +114,21 @@ export interface VrtObservability {
   readonly headSamplingRatePpm: number
 }
 
+/** Workers Cache (`[cache]`) — version-scoped entrypoint response cache.
+ * `key` shapes the cache key (`cf.cacheKey`); absent = default key. */
+export interface VrtCacheDesired {
+  readonly enabled: boolean
+  readonly crossVersionCache: boolean
+  readonly key?: VrtCacheKeyDesired | null
+}
+
+/** Query-string shaping for the cache key. Empty `includeQuery` means
+ * "all", `excludeQuery` always wins; computeDesired sorts + dedupes. */
+export interface VrtCacheKeyDesired {
+  readonly includeQuery?: readonly string[] | null
+  readonly excludeQuery?: readonly string[] | null
+}
+
 /** Wire shape emitted into WorkerDesired.workflows — uniqueKey included;
  * ordering is canonicalized in computeDesired. */
 export interface VrtWorkflowView {
@@ -165,6 +180,8 @@ export interface VrtCellWorkerView {
   readonly versionMetadata?: string | null
   /** CF `[observability]`: gates + sampling; absent ⇒ defaults. */
   readonly observability?: VrtObservability | null
+  /** Workers Cache: absent/disabled ⇒ no `cache` wire field (byte-compat). */
+  readonly cache?: VrtCacheDesired | null
   /** CF typed `[vars]`: non-string values emitted as `{"type":"json"}`. */
   readonly jsonVars?: Readonly<Record<string, unknown>> | null
   readonly quotas: VrtQuotasRecord

@@ -1,5 +1,19 @@
 # Changelog
 
+## 2026-11-27 — 0.7.0: Workers Cache wire (`workers[].cache`)
+
+- `compute.desired` emits `workers[].cache = {enabled, crossVersionCache, key?}`
+  only when the serving version enables it; absent/disabled snapshots stay
+  byte-identical (old cells use `deny_unknown_fields`, so cells upgrade first).
+- The port gains `VrtCellWorkerView.cache` (`VrtCacheDesired` /
+  `VrtCacheKeyDesired`) plus `cacheEnabled` / `crossVersionCache` on
+  `VrtStoreVersion` and `VrtCreateVersionInput`.
+- `key.includeQuery` / `excludeQuery` are sorted + deduped and empty lists are
+  omitted (Rust `skip_serializing_if` parity); a malformed list fails closed by
+  excluding that worker from the publication.
+- Contract pin `OPENFLARE_CONTRACT_REV` advances to `58535a3` (OpenFlare #169 —
+  ingress cache core, single-flight, Range, stale, metrics, purge endpoint).
+
 ## 2026-11-26 — 0.6.0: Cloudflare cron day modifiers + weekday numbering
 
 - `validVrtCronExpression` now mirrors the runtime's Cloudflare cron extensions

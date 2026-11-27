@@ -76,6 +76,9 @@ export interface VrtStoreVersion {
   readonly versionMetadata: string | null
   /** CF `[observability]`: gates + sampling; `null` = defaults. */
   readonly observability?: VrtObservability | null
+  /** Workers Cache flags (absent/false ⇒ disabled, no wire field). */
+  readonly cacheEnabled?: boolean
+  readonly crossVersionCache?: boolean
   /** CF typed `[vars]`: non-string values → `{"type":"json"}` bindings. */
   readonly jsonVars: Readonly<Record<string, unknown>> | null
   readonly quotas: {
@@ -187,6 +190,9 @@ export interface VrtCreateVersionInput {
   readonly jsonVars?: Readonly<Record<string, unknown>> | null
   /** CF `[observability]`: gates + sampling (absent ⇒ defaults). */
   readonly observability?: VrtObservability | null
+  /** Workers Cache flags (absent/false ⇒ disabled, no wire field). */
+  readonly cacheEnabled?: boolean
+  readonly crossVersionCache?: boolean
   /** T37b: resolved queue consumers for this version (empty when the
    * version consumes nothing — older rows simply have no consumer). */
   readonly queueConsumers?: readonly VrtQueueConsumerDraft[]

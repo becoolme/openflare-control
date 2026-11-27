@@ -77,6 +77,7 @@ import {
   VRT_DO_TOMBSTONE_MAX,
   VRT_MAX_QUEUE_CONSUMERS_PER_WORKER,
   type VrtBindingRecord,
+  type VrtCacheDesired,
   type VrtCellWorkerView,
   type VrtCronRecord,
   type VrtDoClassView,
@@ -169,6 +170,10 @@ export interface WorkerDesired {
    * headSamplingRatePpm}`; omitted when absent so old cells keep
    * accepting pre-observability snapshots. */
   readonly observability?: Record<string, unknown>
+  /** Workers Cache — `{enabled, crossVersionCache, key?}`; omitted when
+   * disabled so cache-off snapshots stay byte-identical (old cells
+   * `deny_unknown_fields`). */
+  readonly cache?: Record<string, unknown>
   /** P3c-1: declared DO classes → `durableObjectNamespaces` +
    * `durableObjectStorage.localDisk` in capnp. Optional: omitted
    * entirely when empty so old cells (deny_unknown_fields) keep
@@ -545,6 +550,44 @@ export function crossWorkerEdges(workerId: string, refs: CrossWorkerRefs): Cross
 export function doBindingDeclaringWorkerId(resourceId: string): string | null {
   const sep = resourceId.lastIndexOf(':')
   return sep <= 0 ? null : resourceId.slice(0, sep)
+}
+
+/** Workers Cache wire shape. Rust `CacheDesired` always serializes
+ * `crossVersionCache` and omits an empty/absent `key`, so the TS emitter
+ * must do the same to keep canonical bytes identical. */
+function serializeCacheDesired(cache: VrtCacheDesired): Record<string, unknown> {
+  const key = cache.key
+  let emittedKey: Record<string, unknown> | undefined
+  if (key != null) {
+    const includeQuery = normalizeCacheKeyList(key.includeQuery, 'cache.key.includeQuery')
+    const excludeQuery = normalizeCacheKeyList(key.excludeQuery, 'cache.key.excludeQuery')
+    if (includeQuery.length > 0 || excludeQuery.length > 0) {
+      emittedKey = {
+        ...(includeQuery.length > 0 ? { includeQuery } : {}),
+        ...(excludeQuery.length > 0 ? { excludeQuery } : {}),
+      }
+    }
+  }
+  return {
+    enabled: true,
+    crossVersionCache: cache.crossVersionCache === true,
+    ...(emittedKey ? { key: emittedKey } : {}),
+  }
+}
+
+/** Sorted + deduped query-name list; `null`/absent ⇒ empty. Bounded so a
+ * corrupted row cannot sign an unbounded key descriptor. */
+function normalizeCacheKeyList(raw: readonly string[] | null | undefined, field: string): string[] {
+  if (raw == null) return []
+  if (!Array.isArray(raw)) throw invalid(field)
+  const out = new Set<string>()
+  for (const value of raw) {
+    if (typeof value !== 'string' || value.length === 0 || value.length > 256) {
+      throw invalid(field)
+    }
+    out.add(value)
+  }
+  return [...out].sort()
 }
 
 /** Stored-view adapter (bindings use the stored enum, resourceId = target). */
@@ -1256,6 +1299,9 @@ export function buildComputeDesiredPayload(input: {
                 })(),
               }
             : {}),
+          // Workers Cache — only when explicitly enabled, so cache-off
+          // payloads remain byte-identical (Rust `Option<CacheDesired>`).
+          ...(worker.cache?.enabled === true ? { cache: serializeCacheDesired(worker.cache) } : {}),
           // Wire-compat (P3c-1-r1): the field is emitted ONLY when the
           // worker declares classes. Old cells parse with
           // `deny_unknown_fields` — an unconditional empty array would
