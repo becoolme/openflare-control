@@ -51,6 +51,7 @@ describe('capability bits', () => {
         serviceEntrypoint: false,
         workerLoader: false,
         quotas: false,
+        quotasOutboundConnections: false,
         serviceProps: false,
         queueDeliveryDelay: false,
         analyticsEngine: false,

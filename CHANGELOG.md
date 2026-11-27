@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-11-27 — 0.7.1: `quotasOutboundConnections` capability sub-bit
+
+- Adds the `quotasOutboundConnections` cell capability bit (a sub-bit of
+  `quotas`): the pinned workerd fork accepts `limits.outboundConnections`
+  (`@24`) only once the bit is reported.
+- `VrtCapabilityNeeds` gains `quotaDeviation` / `quotaOutboundDeviation`;
+  `requiredCapabilities` requires `quotas` for the former and
+  `quotasOutboundConnections` for the latter. `nonDefaultQuotaCount` remains
+  supported for existing callers.
+
 ## 2026-11-27 — 0.7.0: Workers Cache wire (`workers[].cache`)
 
 - `compute.desired` emits `workers[].cache = {enabled, crossVersionCache, key?}`

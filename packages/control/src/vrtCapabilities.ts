@@ -34,6 +34,15 @@ export const VRT_CELL_CAPABILITY_KEYS = [
   'workerLoader',
   /** Per-worker quotas render into workerd's `limits` block. */
   'quotas',
+  /**
+   * The pinned workerd fork accepts and enforces
+   * `limits.outboundConnections` (`@24`). A SUB-bit of `quotas`: an older
+   * fork renders `limits` but its capnp schema rejects `@24`, so the whole
+   * config fails to assemble. A separate bit lets the control plane roll the
+   * new fork per cell without pretending every `quotas`-capable cell can
+   * enforce an outbound budget.
+   */
+  'quotasOutboundConnections',
   /** SERVICE `props` (`ctx.props`) is understood by this cell generation. */
   'serviceProps',
   /** Queue-level `deliveryDelaySeconds` is understood by this cell generation. */
@@ -117,6 +126,11 @@ export interface VrtCapabilityNeeds {
   readonly workerLoaderCount?: number
   /** Workers declaring non-default quotas (limits block rendered). */
   readonly nonDefaultQuotaCount?: number
+  /** The version declares an enforceable (non-default) quota dimension. */
+  readonly quotaDeviation?: boolean
+  /** The version declares a non-default `outboundConnections` value
+   * (including `0`, which the newer fork renders as "unlimited"). */
+  readonly quotaOutboundDeviation?: boolean
   /** Tail Workers declared by the version (`tail_consumers`). */
   readonly tailConsumerCount?: number
   /** Streaming Tail Workers declared by the version. */
@@ -170,7 +184,8 @@ export function requiredCapabilities(needs: VrtCapabilityNeeds): VrtCellCapabili
   if ((needs.servicePropsCount ?? 0) > 0) out.add('serviceProps')
   if ((needs.queueDeliveryDelayCount ?? 0) > 0) out.add('queueDeliveryDelay')
   if ((needs.workerLoaderCount ?? 0) > 0) out.add('workerLoader')
-  if ((needs.nonDefaultQuotaCount ?? 0) > 0) out.add('quotas')
+  if ((needs.nonDefaultQuotaCount ?? 0) > 0 || needs.quotaDeviation === true) out.add('quotas')
+  if (needs.quotaOutboundDeviation === true) out.add('quotasOutboundConnections')
   if ((needs.tailConsumerCount ?? 0) > 0) out.add('tailConsumers')
   if ((needs.streamingTailConsumerCount ?? 0) > 0) out.add('streamingTailConsumers')
   if (needs.observabilityDeclared) out.add('observability')
