@@ -221,6 +221,19 @@ redispatched, and FAILED/EXPIRED leaves the row for the caller to retry.
 Deploying a `VECTORIZE` binding requires a cell new enough to parse the
 vectorize wire variant.
 
+### Workers Cache purge
+
+`POST /api/v1/cells/{cell}/teams/{team}/cache/purge` invalidates Workers Cache
+entries cell-wide. The body carries exactly one mode — `workerName` (one
+worker's entries, by name; the worker need not still exist), `tags` (1-1000),
+`pathPrefix` (leading `/`) or `all: true` — validated with the vrt-host wire
+rules. `tenantId` is server-injected from the verified team, so a purge can
+never reach another tenant's entries. The endpoint returns
+`202 {opId, channel:"cell", status:"PURGE_PENDING"}` and is fail-closed `409`
+unless the cell reports the `cachePurge` capability (its controller is wired
+with `[cache_purge]`): the op fans out to every pod's loopback purge endpoint
+because entries are pod-local. Poll with the generic cell-ops endpoints.
+
 Workflow declarations and Durable Object classes are **worker-scoped** in the
 reference plane, not snapshot-version-scoped: activating or rolling back a
 version does not restore the declaration rowset. Re-POST the desired
