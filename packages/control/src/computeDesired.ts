@@ -577,10 +577,7 @@ function serializeCacheDesired(cache: VrtCacheDesired): Record<string, unknown> 
 
 /** Sorted + deduped query-name list; `null`/absent ⇒ empty. Bounded so a
  * corrupted row cannot sign an unbounded key descriptor. */
-function normalizeCacheKeyList(
-  raw: readonly string[] | null | undefined,
-  field: string
-): string[] {
+function normalizeCacheKeyList(raw: readonly string[] | null | undefined, field: string): string[] {
   if (raw == null) return []
   if (!Array.isArray(raw)) throw invalid(field)
   const out = new Set<string>()
@@ -1304,9 +1301,7 @@ export function buildComputeDesiredPayload(input: {
             : {}),
           // Workers Cache — only when explicitly enabled, so cache-off
           // payloads remain byte-identical (Rust `Option<CacheDesired>`).
-          ...(worker.cache?.enabled === true
-            ? { cache: serializeCacheDesired(worker.cache) }
-            : {}),
+          ...(worker.cache?.enabled === true ? { cache: serializeCacheDesired(worker.cache) } : {}),
           // Wire-compat (P3c-1-r1): the field is emitted ONLY when the
           // worker declares classes. Old cells parse with
           // `deny_unknown_fields` — an unconditional empty array would
