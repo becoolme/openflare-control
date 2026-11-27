@@ -67,6 +67,22 @@ secretKeyEnv = "VRT_R2_BINDING_SECRET_KEY"
 multipartTtlMs = 604800000
 conditionalWrites = true
 
+
+# Workers Cache invalidation — the CACHE_PURGE fan-out executor. The
+# token is the SAME secret vrt-host reads (VRT_CACHE_PURGE_TOKEN env in
+# BOTH containers of this pod): the host mounts POST
+# /internal/cache/purge on its loopback control listener only when it
+# is set, and the controller reports cachePurge=true only when it can
+# sign with the same value — one vrt-secrets key (cache-purge-token)
+# serves both sides, never a half-wired purge path. Absent key => the
+# host mounts no route and the controller wires no executor, so the
+# capability simply stays off. Requires a cell image carrying
+# openflare#170: ProdConfig is deny_unknown_fields, an older binary
+# refuses this section at load (config and image advance together).
+[cache_purge]
+tokenEnv = "VRT_CACHE_PURGE_TOKEN"
+timeoutMs = 5000
+
 [[pods]]
 id = "pod-0"
 dir = "/run/vrt/pod-delivery"

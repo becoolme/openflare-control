@@ -804,6 +804,60 @@ const R2_LOCKSTEP_KEYS = [
   ['conditionalWrites', true],
   ['multipartTtlMs', 604800000],
 ]
+/// Workers Cache purge is a TWO-container contract over ONE token:
+/// vrt-host mounts `/internal/cache/purge` on its loopback control
+/// listener only when VRT_CACHE_PURGE_TOKEN is set, and the
+/// cell-controller's [cache_purge] fan-out executor signs requests
+/// with the same value (its tokenEnv names the env). Wiring one side
+/// without the other means the cell either claims cachePurge against
+/// pods that mount no route, or mounts a purge route nothing can sign
+/// — fail the render instead. Absent section => capability simply
+/// stays off, nothing to assert.
+export function cachePurgeFailures(rendered) {
+  const out = []
+  let docs
+  try {
+    docs = parseDocs(rendered)
+  } catch {
+    return out
+  }
+  const files = {}
+  for (const d of docs.filter((x) => x.kind === 'ConfigMap')) {
+    for (const [k, v] of Object.entries(d.data ?? {})) {
+      if (k.endsWith('.toml')) {
+        try {
+          files[k] = parseToml(String(v))
+        } catch {
+          // malformed toml is already reported by configContractFailures
+        }
+      }
+    }
+  }
+  const cell = files['cell-controller.toml']
+  const section = cell?.cache_purge
+  if (!section) return out
+  const envName = section.tokenEnv
+  if (envName !== 'VRT_CACHE_PURGE_TOKEN') {
+    out.push(
+      `cache_purge: tokenEnv must be VRT_CACHE_PURGE_TOKEN (got ${envName}) — the name is pinned with the vrt-secrets cache-purge-token key`
+    )
+  }
+  const dep = docs.find((d) => d.kind === 'Deployment' && d.metadata?.name === 'vrt-host')
+  const containers = dep?.spec?.template?.spec?.containers ?? []
+  if (dep) {
+    for (const cname of ['vrt-host', 'cell-controller']) {
+      const c = containers.find((x) => x?.name === cname)
+      const has = (c?.env ?? []).some((e) => e?.name === envName)
+      if (!has) {
+        out.push(
+          `cache_purge: Deployment vrt-host container ${cname} has no env ${envName} — the purge channel is half-wired (one side of host/controller cannot authenticate)`
+        )
+      }
+    }
+  }
+  return out
+}
+
 export function r2BindingFailures(rendered) {
   const out = []
   let docs
@@ -1381,6 +1435,7 @@ export function validateRendered(rendered, { template = false } = {}) {
     ...fsGroupPolicyFailures(rendered),
     ...configContractFailures(rendered),
     ...kvrocksFailures(rendered),
+    ...cachePurgeFailures(rendered),
     ...r2BindingFailures(rendered),
     ...tenantIngressNetpolFailures(rendered),
     ...tenantEgressNetpolFailures(rendered),

@@ -167,6 +167,12 @@ services:
     image: openflare-cell-host:local
     pull_policy: never
     entrypoint: ['/usr/local/bin/vrt-host', '--config', '/etc/vrt/vrt-host.toml']
+    environment:
+      # Workers Cache purge gate — same value in the cell-controller
+      # service below (they share this netns; the host mounts
+      # /internal/cache/purge on its loopback control listener only
+      # when set). Dev-grade fixed value, override for anything real.
+      VRT_CACHE_PURGE_TOKEN: ${VRT_CACHE_PURGE_TOKEN:-dev-cache-purge-token}
     ports: ['${VRT_BIND:-127.0.0.1}:8080:8080']
     volumes:
       - cell-run:/run/vrt
@@ -210,6 +216,9 @@ services:
       VRT_KVROCKS_URL: ${VRT_KVROCKS_URL:-redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD}@redis:6379}
       VRT_R2_BINDING_ACCESS_KEY: ${VRT_R2_BINDING_ACCESS_KEY:-openflare-r2-binding}
       VRT_R2_BINDING_SECRET_KEY: ${VRT_R2_BINDING_SECRET_KEY:-openflare-r2-binding-secret}
+      # Must equal the vrt-host service value — the fan-out executor
+      # signs purge requests with it and the host accepts nothing else.
+      VRT_CACHE_PURGE_TOKEN: ${VRT_CACHE_PURGE_TOKEN:-dev-cache-purge-token}
     volumes:
       - cell-run:/run/vrt
       - cell-config:/etc/vrt:ro
