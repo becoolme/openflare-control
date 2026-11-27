@@ -7,6 +7,7 @@ import { registerQueueService } from './queues.js'
 import { registerR2Service } from './r2.js'
 import { registerWorkflowService } from './workflows.js'
 import { registerVectorizeService } from './vectorize.js'
+import { registerCacheService } from './cache.js'
 
 export function registerServices(app: Hono, deps: AdminDeps): void {
   registerD1Service(app, deps)
@@ -16,6 +17,7 @@ export function registerServices(app: Hono, deps: AdminDeps): void {
   registerQueueService(app, deps)
   registerWorkflowService(app, deps)
   registerVectorizeService(app, deps)
+  registerCacheService(app, deps)
 
   // One catalog for "what does this cell own?" — used by the console/CLI to
   // assemble worker bindings without knowing every resource table.

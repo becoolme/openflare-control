@@ -67,6 +67,7 @@ describe('capability bits', () => {
         unsafeEval: false,
         versionMetadata: false,
         browser: false,
+        cachePurge: false,
       }
     )
     expect(normalizeVrtCellCapabilities(null)).toBeNull()
