@@ -215,6 +215,45 @@ describe('version-scoped worker fields', () => {
     expect(bad.payload.tenants[0]!.workers).toHaveLength(0)
     expect(bad.excluded[0]!.reason).toMatch(/headSamplingRatePpm/)
   })
+
+  it('workers cache is omitted when disabled and serialized when enabled', () => {
+    const plain = build(worker({ cache: { enabled: false, crossVersionCache: false } })).payload
+      .tenants[0]!.workers[0]!
+    expect(plain).not.toHaveProperty('cache')
+
+    const on = build(worker({ cache: { enabled: true, crossVersionCache: true } })).payload
+      .tenants[0]!.workers[0]!
+    expect(on).toMatchObject({ cache: { enabled: true, crossVersionCache: true } })
+    expect((on.cache as Record<string, unknown>).key).toBeUndefined()
+
+    // Query shaping is sorted + deduped; empty lists are omitted.
+    const keyed = build(
+      worker({
+        cache: {
+          enabled: true,
+          crossVersionCache: false,
+          key: { includeQuery: ['b', 'a', 'a'], excludeQuery: ['utm_source'] },
+        },
+      })
+    ).payload.tenants[0]!.workers[0]!
+    expect(keyed).toMatchObject({
+      cache: {
+        enabled: true,
+        crossVersionCache: false,
+        key: { includeQuery: ['a', 'b'], excludeQuery: ['utm_source'] },
+      },
+    })
+  })
+
+  it('a malformed cache key excludes the worker', () => {
+    const bad = build(
+      worker({
+        cache: { enabled: true, crossVersionCache: false, key: { includeQuery: [''] } },
+      })
+    )
+    expect(bad.payload.tenants[0]!.workers).toHaveLength(0)
+    expect(bad.excluded[0]!.reason).toMatch(/cache\.key/)
+  })
 })
 
 describe('capability gating for the new binding kinds', () => {
