@@ -88,6 +88,11 @@ Version body:
     "invocationLogs": false,
     "headSamplingRatePpm": 250000
   },
+  "cache": {
+    "enabled": true,
+    "crossVersionCache": false,
+    "key": { "includeQuery": ["page", "q"], "excludeQuery": ["utm_source"] }
+  },
   "exportedClassNames": ["MyDO"],
   "assetsRouting": null,
   "assetsRunWorkerFirst": []
@@ -107,8 +112,20 @@ and optionally publishes the cell, returning
 `{version,created,activated,revision}`. The returned `version.versionId` is
 authoritative: identical content (bundle + the full runtime-config
 fingerprint — bindings, vars, crons, queue consumers, tails, observability,
-version metadata, assets routing, quotas) reuses the existing version row
+cache, version metadata, assets routing, quotas) reuses the existing version row
 instead of creating a duplicate.
+
+`cache` opts the serving version into the Workers Cache (entrypoint response
+cache). `enabled` is the master switch — absent or `false` keeps the snapshot
+byte-identical to a cache-less worker, so old cells never see the field.
+`crossVersionCache` shares entries across versions (default: the version id is
+part of the key and a deploy starts cold); `key.includeQuery`/`excludeQuery`
+shape the query-string part of the cache key (`exclude` always wins, empty
+`include` means all). Deploying with `enabled: true` requires the cell's
+`cache` capability — a pre-cache cell would reject the unknown worker field
+and stall the whole publication, so the plane fails closed with
+`409 VRT_CELL_CAPABILITY_MISSING` instead. Cache entries are pod-local; use
+the cache-purge endpoint to invalidate them.
 
 `vars` accepts strings and JSON values. Strings stay worker-scoped and are
 served through `render-inputs`; non-strings become version-scoped

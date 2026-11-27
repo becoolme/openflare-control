@@ -117,6 +117,7 @@ maybe('version-scoped fields', () => {
       streamingTailConsumers: true,
       observability: true,
       versionMetadata: true,
+      cache: true,
     })
     for (const name of [worker, tail]) {
       expect((await call('POST', `${base}/workers`, { teamId: team, name })).status).toBe(201)
@@ -163,6 +164,11 @@ maybe('version-scoped fields', () => {
           logsEnabled: true,
           invocationLogs: false,
           headSamplingRatePpm: 250_000,
+        },
+        cache: {
+          enabled: true,
+          crossVersionCache: true,
+          key: { includeQuery: ['page', 'q'], excludeQuery: ['utm_source'] },
         },
         assetsRouting: 'ASSETS_FIRST',
         assetsRunWorkerFirst: ['/api/*'],
@@ -215,6 +221,11 @@ maybe('version-scoped fields', () => {
       logsEnabled: true,
       invocationLogs: false,
       headSamplingRatePpm: 250_000,
+    })
+    expect(hello.cache).toEqual({
+      enabled: true,
+      crossVersionCache: true,
+      key: { includeQuery: ['page', 'q'], excludeQuery: ['utm_source'] },
     })
     const assets = hello.bindings.find((b: any) => b.type === 'assets')
     expect(assets).toMatchObject({ assetsFirst: true, runWorkerFirst: ['/api/*'] })
@@ -285,6 +296,20 @@ maybe('version-scoped fields', () => {
             invocationLogs: true,
             headSamplingRatePpm: 1_000_001,
           },
+        })
+      ).status
+    ).toBe(400)
+    expect(
+      (
+        await create(`bad-cache-${suffix}`, {
+          cache: { enabled: true, key: { includeQuery: [''] } },
+        })
+      ).status
+    ).toBe(400)
+    expect(
+      (
+        await create(`bad-cache-unknown-${suffix}`, {
+          cache: { enabled: true, unknownKey: true },
         })
       ).status
     ).toBe(400)
