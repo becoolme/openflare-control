@@ -79,6 +79,11 @@ export const VRT_CELL_CAPABILITY_KEYS = [
    * an older control plane never rejects a newer cell's ACK — the bit is
    * required only when a purge is actually enqueued. */
   'cachePurge',
+  /** Workers Cache serving — the `cache` per-worker desired field renders
+   * on this cell generation. A pre-cache cell rejects the unknown worker
+   * field via `deny_unknown_fields`, so cache-enabled workers are admitted
+   * only onto cells that claim it (same gate shape as `observability`). */
+  'cache',
 ] as const
 
 export type VrtCellCapabilityKey = (typeof VRT_CELL_CAPABILITY_KEYS)[number]
@@ -142,6 +147,8 @@ export interface VrtCapabilityNeeds {
   readonly streamingTailConsumerCount?: number
   /** `[observability]` declared on the version (worker-level wire field). */
   readonly observabilityDeclared?: boolean
+  /** `[cache]` enabled on the version (worker-level wire field). */
+  readonly cacheDeclared?: boolean
   /** `[version_metadata]` declared — emits a `{"type":"json"}` binding. */
   readonly versionMetadata?: boolean
 }
@@ -194,6 +201,7 @@ export function requiredCapabilities(needs: VrtCapabilityNeeds): VrtCellCapabili
   if ((needs.tailConsumerCount ?? 0) > 0) out.add('tailConsumers')
   if ((needs.streamingTailConsumerCount ?? 0) > 0) out.add('streamingTailConsumers')
   if (needs.observabilityDeclared) out.add('observability')
+  if (needs.cacheDeclared) out.add('cache')
   if (needs.versionMetadata) out.add('versionMetadata')
   return VRT_CELL_CAPABILITY_KEYS.filter((k) => out.has(k))
 }

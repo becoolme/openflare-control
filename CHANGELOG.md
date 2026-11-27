@@ -1,5 +1,21 @@
 # Changelog
 
+## 2026-11-27 — 0.7.3: Workers Cache enablement through the deploy path
+
+- Version creation accepts a `cache` object (`enabled`, `crossVersionCache`,
+  optional `key.includeQuery`/`excludeQuery` — names 1..256 chars, at most 64)
+  on both `POST /versions` and `POST /deploy`; it joins the runtime-config
+  fingerprint, round-trips through the version row into the cell view, and
+  `computeDesired` emits the `cache` worker field (omitted unless enabled, so
+  cache-off snapshots stay byte-identical for old cells).
+- New `cache` cell capability bit + `cacheDeclared` deploy gate: a pre-cache
+  cell rejects the unknown worker field via `deny_unknown_fields`, which would
+  stall the whole publication — the plane therefore fails closed with
+  `409 VRT_CELL_CAPABILITY_MISSING` when a cache-enabled version targets a
+  cell that does not claim the bit (claimed unconditionally by openflare
+  #172's generation).
+- The version-readback response now carries the active version's `cache`.
+
 ## 2026-11-27 — 0.7.2: `cachePurge` capability bit + cache-purge op endpoint
 
 - Adds the `cachePurge` cell capability bit: a cell reports it when its

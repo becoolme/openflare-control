@@ -73,6 +73,25 @@ const versionBody = z
       .strict()
       .nullable()
       .optional(),
+    // Workers Cache (`[cache]`): entrypoint response cache. `enabled` is the
+    // master switch; key shaping mirrors computeDesired's bounds (names
+    // 1..256 chars, sorted+deduped at the snapshot boundary).
+    cache: z
+      .object({
+        enabled: z.boolean(),
+        crossVersionCache: z.boolean().default(false),
+        key: z
+          .object({
+            includeQuery: z.array(z.string().min(1).max(256)).max(64).nullable().optional(),
+            excludeQuery: z.array(z.string().min(1).max(256)).max(64).nullable().optional(),
+          })
+          .strict()
+          .nullable()
+          .optional(),
+      })
+      .strict()
+      .nullable()
+      .optional(),
     // CF `[version_metadata]`: env binding name for `{id, tag, timestamp}`.
     versionMetadata: key.nullable().optional(),
     // Tail consumers are resolved worker ids (`team:name`), same team/cell.
@@ -377,6 +396,7 @@ async function createVersion(
       tailConsumerCount: tailConsumers.length,
       streamingTailConsumerCount: streamingTailConsumers.length,
       observabilityDeclared: body.observability != null,
+      cacheDeclared: body.cache?.enabled === true,
       versionMetadata: body.versionMetadata != null,
     })
     const missing = missingCapabilities(required, capabilities)
@@ -430,6 +450,7 @@ async function createVersion(
       streamingTailConsumers,
       versionMetadata: body.versionMetadata ?? null,
       observability: body.observability ?? null,
+      cache: body.cache ?? null,
       jsonVars,
       assetsRouting: body.assetsRouting ?? null,
       assetsRunWorkerFirst: body.assetsRunWorkerFirst ?? [],
@@ -458,6 +479,7 @@ async function createVersion(
     streamingTailConsumers: streamingTailConsumers.length > 0 ? streamingTailConsumers : undefined,
     versionMetadata: body.versionMetadata ?? null,
     observability: body.observability ?? null,
+    cache: body.cache ?? null,
     jsonVars: Object.keys(jsonVars).length > 0 ? jsonVars : null,
     assetsRouting: body.assetsRouting ?? null,
     assetsRunWorkerFirst: body.assetsRunWorkerFirst ?? [],
@@ -627,6 +649,7 @@ export function registerWorkers(app: Hono, deps: AdminDeps): void {
         vars,
         jsonVars: activeVersion?.jsonVars ?? null,
         observability: activeVersion?.observability ?? null,
+        cache: activeVersion?.cache ?? null,
         versionMetadata: activeVersion?.versionMetadata ?? null,
         tailConsumers: activeVersion?.tailConsumers ?? [],
         streamingTailConsumers: activeVersion?.streamingTailConsumers ?? [],

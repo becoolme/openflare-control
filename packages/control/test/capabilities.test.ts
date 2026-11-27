@@ -72,9 +72,18 @@ describe('capability requirements', () => {
       'versionMetadata',
       'browser',
       'cachePurge',
+      'cache',
     ]) {
       expect(VRT_CELL_CAPABILITY_KEYS).toContain(key)
     }
+  })
+
+  it('gates cache-enabled versions on the cache serving bit', () => {
+    const required = requiredCapabilities(needs({ cacheDeclared: true }))
+    expect(required).toEqual(['cache'])
+    expect(requiredCapabilities(needs({ cacheDeclared: false }))).toEqual([])
+    expect(missingCapabilities(required, { cache: true })).toEqual([])
+    expect(missingCapabilities(required, null)).toEqual(['cache'])
   })
 
   it('gates BROWSER bindings on the browser capability bit', () => {
