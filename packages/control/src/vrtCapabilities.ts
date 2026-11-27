@@ -74,6 +74,11 @@ export const VRT_CELL_CAPABILITY_KEYS = [
    * `facade-browser` system worker (Browser Rendering `/v1/*` over the
    * vendored kitesurf engine). */
   'browser',
+  /** `[cache_purge]` wired: the cell accepts CACHE_PURGE ops and fans
+   * them out to every pod's loopback purge endpoint. Recognized here so
+   * an older control plane never rejects a newer cell's ACK — the bit is
+   * required only when a purge is actually enqueued. */
+  'cachePurge',
 ] as const
 
 export type VrtCellCapabilityKey = (typeof VRT_CELL_CAPABILITY_KEYS)[number]

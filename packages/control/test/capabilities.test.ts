@@ -71,6 +71,7 @@ describe('capability requirements', () => {
       'unsafeEval',
       'versionMetadata',
       'browser',
+      'cachePurge',
     ]) {
       expect(VRT_CELL_CAPABILITY_KEYS).toContain(key)
     }

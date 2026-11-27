@@ -1,5 +1,19 @@
 # Changelog
 
+## 2026-11-27 — 0.7.2: `cachePurge` capability bit + cache-purge op endpoint
+
+- Adds the `cachePurge` cell capability bit: a cell reports it when its
+  controller is wired with `[cache_purge]` (openflare #170), proving it can
+  fan CACHE_PURGE ops out to every pod's loopback purge endpoint. Accepted in
+  ACKs so an older control plane never rejects a newer cell; required only
+  when a purge is actually enqueued.
+- The plane gains `POST /api/v1/cells/:cellId/teams/:teamId/cache/purge` —
+  exactly one of `workerName` / `tags` / `pathPrefix` / `all`, validated with
+  the vrt-host wire rules; `tenantId` is server-injected from the verified
+  team and the worker wire id is derived server-side. The op is minted only
+  when the cell reports `cachePurge` (409 otherwise — an op nothing can ack
+  would sit PENDING until expiry).
+
 ## 2026-11-27 — 0.7.1: `quotasOutboundConnections` capability sub-bit
 
 - Adds the `quotasOutboundConnections` cell capability bit (a sub-bit of
