@@ -31,6 +31,19 @@ describe('capability requirements', () => {
     ).toEqual(['serviceEntrypoint', 'workerLoader', 'quotas', 'serviceProps', 'queueDeliveryDelay'])
   })
 
+  it('gates outbound quotas on the sub-bit, not plain quotas', () => {
+    const outbound = requiredCapabilities(
+      needs({ quotaDeviation: true, quotaOutboundDeviation: true })
+    )
+    expect(outbound).toEqual(['quotas', 'quotasOutboundConnections'])
+    expect(missingCapabilities(outbound, { quotas: true })).toEqual(['quotasOutboundConnections'])
+    expect(
+      missingCapabilities(outbound, { quotas: true, quotasOutboundConnections: true })
+    ).toEqual([])
+    // A plain quota deviation never requires the outbound sub-bit.
+    expect(requiredCapabilities(needs({ quotaDeviation: true }))).toEqual(['quotas'])
+  })
+
   it('treats absent/unknown cells as unsupported', () => {
     const required = requiredCapabilities(needs({ servicePropsCount: 1 }))
     expect(missingCapabilities(required, null)).toEqual(['serviceProps'])
@@ -43,6 +56,7 @@ describe('capability requirements', () => {
     expect(VRT_CELL_CAPABILITY_KEYS).toContain('queueDeliveryDelay')
     expect(VRT_CELL_CAPABILITY_KEYS).toContain('workerLoader')
     expect(VRT_CELL_CAPABILITY_KEYS).toContain('quotas')
+    expect(VRT_CELL_CAPABILITY_KEYS).toContain('quotasOutboundConnections')
     // Newer runtime bits are accepted so an older control plane never
     // rejects a healthy cell's ACK.
     for (const key of [
