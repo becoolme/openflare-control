@@ -176,6 +176,17 @@ spec:
                 configMapKeyRef:
                   name: vrt-cell
                   key: cell_id
+            # Workers Cache purge gate: the host mounts POST
+            # /internal/cache/purge on the loopback control listener
+            # ONLY when this env is set (fail closed — absent means no
+            # route at all). Same vrt-secrets key the cell-controller
+            # signs CACHE_PURGE fan-out requests with.
+            - name: VRT_CACHE_PURGE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: vrt-secrets
+                  key: cache-purge-token
+                  optional: true
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -390,6 +401,17 @@ spec:
                 secretKeyRef:
                   name: vrt-secrets
                   key: r2-binding-secret-key
+                  optional: true
+            # [cache_purge] tokenEnv — the SAME cache-purge-token key
+            # the vrt-host container reads: one Secret projection
+            # serves both sides of the purge channel. Absent key =>
+            # executor wiring fails closed and the cell never claims
+            # the cachePurge capability.
+            - name: VRT_CACHE_PURGE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: vrt-secrets
+                  key: cache-purge-token
                   optional: true
           securityContext:
             allowPrivilegeEscalation: false
