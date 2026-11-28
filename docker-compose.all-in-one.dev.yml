@@ -1,0 +1,70 @@
+# Development override — builds every image from source instead of pulling
+# the published release set. Use:
+#
+#   docker compose -f docker-compose.all-in-one.yml \
+#     -f docker-compose.all-in-one.dev.yml up -d --build
+#
+# or export COMPOSE_FILE=docker-compose.all-in-one.yml:docker-compose.all-in-one.dev.yml
+# and use plain compose / the e2e scripts unchanged.
+#
+# Cell images build from the sibling openflare checkout (OPENFLARE_DIR);
+# vrt-host needs the pinned workerd binary fetched there first:
+#   node scripts/vrt-fetch-workerd.mjs --arch linux-x64   # or linux-arm64
+#
+# CI exercises THIS path so a source build can never rot while users ride
+# the prebuilt one.
+
+services:
+  plane:
+    image: openflare-plane:local
+    build: { context: ., dockerfile: apps/plane/Dockerfile }
+    pull_policy: never
+
+  console:
+    image: openflare-console:local
+    build: { context: ., dockerfile: apps/console/Dockerfile }
+    pull_policy: never
+
+  cell-init:
+    # Same Dockerfile as the plane — the layer cache makes this a no-op
+    # rebuild; the entrypoint override lives in the base file.
+    image: openflare-cell-init:local
+    build: { context: ., dockerfile: apps/plane/Dockerfile }
+    pull_policy: never
+
+  vrt-host:
+    image: openflare-cell-host:local
+    build:
+      context: ${OPENFLARE_DIR:-../openflare}
+      dockerfile: deploy/docker/Dockerfile.vrt-host
+      args:
+        WORKERD_SOURCE: ${WORKERD_SOURCE:-file}
+        WORKERD_SHA256: ${WORKERD_SHA256:-}
+        VRT_UID: ${VRT_UID:-10001}
+        VRT_GID: ${VRT_GID:-10001}
+    pull_policy: never
+
+  cell-controller:
+    image: openflare-cell-controller:local
+    build:
+      context: ${OPENFLARE_DIR:-../openflare}
+      dockerfile: deploy/docker/Dockerfile.cell-controller
+    pull_policy: never
+
+  vrt-provider:
+    image: openflare-cell-provider:local
+    build:
+      context: ${OPENFLARE_DIR:-../openflare}
+      dockerfile: deploy/docker/Dockerfile.vrt-provider
+    pull_policy: never
+
+  vrt-sql:
+    image: openflare-cell-sql:local
+    build:
+      context: ${OPENFLARE_DIR:-../openflare}
+      dockerfile: deploy/docker/Dockerfile.vrt-sql
+    pull_policy: never
+
+  vrt-sql-follower:
+    image: openflare-cell-sql:local
+    pull_policy: never

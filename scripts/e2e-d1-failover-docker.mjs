@@ -107,7 +107,13 @@ pollIntervalMs = 200
 retainGenerations = 2
 `
 )
-const compose = ['compose', '-f', 'docker-compose.all-in-one.yml', '--profile', 'failover']
+// COMPOSE_FILE (colon-separated) layers the dev override in CI without
+// editing call sites; default is the prebuilt base file alone.
+const composeFiles = (process.env.COMPOSE_FILE ?? 'docker-compose.all-in-one.yml')
+  .split(':')
+  .filter(Boolean)
+const composeArgv = composeFiles.flatMap((f) => ['-f', f])
+const compose = ['compose', ...composeArgv, '--profile', 'failover']
 let followerStarted = false
 const stopFollower = () => {
   if (!followerStarted) return
@@ -123,7 +129,7 @@ try {
   followerStarted = true
 
   // Stop the writer so the follower's manifest head is final.
-  docker(['compose', '-f', 'docker-compose.all-in-one.yml', 'stop', 'vrt-sql'])
+  docker(['compose', ...composeArgv, 'stop', 'vrt-sql'])
 
   // Enqueue PROMOTE until the follower is caught up (409/FAILED before that).
   const promoteWithDiagnostics = async () => {
@@ -183,7 +189,7 @@ try {
   console.log('d1 failover: writer epoch', detail.writer.epoch, 'addr', detail.writer.addr)
 
   // Restart the writer: it claims the promoted epoch and must serve the data.
-  docker(['compose', '-f', 'docker-compose.all-in-one.yml', 'start', 'vrt-sql'])
+  docker(['compose', ...composeArgv, 'start', 'vrt-sql'])
   await waitFor(
     async () => {
       const h = await api('POST', `/api/v1/cells/${CELL}/d1/databases/${dbId}/query`, {
