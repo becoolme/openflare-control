@@ -89,6 +89,22 @@ Reducing a window intentionally deletes older metrics/history; the API returns
 counts for each table (`expiredD1OpsDeleted`/`expiredCellOpsDeleted` cover
 deadline-passed ops that can never be dispatched) so the action is observable.
 
+## Cutting a release
+
+1. Land the changes on `main`, bump `packages/control`'s version and add the
+   CHANGELOG entry in the final PR.
+2. Update the compose default: `OPENFLARE_IMAGE_TAG` in
+   `docker-compose.all-in-one.yml` must name the tag being cut — the
+   prebuilt path is only coherent when the two move together.
+3. `git tag vX.Y.Z && git push origin vX.Y.Z`. The tag trigger runs
+   `Release images`, publishing all six `openflare-*` images under that tag
+   (cell images built from the pinned `OPENFLARE_CONTRACT_REV`).
+4. First release only: the ghcr packages are created private — flip each of
+   the six to public under the org's package settings, or external users
+   cannot pull. (One-time per package, not per release.)
+5. For `linux/arm64` images, dispatch the workflow manually with
+   `platform=linux/arm64`; the tag default publishes amd64 only.
+
 ## Upgrades
 
 The plane applies `src/schema.sql` at boot by default
