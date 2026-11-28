@@ -66,7 +66,7 @@ if ! HEAD_SHA="$(git -C "$REPO_ROOT" rev-parse --short=12 HEAD 2>/dev/null)"; th
   fi
   HEAD_SHA=""
 fi
-if ! DIRTY="$(git -C "$REPO_ROOT" status --porcelain --untracked-files=all -- "$CTX" 2>/dev/null)"; then
+if ! DIRTY="$(git -C "$CTX" status --porcelain --untracked-files=all 2>/dev/null)"; then
   echo "FATAL: cannot determine git working-tree state of ${CTX}" >&2
   exit 2
 fi
