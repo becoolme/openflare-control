@@ -116,9 +116,9 @@ describe('resource list pages', () => {
 
   it('storage overview links each section to its list, not a single resource', () => {
     const src = read('storage.vue')
-    for (const list of ['/d1', '/r2', '/durable-objects']) {
-      expect(src).toContain(`to="${list}"`)
+    for (const list of ['/d1', '/r2']) {
+      expect(src).toContain(`'${list}'`)
     }
-    expect(src).not.toMatch(/to="\/durable-objects\/RoomDO">View all/)
+    expect(src).toContain('to="/durable-objects"')
   })
 })

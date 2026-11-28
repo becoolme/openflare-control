@@ -68,6 +68,16 @@ watch(
   },
   { immediate: true }
 )
+
+/* real search */
+const query = ref('')
+const filtered = computed(() => {
+  const q = query.value.trim().toLowerCase()
+  if (!q) return classes.value
+  return classes.value.filter(
+    (c) => c.className.toLowerCase().includes(q) || c.workerId.toLowerCase().includes(q)
+  )
+})
 </script>
 
 <template><div class="wrap pg-do-list" style="display: flex; flex-direction: column; gap: 20px">
@@ -78,9 +88,7 @@ watch(
         <h1 style="margin: 0; font-size: 26px; font-weight: 600; letter-spacing: -0.03em">Durable Objects</h1>
         <p class="muted" style="margin: 6px 0 0; font-size: 13.5px">Classes exported by workers and declared in <span class="mono" style="color: var(--t2)">[[durable_objects.bindings]]</span>. Classes come from code; add one by deploying a worker with a new migration.</p>
       </div>
-      <div style="display: flex; gap: 8px">
-        <UiButton variant="secondary"><UiIcon name="term" :size="13" />vrt deploy</UiButton>
-      </div>
+      <NuxtLink to="/workers"><UiButton variant="primary"><UiIcon name="plus" />Deploy via a worker</UiButton></NuxtLink>
     </div>
 
     <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px">
@@ -92,10 +100,12 @@ watch(
 
     <section class="card" style="padding: 0">
       <div style="display: flex; gap: 10px; align-items: center; padding: 12px 14px; border-bottom: 1px solid var(--b1)">
-        <UiInputBox style="width: 280px"><UiIcon name="search" /><span>Filter by class, binding or worker…</span><kbd style="margin-left: auto">/</kbd></UiInputBox>
-        <UiSegmented role="group" aria-label="Storage"><UiSegment pressed>All <span class="n">4</span></UiSegment><UiSegment>SQLite <span class="n">3</span></UiSegment><UiSegment>KV <span class="n">1</span></UiSegment></UiSegmented>
+        <div class="inp" style="width: 280px; display: flex; align-items: center; gap: 8px; padding: 0 10px">
+          <UiIcon name="search" />
+          <input v-model="query" type="search" placeholder="Filter by class or worker…" aria-label="Filter classes" style="background: none; border: none; outline: none; color: inherit; font: inherit; width: 100%; padding: 7px 0" />
+        </div>
         <div style="flex: 1"></div>
-        <UiButton variant="secondary" size="sm"><UiIcon name="updown" :size="12" />Instances ↓</UiButton>
+        <span class="muted" style="font-size: 12.5px">{{ filtered.length }} of {{ classes.length }}</span>
       </div>
       <table class="tbl">
         <thead><tr><th>Class</th><th>Worker</th><th>Bindings</th><th>Storage backend</th><th style="text-align: right">Instances</th><th style="text-align: right">Active</th><th style="text-align: right">Storage</th><th>Sampled</th><th></th></tr></thead>
@@ -103,7 +113,7 @@ watch(
           <tr v-if="pending"><td colspan="9" class="muted" style="padding: 18px">Loading classes…</td></tr>
           <tr v-else-if="error"><td colspan="9" style="padding: 18px; color: var(--err)">{{ error.message }}</td></tr>
           <tr v-else-if="classes.length === 0"><td colspan="9" class="muted" style="padding: 18px">No exported DO classes.</td></tr>
-          <tr v-for="c in classes" :key="c.workerId + ':' + c.className">
+          <tr v-for="c in filtered" :key="c.workerId + ':' + c.className">
             <td><div class="nm"><NuxtLink :to="`/durable-objects/${encodeURIComponent(c.className)}`">{{ c.className }}</NuxtLink></div><div class="sm">{{ c.workerId }}</div></td>
             <td><span class="wk">{{ c.workerId }}</span></td>
             <td class="num dim">{{ statsByClass[c.className]?.bindings ?? '—' }}</td>
@@ -117,8 +127,7 @@ watch(
         </tbody>
       </table>
       <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; border-top: 1px solid var(--b1); font-size: 12.5px" class="muted">
-        <span>4 of 4 · sorted by instances</span>
-        <div style="display: flex; gap: 6px"><UiButton variant="secondary" size="sm" disabled style="opacity: .5">Previous</UiButton><UiButton variant="secondary" size="sm" disabled style="opacity: .5">Next</UiButton></div>
+        <span>{{ filtered.length }} class{{ filtered.length === 1 ? '' : 'es' }}</span>
       </div>
     </section>
 
