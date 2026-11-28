@@ -46,11 +46,11 @@ const wfBase = computed(() => {
 async function runOp(kind: string, extra: Record<string, unknown> = {}) {
   return action.run(
     async () => {
-      const submitted = await consoleApi<{ op: OpInfo }>(wfBase.value + '/ops', {
+      const submitted = await consoleApi<{ opId: string }>(wfBase.value + '/ops', {
         method: 'POST',
         body: { kind, ...extra },
       })
-      return waitForOp(activeCell.value, submitted.op.id, 15_000)
+      return waitForOp(activeCell.value, submitted.opId, 15_000)
     },
     { silent: true }
   )
@@ -69,7 +69,7 @@ async function submitCreate() {
     return
   }
   const op = await runOp('WF_CREATE', { params })
-  if (op?.status === 'SUCCEEDED') {
+  if (op?.status === 'DONE') {
     const result = op.result as { instanceId?: string; id?: string }
     lastCreated.value = result?.instanceId ?? result?.id ?? null
     useToasts().ok(`instance created${lastCreated.value ? `: ${lastCreated.value}` : ''}`)
@@ -86,7 +86,7 @@ const inspecting = ref<{ id: string; body: string } | null>(null)
 async function submitInspect() {
   if (!inspectId.value.trim()) return
   const op = await runOp('WF_GET', { instanceId: inspectId.value.trim() })
-  if (op?.status === 'SUCCEEDED') {
+  if (op?.status === 'DONE') {
     inspecting.value = { id: inspectId.value.trim(), body: JSON.stringify(op.result, null, 2) }
   } else {
     useToasts().err(`get ${op?.status ?? 'failed'}: ${op?.error ?? 'op did not complete'}`)
@@ -97,7 +97,7 @@ async function submitInspect() {
 async function sendAction(verb: string) {
   if (!inspectId.value.trim()) return
   const op = await runOp('WF_ACTION', { instanceId: inspectId.value.trim(), action: verb })
-  if (op?.status === 'SUCCEEDED') {
+  if (op?.status === 'DONE') {
     useToasts().ok(`${verb} sent to ${inspectId.value.trim()}`)
     await submitInspect()
   } else {

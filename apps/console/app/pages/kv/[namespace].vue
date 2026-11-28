@@ -33,11 +33,11 @@ interface OpResult {
 async function runOp(kind: string, payload: Record<string, unknown>): Promise<OpResult | undefined> {
   return action.run(
     async () => {
-      const submitted = await consoleApi<{ op: OpInfo }>(
+      const submitted = await consoleApi<{ opId: string }>(
         `/api/v1/cells/${encodeURIComponent(activeCell.value)}/kv/namespaces/${encodeURIComponent(nsId.value)}/ops`,
         { method: 'POST', body: { kind, payload } }
       )
-      return waitForOp(activeCell.value, submitted.op.id, 12_000)
+      return waitForOp(activeCell.value, submitted.opId, 12_000)
     },
     { silent: true }
   )
@@ -56,7 +56,7 @@ async function loadKeys() {
     listNote.value = 'op submit failed'
     return
   }
-  if (op.status !== 'SUCCEEDED') {
+  if (op.status !== 'DONE') {
     listState.value = 'error'
     listNote.value =
       op.status === 'PENDING'
@@ -78,7 +78,7 @@ watch([activeCell, ns], () => {
 const viewing = ref<{ key: string; value: string } | null>(null)
 async function viewKey(key: string) {
   const op = await runOp('KV_GET', { key })
-  if (op?.status === 'SUCCEEDED') {
+  if (op?.status === 'DONE') {
     const result = op.result as { value?: string | null }
     viewing.value = { key, value: result?.value ?? '(not found or empty)' }
   } else {
@@ -93,7 +93,7 @@ const addValue = ref('')
 async function submitAdd() {
   if (!addKey.value.trim()) return
   const op = await runOp('KV_PUT', { key: addKey.value.trim(), value: addValue.value })
-  if (op?.status === 'SUCCEEDED') {
+  if (op?.status === 'DONE') {
     useToasts().ok(`key ${addKey.value} written`)
     addOpen.value = false
     addKey.value = ''
@@ -110,7 +110,7 @@ async function deleteKey(key: string) {
   deleting.value = key
   const op = await runOp('KV_DELETE', { key })
   deleting.value = null
-  if (op?.status === 'SUCCEEDED') {
+  if (op?.status === 'DONE') {
     useToasts().ok(`key ${key} deleted`)
     await loadKeys()
   } else {

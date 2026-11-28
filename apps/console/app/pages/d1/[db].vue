@@ -38,11 +38,11 @@ interface OpResult {
 async function runQuery(sql: string): Promise<OpResult | undefined> {
   return action.run(
     async () => {
-      const submitted = await consoleApi<{ op: OpInfo }>(
+      const submitted = await consoleApi<{ opId: string }>(
         `/api/v1/cells/${encodeURIComponent(activeCell.value)}/d1/databases/${encodeURIComponent(db.value!.database_id)}/query`,
         { method: 'POST', body: { sql, params: [] } }
       )
-      return waitForOp(activeCell.value, submitted.op.id, 15_000)
+      return waitForOp(activeCell.value, submitted.opId, 15_000)
     },
     { silent: true }
   )
@@ -65,7 +65,7 @@ async function execute() {
     queryError.value = 'op submit failed'
     return
   }
-  if (op.status !== 'SUCCEEDED') {
+  if (op.status !== 'DONE') {
     queryError.value =
       op.status === 'PENDING'
         ? 'query op is still PENDING — no cell is connected to execute it'
@@ -98,7 +98,7 @@ const tables = ref<string[]>([])
 async function loadSchema() {
   if (!db.value) return
   const op = await runQuery('SELECT name FROM sqlite_master WHERE type = \'table\' AND name NOT LIKE \'sqlite_%\' AND name NOT LIKE \'_litestream%\' ORDER BY name;')
-  if (op?.status === 'SUCCEEDED') {
+  if (op?.status === 'DONE') {
     const result = op.result as { results?: { name: string }[]; rows?: { name: string }[] }
     tables.value = (result?.results ?? result?.rows ?? []).map((r) => r.name)
   }

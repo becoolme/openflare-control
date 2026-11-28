@@ -20,11 +20,11 @@ const action = useAction()
 async function runOp(kind: string, payload: Record<string, unknown>) {
   return action.run(
     async () => {
-      const submitted = await consoleApi<{ op: OpInfo }>(
+      const submitted = await consoleApi<{ opId: string }>(
         `/api/v1/cells/${encodeURIComponent(activeCell.value)}/r2/buckets/${encodeURIComponent(bucket.value)}/ops`,
         { method: 'POST', body: { kind, payload } }
       )
-      return waitForOp(activeCell.value, submitted.op.id, 15_000)
+      return waitForOp(activeCell.value, submitted.opId, 15_000)
     },
     { silent: true }
   )
@@ -43,7 +43,7 @@ const listNote = ref('')
 async function load() {
   listState.value = 'pending'
   const op = await runOp('R2_LIST', { prefix: prefixPath.value, delimiter: '/', limit: 500 })
-  if (!op || op.status !== 'SUCCEEDED') {
+  if (!op || op.status !== 'DONE') {
     listState.value = 'error'
     listNote.value = !op
       ? 'op submit failed'
@@ -84,11 +84,11 @@ async function submitUpload() {
   uploadState.value = 'uploading'
   const op = await runOp('R2_PUT', {
     key,
-    body_base64: b64encode(uploadText.value),
-    content_type: 'text/plain',
+    body: uploadText.value,
+    contentType: 'text/plain',
   })
   uploadState.value = null
-  if (op?.status === 'SUCCEEDED') {
+  if (op?.status === 'DONE') {
     useToasts().ok(`object ${key} written`)
     uploadOpen.value = false
     uploadKey.value = ''
@@ -103,16 +103,21 @@ async function submitUpload() {
 const viewing = ref<{ key: string; body: string; contentType?: string } | null>(null)
 async function viewObject(key: string) {
   const op = await runOp('R2_GET', { key })
-  if (op?.status === 'SUCCEEDED') {
-    const result = op.result as { body_base64?: string; bodyBase64?: string; contentType?: string }
-    const b64 = result?.body_base64 ?? result?.bodyBase64 ?? ''
-    let body = ''
-    try {
-      body = b64decode(b64)
-    } catch {
-      body = '(binary object — cannot preview as text)'
+  if (op?.status === 'DONE') {
+    const result = op.result as {
+      body?: string
+      bodyBase64?: string
+      object?: { httpMetadata?: { contentType?: string } }
     }
-    viewing.value = { key, body, contentType: result?.contentType }
+    let body = result?.body ?? ''
+    if (!body && result?.bodyBase64) {
+      try {
+        body = b64decode(result.bodyBase64)
+      } catch {
+        body = '(binary object — cannot preview as text)'
+      }
+    }
+    viewing.value = { key, body, contentType: result?.object?.httpMetadata?.contentType }
   } else {
     useToasts().err(`read ${op?.status ?? 'failed'}: ${op?.error ?? 'op did not complete'}`)
   }
@@ -125,7 +130,7 @@ async function submitDelete() {
   if (!key) return
   const op = await runOp('R2_DELETE', { key })
   confirmDelete.value = null
-  if (op?.status === 'SUCCEEDED') {
+  if (op?.status === 'DONE') {
     useToasts().ok(`object ${key} deleted`)
     await load()
   } else {

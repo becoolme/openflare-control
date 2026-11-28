@@ -197,6 +197,27 @@ export const mapWorker = (r: Row) => ({
   statusReason: nullableString(r.status_reason),
 })
 
+/**
+ * Cell op results cross the JSON channel with binary values base64-encoded
+ * (`valueBase64`). The plane API speaks text: decode KV results back into a
+ * utf8 `value` at the boundary so browser clients never handle the wire
+ * encoding. The base64 form stays in the result for lossless consumers.
+ */
+function decodeKvResult(kind: string, result: unknown): unknown {
+  if (result === null || typeof result !== 'object') return result ?? null
+  const out = { ...(result as Record<string, unknown>) }
+  const decode = (entry: Record<string, unknown>) => {
+    if (typeof entry.valueBase64 === 'string' && entry.value === undefined) {
+      entry.value = Buffer.from(entry.valueBase64, 'base64').toString('utf8')
+    }
+  }
+  if (kind === 'KV_GET') decode(out)
+  if (kind === 'R2_GET' && typeof out.bodyBase64 === 'string' && out.body === undefined) {
+    out.body = Buffer.from(out.bodyBase64 as string, 'base64').toString('utf8')
+  }
+  return out
+}
+
 export const mapOp = (r: Row) => ({
   id: s(r.id),
   seq: n(r.seq),
@@ -205,7 +226,7 @@ export const mapOp = (r: Row) => ({
   resourceKey: nullableString(r.resource_key),
   kind: s(r.kind),
   status: s(r.status),
-  result: r.result ?? null,
+  result: decodeKvResult(s(r.kind), r.result),
   error: nullableString(r.error),
   expiresAt: iso(r.expires_at),
   createdAt: iso(r.created_at),
