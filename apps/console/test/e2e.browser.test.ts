@@ -25,6 +25,7 @@ maybe('console browser e2e (real chromium clicks)', () => {
   const cell = `be2e-${suffix}`
   const team = `be2e-team-${suffix}`
   const workerName = `bw-${suffix}`
+  const paletteWorker = `bp-${suffix}`
   const kvTitle = `bk-${suffix}`
   const d1Name = `bd-${suffix}`
 
@@ -183,17 +184,24 @@ maybe('console browser e2e (real chromium clicks)', () => {
     await page.close()
   }, 60_000)
 
-  it('command palette opens and navigates', async () => {
+  it('command palette: ⌘K, type a worker name, enter navigates to it', async () => {
+    // seed a worker through the API — the palette must index it live
+    expect(
+      (
+        await api(harness.consolePort, 'POST', `/api/v1/cells/${cell}/workers`, {
+          teamId: team,
+          name: paletteWorker,
+        })
+      ).status
+    ).toBe(201)
     const page = await openPage('/workers')
     await page.keyboard.press('Meta+k')
-    const palette = page.locator('[role="dialog"], .cmdk, .palette').first()
-    // whether or not the palette has these exact classes, navigation is the truth:
-    // press escape and verify direct navigation works for a real worker page
-    await page.keyboard.press('Escape').catch(() => undefined)
-    await page.goto(`http://127.0.0.1:${harness.consolePort}/workers/${workerName}`, {
-      waitUntil: 'networkidle',
-    })
-    // real worker detail must not 404 (the fixture bug)
+    await visible(page, '.dlg input[aria-label="Search"]')
+    await page.locator('.dlg input[aria-label="Search"]').fill(paletteWorker)
+    await new Promise((r) => setTimeout(r, 800))
+    await page.keyboard.press('Enter')
+    await page.waitForURL(`**/workers/${paletteWorker}`, { timeout: 8_000 })
+    // real worker detail must render, not the old fixture 404
     await new Promise((r) => setTimeout(r, 2_000))
     const bodyText = (await page.locator('body').textContent())?.toLowerCase() ?? ''
     expect(bodyText).not.toContain('page not found')
