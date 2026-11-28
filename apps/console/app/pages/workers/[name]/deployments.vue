@@ -32,6 +32,52 @@ async function activate(v: VersionInfo) {
 }
 const fmtTime = (iso: string | null | undefined) =>
   iso ? new Date(iso).toLocaleString() : '—'
+
+/* Rollout truth: an activated version only serves once the cell APPLIES the
+ * publication. A rejected generation (bad config, missing entrypoint, …)
+ * leaves the old code serving — surface that instead of a silent LIVE badge. */
+interface Publication {
+  revision: number
+  ackStatus: string
+  cause: string | null
+  workerId: string | null
+  versionId: string | null
+  ackReason: string | null
+  ackTenantFailures: { tenant: string; code: string; detail?: string }[]
+  issuedAt: string
+}
+const publications = ref<Publication[]>([])
+async function refreshPublications() {
+  const w = detail.value?.worker
+  if (!w) return
+  try {
+    const res = await consoleApi<{ data: { publications: Publication[] } }>(
+      `/api/v1/cells/${encodeURIComponent(activeCell.value)}/publications?limit=20`
+    )
+    publications.value = res.data.publications
+  } catch {
+    publications.value = []
+  }
+}
+onMounted(() => void refreshPublications())
+const workerPubs = computed(() => {
+  const w = detail.value?.worker
+  if (!w) return []
+  const id = `${w.teamId}:${w.name}`
+  return publications.value.filter((p) => p.workerId === id)
+})
+/* Newest rollout touching this worker that has not fully applied. Because a
+ * publication is whole-cell atomic, a failed one blocks every later state
+ * too — so the newest non-APPLIED entry is the honest rollout state. */
+const stuckPub = computed(() => {
+  const pubs = workerPubs.value.length > 0 ? workerPubs.value : publications.value
+  return pubs.find((p) => p.ackStatus !== 'APPLIED' && p.ackStatus !== 'SUPERSEDED') ?? null
+})
+const pubByVersion = computed(() => {
+  const m = new Map<string, Publication>()
+  for (const p of workerPubs.value) if (p.versionId && !m.has(p.versionId)) m.set(p.versionId, p)
+  return m
+})
 </script>
 
 <template>
@@ -41,6 +87,13 @@ const fmtTime = (iso: string | null | undefined) =>
       <span class="mono dim" style="font-size: 12px">{{ versions.length }} version{{ versions.length === 1 ? '' : 's' }}</span>
       <div style="flex: 1"></div>
       <span class="muted" style="font-size: 12px">activating a version republishes the cell snapshot</span>
+    </div>
+    <div v-if="stuckPub" style="padding: 10px 16px; border-bottom: 1px solid var(--b1); background: color-mix(in srgb, var(--warn, #d97706) 8%, transparent)">
+      <div style="font-size: 13px">
+        <strong>Rollout {{ stuckPub.ackStatus.toLowerCase() }}</strong>
+        <span class="muted"> — rev {{ stuckPub.revision }} ({{ (stuckPub.cause ?? '').toLowerCase() }}){{ stuckPub.ackReason ? ': ' + stuckPub.ackReason : '' }}. The previous generation keeps serving.</span>
+      </div>
+      <pre v-if="stuckPub.ackTenantFailures?.[0]?.detail" class="mono" style="margin: 8px 0 0; font-size: 11px; white-space: pre-wrap; word-break: break-all; max-height: 120px; overflow: auto; color: var(--warn, #d97706)">{{ stuckPub.ackTenantFailures[0].detail }}</pre>
     </div>
     <table class="tbl">
       <thead><tr><th>Version</th><th>Bundle</th><th>Created</th><th>Status</th><th></th></tr></thead>
@@ -54,6 +107,9 @@ const fmtTime = (iso: string | null | undefined) =>
           <td>
             <UiBadge v-if="v.versionId === activeId" tone="ok" dot>LIVE</UiBadge>
             <span v-else class="muted sm">inactive</span>
+            <div v-if="pubByVersion.get(v.versionId)" class="muted" style="font-size: 11px; margin-top: 2px">
+              rollout: {{ pubByVersion.get(v.versionId)!.ackStatus.toLowerCase() }}
+            </div>
           </td>
           <td style="text-align: right">
             <UiButton
