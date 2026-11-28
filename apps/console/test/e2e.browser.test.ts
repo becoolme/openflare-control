@@ -208,4 +208,147 @@ maybe('console browser e2e (real chromium clicks)', () => {
     expect(bodyText).not.toContain('404')
     await page.close()
   }, 60_000)
+
+  it('worker detail: deploy dialog deploys new source and version lands server-side', async () => {
+    expect(
+      (
+        await api(harness.consolePort, 'POST', `/api/v1/cells/${cell}/workers`, {
+          teamId: team,
+          name: `bd-${suffix}`,
+        })
+      ).status
+    ).toBe(201)
+    const page = await openPage(`/workers/bd-${suffix}`)
+    await waitText(page, 'h1', new RegExp(`bd-${suffix}`))
+    await page
+      .getByRole('button', { name: /^deploy/i })
+      .first()
+      .click()
+    await visible(page, '.dlg')
+    // the dialog pre-fills a working default source — deploy it as-is
+    await page.locator('.dlg button[type="submit"], .dlg button:has-text("Deploy")').last().click()
+    // version list server-side must gain an active version
+    const deadline = Date.now() + 15_000
+    let active: string | null = null
+    while (Date.now() < deadline) {
+      const detail = await api(
+        harness.consolePort,
+        'GET',
+        `/api/v1/cells/${cell}/teams/${team}/workers/bd-${suffix}`
+      )
+      active =
+        (detail.body.data as never as { worker?: { activeVersionId: string | null } })?.worker
+          ?.activeVersionId ?? null
+      if (active) break
+      await new Promise((r) => setTimeout(r, 400))
+    }
+    expect(active).not.toBeNull()
+    await page.close()
+  }, 60_000)
+
+  it('worker settings: add an env var and it persists server-side', async () => {
+    expect(
+      (
+        await api(harness.consolePort, 'POST', `/api/v1/cells/${cell}/workers`, {
+          teamId: team,
+          name: `bs-${suffix}`,
+        })
+      ).status
+    ).toBe(201)
+    const page = await openPage(`/workers/bs-${suffix}/settings`)
+    await waitText(page, 'body', /environment variables/i)
+    // fill the new-var inputs: key then value, then click the add/save button
+    const inputs = page.locator('input[placeholder*="KEY" i], input[placeholder*="name" i]')
+    await inputs.first().fill('BROWSER_VAR')
+    const valueInput = page.locator('input[placeholder*="value" i]').first()
+    await valueInput.fill('click-tested')
+    await page
+      .getByRole('button', { name: /add|save/i })
+      .first()
+      .click()
+    const deadline = Date.now() + 12_000
+    let found = false
+    while (Date.now() < deadline) {
+      const detail = await api(
+        harness.consolePort,
+        'GET',
+        `/api/v1/cells/${cell}/teams/${team}/workers/bs-${suffix}`
+      )
+      const vars =
+        (detail.body.data as never as { vars?: { key: string; value: string }[] })?.vars ?? []
+      if (vars.some((v) => v.key === 'BROWSER_VAR' && v.value === 'click-tested')) {
+        found = true
+        break
+      }
+      await new Promise((r) => setTimeout(r, 400))
+    }
+    expect(found).toBe(true)
+    await page.close()
+  }, 60_000)
+
+  it('workers list: right-click opens context menu and delete removes the worker', async () => {
+    expect(
+      (
+        await api(harness.consolePort, 'POST', `/api/v1/cells/${cell}/workers`, {
+          teamId: team,
+          name: `bx-${suffix}`,
+        })
+      ).status
+    ).toBe(201)
+    const page = await openPage('/workers')
+    // the row must render real data
+    const row = page.locator('tr', { hasText: `bx-${suffix}` }).first()
+    await row.waitFor({ state: 'visible', timeout: 10_000 })
+    await row.click({ button: 'right' })
+    // context menu appears with real actions
+    await visible(page, '.row-menu, [role="menu"]')
+    await page
+      .getByText(/delete worker/i)
+      .first()
+      .click()
+    // confirm dialog
+    await visible(page, '.dlg')
+    await page.locator('.dlg button:has-text("Delete")').last().click()
+    const deadline = Date.now() + 12_000
+    let gone = false
+    while (Date.now() < deadline) {
+      const list = await api(harness.consolePort, 'GET', `/api/v1/cells/${cell}/workers`)
+      const workers = (list.body.data as never as { workers: { name: string }[] })?.workers ?? []
+      if (!workers.some((w) => w.name === `bx-${suffix}`)) {
+        gone = true
+        break
+      }
+      await new Promise((r) => setTimeout(r, 400))
+    }
+    expect(gone).toBe(true)
+    await page.close()
+  }, 60_000)
+
+  it('workers list: search filters rows live', async () => {
+    expect(
+      (
+        await api(harness.consolePort, 'POST', `/api/v1/cells/${cell}/workers`, {
+          teamId: team,
+          name: `bf-${suffix}`,
+        })
+      ).status
+    ).toBe(201)
+    const page = await openPage('/workers')
+    await page
+      .locator('tr', { hasText: `bf-${suffix}` })
+      .first()
+      .waitFor({ state: 'visible', timeout: 10_000 })
+    const search = page
+      .locator('input[type="search"], input[placeholder*="ilter" i], input[placeholder*="earch" i]')
+      .first()
+    await search.fill('no-such-worker-xyz')
+    await new Promise((r) => setTimeout(r, 600))
+    const visibleRows = await page.locator('tbody tr').allTextContents()
+    expect(visibleRows.join(' ')).not.toContain(`bf-${suffix}`)
+    await search.fill(`bf-${suffix}`)
+    await new Promise((r) => setTimeout(r, 600))
+    const filtered = await page.locator('tbody tr').allTextContents()
+    expect(filtered.join(' ')).toContain(`bf-${suffix}`)
+    await page.close()
+  }, 60_000)
 })
