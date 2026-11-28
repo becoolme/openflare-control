@@ -4,7 +4,7 @@
 
 - The `Release images` workflow now triggers on `v*` tags (previously manual
   dispatch only), authenticates to ghcr (previously no login step at all),
-  builds the cell images from the *pinned* `OPENFLARE_CONTRACT_REV` instead of
+  builds the cell images from the _pinned_ `OPENFLARE_CONTRACT_REV` instead of
   openflare main, and additionally publishes `openflare-plane` and
   `openflare-console` — six images per release, all under one tag.
 - `docker-compose.all-in-one.yml` pulls the published image set by default

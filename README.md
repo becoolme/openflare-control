@@ -93,7 +93,7 @@ Details:
 
 - **Images** come from `ghcr.io/becoolme/openflare-*` pinned to the release
   tag (`OPENFLARE_REGISTRY` / `OPENFLARE_IMAGE_TAG` override in `.env`). The
-  `v*` tag trigger publishes all six — cell images build from the *pinned*
+  `v*` tag trigger publishes all six — cell images build from the _pinned_
   openflare contract revision, so the wire bytes always match the plane.
 - **Public exposure**: `--profile tls` adds Traefik on :80/:443 with
   per-hostname Let's Encrypt certificates; see the compose file header.

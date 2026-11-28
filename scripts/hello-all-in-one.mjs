@@ -7,7 +7,9 @@
 
 import { execFileSync } from 'node:child_process'
 
-const files = (process.env.COMPOSE_FILE ?? 'docker-compose.all-in-one.yml').split(':').filter(Boolean)
+const files = (process.env.COMPOSE_FILE ?? 'docker-compose.all-in-one.yml')
+  .split(':')
+  .filter(Boolean)
 const args = [
   'compose',
   ...files.flatMap((f) => ['-f', f]),
@@ -21,7 +23,11 @@ try {
   execFileSync('docker', args, { stdio: 'inherit' })
 } catch (e) {
   console.error('')
-  console.error('hello failed. Is the stack up?  docker compose -f docker-compose.all-in-one.yml ps')
-  console.error('plane logs:                   docker compose -f docker-compose.all-in-one.yml logs plane')
+  console.error(
+    'hello failed. Is the stack up?  docker compose -f docker-compose.all-in-one.yml ps'
+  )
+  console.error(
+    'plane logs:                   docker compose -f docker-compose.all-in-one.yml logs plane'
+  )
   process.exit(typeof e.status === 'number' ? e.status : 1)
 }

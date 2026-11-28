@@ -63,11 +63,9 @@ await waitFor(async () => (await fetch(`${PLANE}/healthz`)).ok, 'plane healthz',
 
 // cell-init must have finished cleanly — the whole cell wiring depends
 // on the token/config/secrets it seeds.
-const ps = execFileSync(
-  'docker',
-  ['compose', ...composeArgs, 'ps', '-a', '--format', 'json'],
-  { encoding: 'utf8' }
-)
+const ps = execFileSync('docker', ['compose', ...composeArgs, 'ps', '-a', '--format', 'json'], {
+  encoding: 'utf8',
+})
 // `--format json` is NDJSON on older compose, a JSON array on newer.
 const trimmed = ps.trim()
 const states = trimmed.startsWith('[')

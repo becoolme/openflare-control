@@ -41,7 +41,7 @@ Kvrocks/S3 asymmetry between provider and cell-controller, or a
 Pushing a `v*` tag runs the `Release images` workflow, which publishes six
 images under that tag: the four cell images (`openflare-host`,
 `openflare-provider`, `openflare-sql`, `openflare-cell-controller` — built
-from the *pinned* `OPENFLARE_CONTRACT_REV` openflare checkout, never main)
+from the _pinned_ `OPENFLARE_CONTRACT_REV` openflare checkout, never main)
 plus `openflare-plane` and `openflare-console`, all pushed to
 `ghcr.io/<owner>/`. The build prints `IMAGE name@sha256:<digest>` lines that
 replace the `images:` block in the overlay. Tags alone are rejected by the
