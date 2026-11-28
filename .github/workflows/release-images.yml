@@ -76,6 +76,10 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - run: pnpm install --frozen-lockfile
       - name: Fetch the pinned workerd binary
+        env:
+          # The script's default is a sibling checkout (../openflare); the
+          # workflow checks the pinned rev out at ./openflare instead.
+          OPENFLARE_DIR: openflare
         run: |
           # Shell-side mapping: GITHUB_ENV-written variables are not reliably
           # visible to expressions in the env context.
