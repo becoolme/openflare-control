@@ -753,7 +753,9 @@ export function registerWorkers(app: Hono, deps: AdminDeps): void {
       [id, cell, body.entrypoint ?? null, body.compatibilityDate ?? null, body.status ?? null]
     )
     if (!worker) throw new VrtControlError(404, 'Worker not found')
-    return c.json({ data: { worker: mapWorker(worker) } })
+    // Suspending must stop traffic and resuming must restore it: republish.
+    const revision = await autoPublishCell(deps, cell, 'CONFIG', id)
+    return c.json({ data: { worker: mapWorker(worker), revision } })
   })
 
   app.delete('/api/v1/cells/:cellId/teams/:teamId/workers/:name', async (c) => {

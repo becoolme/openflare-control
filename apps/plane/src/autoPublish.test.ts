@@ -113,6 +113,17 @@ maybe('auto-publish on lifecycle mutations', () => {
     expect(await revisionCount()).toBe(before + 2)
   })
 
+  it('publishes when a worker is suspended', async () => {
+    const before = await revisionCount()
+    const res = await call('PATCH', `${base}/teams/${team}/workers/${worker}`, {
+      status: 'SUSPENDED',
+    })
+    expect(res.status).toBe(200)
+    expect(res.body.data.revision).toEqual(expect.any(Number))
+    expect(await revisionCount()).toBe(before + 1)
+    await call('PATCH', `${base}/teams/${team}/workers/${worker}`, { status: 'ACTIVE' })
+  })
+
   it('publishes when a worker is deleted', async () => {
     const before = await revisionCount()
     const res = await call('DELETE', `${base}/teams/${team}/workers/${worker}`)
