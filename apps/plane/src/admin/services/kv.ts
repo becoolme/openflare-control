@@ -24,6 +24,75 @@ const KV_KINDS = [
   'KV_BULK_DELETE',
 ] as const
 
+/**
+ * Build the exact payload the cell's KV executor accepts. The cell
+ * deserializes with `deny_unknown_fields`, so spreading the client payload
+ * verbatim means any stray key fails the op with "malformed payload" — and
+ * values cross the JSON op channel base64-encoded, which is a wire concern
+ * that belongs at this boundary, not in the browser. The plane API speaks
+ * plain text (`value`); the cell speaks `valueBase64`.
+ */
+function kvCellPayload(
+  kind: (typeof KV_KINDS)[number],
+  payload: Record<string, unknown>
+): Record<string, unknown> {
+  const key = typeof payload.key === 'string' && payload.key ? payload.key : null
+  switch (kind) {
+    case 'KV_GET':
+    case 'KV_DELETE':
+      if (!key) throw new VrtControlError(400, 'key is required')
+      return { key }
+    case 'KV_PUT': {
+      if (!key) throw new VrtControlError(400, 'key is required')
+      if (typeof payload.value !== 'string') {
+        throw new VrtControlError(400, 'value must be a string')
+      }
+      const out: Record<string, unknown> = {
+        key,
+        valueBase64: Buffer.from(payload.value, 'utf8').toString('base64'),
+      }
+      if (typeof payload.expiration === 'number') out.expiration = payload.expiration
+      if (typeof payload.expirationTtl === 'number') out.expirationTtl = payload.expirationTtl
+      if (payload.metadata !== undefined) out.metadata = payload.metadata
+      return out
+    }
+    case 'KV_LIST': {
+      const out: Record<string, unknown> = {}
+      if (typeof payload.prefix === 'string') out.prefix = payload.prefix
+      if (typeof payload.cursor === 'string') out.cursor = payload.cursor
+      if (typeof payload.limit === 'number') out.limit = payload.limit
+      return out
+    }
+    case 'KV_BULK_DELETE': {
+      if (!Array.isArray(payload.keys) || payload.keys.some((k) => typeof k !== 'string')) {
+        throw new VrtControlError(400, 'keys must be an array of strings')
+      }
+      return { keys: payload.keys }
+    }
+    case 'KV_BULK_PUT': {
+      if (!Array.isArray(payload.entries)) {
+        throw new VrtControlError(400, 'entries must be an array')
+      }
+      return {
+        entries: payload.entries.map((entry, i) => {
+          const e = entry as Record<string, unknown>
+          if (typeof e.key !== 'string' || typeof e.value !== 'string') {
+            throw new VrtControlError(400, `entries[${i}] needs string key and value`)
+          }
+          const out: Record<string, unknown> = {
+            key: e.key,
+            valueBase64: Buffer.from(e.value, 'utf8').toString('base64'),
+          }
+          if (typeof e.expiration === 'number') out.expiration = e.expiration
+          if (typeof e.expirationTtl === 'number') out.expirationTtl = e.expirationTtl
+          if (e.metadata !== undefined) out.metadata = e.metadata
+          return out
+        }),
+      }
+    }
+  }
+}
+
 export function registerKvService(app: Hono, deps: AdminDeps): void {
   app.get('/api/v1/cells/:cellId/kv/namespaces', async (c) => {
     const team = c.req.query('teamId')
@@ -127,7 +196,11 @@ export function registerKvService(app: Hono, deps: AdminDeps): void {
         cell,
         ns.physical_id,
         body.kind,
-        { tenantId: ns.team_id, namespaceId: ns.physical_id, ...body.payload },
+        {
+          tenantId: ns.team_id,
+          namespaceId: ns.physical_id,
+          ...kvCellPayload(body.kind, body.payload),
+        },
         body.expiresAt ?? null,
       ]
     )

@@ -3,6 +3,7 @@ import type { Hono } from 'hono'
 import { z } from 'zod'
 import { VrtControlError, workerDoClassNameSchema } from 'openflare-control'
 import { type AdminDeps, parse, readJson, rows, workerId } from './context.js'
+import { autoPublishCell } from '../publish.js'
 
 const workerRef = z.string().regex(/^[a-z0-9][a-z0-9-]{0,62}:[a-z0-9][a-z0-9-]{0,62}$/)
 
@@ -94,7 +95,8 @@ export function registerDoClasses(app: Hono, deps: AdminDeps): void {
          from plane_do_classes where worker_id=$1 and class_name=$2`,
       [id, body.className]
     )
-    return c.json({ data: mapClass(stored!) }, 201)
+    const createRevision = await autoPublishCell(deps, cell, 'CONFIG', id)
+    return c.json({ data: { ...mapClass(stored!), revision: createRevision } }, 201)
   })
 
   type QueryRunner = {
@@ -146,7 +148,8 @@ export function registerDoClasses(app: Hono, deps: AdminDeps): void {
     } finally {
       client.release()
     }
-    return c.json({ data: { deleted: true } })
+    const revision = await autoPublishCell(deps, cell, 'CONFIG', id)
+    return c.json({ data: { deleted: true, revision } })
   })
 
   app.post(`${base}/migrations`, async (c) => {
@@ -220,6 +223,7 @@ export function registerDoClasses(app: Hono, deps: AdminDeps): void {
     } finally {
       client.release()
     }
-    return c.json({ data: { applied: true } })
+    const migrationRevision = await autoPublishCell(deps, cell, 'CONFIG', id)
+    return c.json({ data: { applied: true, revision: migrationRevision } })
   })
 }

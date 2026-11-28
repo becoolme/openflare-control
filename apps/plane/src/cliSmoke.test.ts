@@ -7,7 +7,8 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { createHash } from 'node:crypto'
-import { afterAll, describe, expect, it } from 'vitest'
+import { readFile } from 'node:fs/promises'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { Pool } from 'pg'
 
 const run = promisify(execFile)
@@ -59,6 +60,12 @@ maybe('ops CLI against Postgres', () => {
   const pool = new Pool({ connectionString: url })
   const cell = `cli-${suffix}`
   const team = `cli-t-${suffix}`
+
+  beforeAll(async () => {
+    // The CLI subprocesses expect an initialized schema; depending on a
+    // sibling test file racing one in first makes this suite order-dependent.
+    await pool.query(await readFile(new URL('./schema.sql', import.meta.url), 'utf8'))
+  })
 
   afterAll(async () => {
     await pool.end()

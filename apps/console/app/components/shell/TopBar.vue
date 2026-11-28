@@ -1,35 +1,98 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
-import { CONSOLE_FIXTURE } from '../../fixtures/console'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import type { Crumb } from '../../utils/nav'
 import ShellLogo from './Logo.vue'
 
 defineProps<{ crumbs: Crumb[] }>()
-const { team, user, unreadNotifications } = CONSOLE_FIXTURE
 const { cells, cellId, refresh } = useCellSelection()
-onMounted(refresh)
+const { teams, teamId, refresh: refreshTeams } = useTeamSelection()
+onMounted(() => {
+  refresh()
+  refreshTeams()
+  window.addEventListener('keydown', onKey)
+})
+onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
+
+const router = useRouter()
+const { activeCell } = useCellSelection()
+const paletteOpen = ref(false)
+const paletteQuery = ref('')
+const paletteInput = ref<HTMLInputElement | null>(null)
+const paletteWorkers = ref<string[]>([])
+
+function onKey(e: KeyboardEvent) {
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+    e.preventDefault()
+    paletteOpen.value = !paletteOpen.value
+  }
+}
+watch(paletteOpen, async (openNow) => {
+  if (!openNow) return
+  paletteQuery.value = ''
+  await nextTick()
+  paletteInput.value?.focus()
+  if (activeCell.value) {
+    try {
+      const data = await consoleApi<{ workers: { name: string }[] }>(
+        `/api/v1/cells/${encodeURIComponent(activeCell.value)}/workers`
+      )
+      paletteWorkers.value = data.workers.map((w) => w.name)
+    } catch {
+      paletteWorkers.value = []
+    }
+  }
+})
+
+const PAGES = [
+  { kind: 'page', label: 'Workers', to: '/workers' },
+  { kind: 'page', label: 'D1 databases', to: '/d1' },
+  { kind: 'page', label: 'KV namespaces', to: '/kv' },
+  { kind: 'page', label: 'R2 buckets', to: '/r2' },
+  { kind: 'page', label: 'Queues', to: '/queues' },
+  { kind: 'page', label: 'Durable Objects', to: '/durable-objects' },
+  { kind: 'page', label: 'Workflows', to: '/workflows' },
+  { kind: 'page', label: 'Hyperdrive', to: '/hyperdrive' },
+  { kind: 'page', label: 'Storage overview', to: '/storage' },
+]
+const paletteItems = computed(() => {
+  const q = paletteQuery.value.trim().toLowerCase()
+  const workerEntries = paletteWorkers.value.map((w) => ({
+    kind: 'worker',
+    label: w,
+    to: `/workers/${encodeURIComponent(w)}`,
+  }))
+  const all = [...PAGES, ...workerEntries]
+  if (!q) return all.slice(0, 12)
+  return all.filter((i) => i.label.toLowerCase().includes(q)).slice(0, 12)
+})
+function go(to: string) {
+  paletteOpen.value = false
+  void router.push(to)
+}
+function goFirst() {
+  const first = paletteItems.value[0]
+  if (first) go(first.to)
+}
 </script>
 
 <template>
   <header class="top">
     <slot name="logo"><ShellLogo /></slot>
     <span class="sep" aria-hidden="true">/</span>
-    <button type="button" class="crumb"
-      ><span class="av" style="background: #e8e8ec">{{ team.initial }}</span
-      >{{ team.name }}<span class="chip">{{ team.plan }}</span>
-      <svg
-        width="13"
-        height="13"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="#8A8A93"
-        stroke-width="2"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-        aria-hidden="true"
+    <label class="crumb" title="Team">
+      <span class="av" style="background: #e8e8ec">{{ (teamId ?? '?')[0]?.toUpperCase() }}</span>
+      <select
+        v-model="teamId"
+        aria-label="Team"
+        style="border: 0; background: transparent; font: inherit; color: inherit; cursor: pointer"
       >
-        <path d="m7 9 5-5 5 5M7 15l5 5 5-5" /></svg
-    ></button>
+        <option v-if="teams.length === 0" :value="null">no team</option>
+        <option v-for="t in teams" :key="t.teamId" :value="t.teamId">{{
+          t.name ?? t.teamId
+        }}</option>
+      </select>
+    </label>
     <span class="sep" aria-hidden="true">/</span>
     <label class="crumb" title="Cell">
       <span class="st ok" style="font-size: 13.5px"><i></i></span>
@@ -53,7 +116,7 @@ onMounted(refresh)
       <span v-else class="crumb">{{ crumb.label }}</span>
     </template>
     <div style="flex: 1; min-width: 12px"></div>
-    <button type="button" class="search">
+    <button type="button" class="search" @click="paletteOpen = true">
       <svg
         width="14"
         height="14"
@@ -70,46 +133,75 @@ onMounted(refresh)
       </svg>
       <span style="flex: 1">Search or run a command…</span><kbd>⌘K</kbd>
     </button>
-    <a href="#" class="btn btn-sm" style="color: var(--t3)">Docs</a>
-    <button type="button" class="ibtn" :aria-label="`Notifications, ${unreadNotifications} unread`">
-      <svg
-        width="15"
-        height="15"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="1.8"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-        aria-hidden="true"
-      >
-        <path d="M6 8a6 6 0 0 1 12 0c0 7 3 8 3 8H3s3-1 3-8" />
-        <path d="M10 20a2 2 0 0 0 4 0" />
-      </svg>
-      <span
-        v-if="unreadNotifications > 0"
-        style="
-          position: absolute;
-          top: 6px;
-          right: 7px;
-          width: 6px;
-          height: 6px;
-          border-radius: 999px;
-          background: var(--err);
-        "
-      ></span>
-    </button>
-    <button type="button" class="ibtn" aria-label="Account" style="border: 0; padding: 0"
-      ><span
-        class="av"
-        style="
-          width: 28px;
-          height: 28px;
-          font-size: 11px;
-          background: linear-gradient(135deg, var(--accent), #5eb0ff);
-        "
-        >{{ user.initials }}</span
-      ></button
+    <a
+      href="https://github.com/becoolme/openflare-control/tree/main/docs"
+      target="_blank"
+      rel="noopener"
+      class="btn btn-sm"
+      style="color: var(--t3)"
+      >Docs</a
     >
+    <Teleport to="body">
+      <div
+        v-if="paletteOpen"
+        class="dlg-backdrop"
+        style="align-items: flex-start; padding-top: 14vh"
+        @click.self="paletteOpen = false"
+      >
+        <div
+          class="dlg"
+          role="dialog"
+          aria-label="Command palette"
+          style="width: 520px; overflow: hidden"
+        >
+          <input
+            ref="paletteInput"
+            v-model="paletteQuery"
+            type="text"
+            placeholder="Jump to a page or worker…"
+            aria-label="Search"
+            style="
+              width: 100%;
+              padding: 14px 16px;
+              background: none;
+              border: none;
+              border-bottom: 1px solid var(--b1);
+              outline: none;
+              color: inherit;
+              font: inherit;
+              font-size: 14px;
+              box-sizing: border-box;
+            "
+            @keydown.escape="paletteOpen = false"
+            @keydown.enter="goFirst"
+          />
+          <div style="max-height: 300px; overflow-y: auto; padding: 6px">
+            <a
+              v-for="item in paletteItems"
+              :key="item.to"
+              href="#"
+              style="
+                display: flex;
+                gap: 10px;
+                align-items: center;
+                padding: 9px 10px;
+                border-radius: 6px;
+              "
+              @click.prevent="go(item.to)"
+            >
+              <span class="kind mono" style="font-size: 11px; min-width: 64px">{{
+                item.kind
+              }}</span>{{ item.label }}
+            </a>
+            <div
+              v-if="paletteItems.length === 0"
+              class="muted"
+              style="padding: 14px 10px; font-size: 13px"
+              >No matches.</div
+            >
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </header>
 </template>

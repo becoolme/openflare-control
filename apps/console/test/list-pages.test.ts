@@ -105,8 +105,10 @@ describe('resource list pages', () => {
           )
         })
       } else {
-        it('documents the missing API instead of faking rows', () => {
-          expect(src).toContain('no Hyperdrive')
+        it('renders rows from live data', () => {
+          // The hyperdrive API exists and the page drives it; rows are
+          // v-for rendered like every other resource list.
+          expect(src).toMatch(/v-for="/)
         })
       }
     })
@@ -114,9 +116,9 @@ describe('resource list pages', () => {
 
   it('storage overview links each section to its list, not a single resource', () => {
     const src = read('storage.vue')
-    for (const list of ['/d1', '/r2', '/durable-objects']) {
-      expect(src).toContain(`to="${list}"`)
+    for (const list of ['/d1', '/r2']) {
+      expect(src).toContain(`'${list}'`)
     }
-    expect(src).not.toMatch(/to="\/durable-objects\/RoomDO">View all/)
+    expect(src).toContain('to="/durable-objects"')
   })
 })

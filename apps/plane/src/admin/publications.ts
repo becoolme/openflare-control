@@ -43,6 +43,14 @@ export function registerPublications(app: Hono, deps: AdminDeps): void {
           workerId: p.workerId,
           versionId: p.versionId,
           payloadDigest: p.payloadDigest,
+          // Rollout truth: without these a rejected generation is invisible
+          // in the list — the client would have to fetch every revision.
+          ackReason: p.ackReason,
+          ackTenantFailures: (p.ackTenantFailures ?? []).map((f) => ({
+            tenant: f.tenant,
+            code: f.code,
+            detail: typeof f.detail === 'string' ? f.detail.slice(0, 2048) : f.detail,
+          })),
         })),
       },
     })

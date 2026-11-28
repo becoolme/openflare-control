@@ -3,6 +3,7 @@ import type { PoolClient } from 'pg'
 import { z } from 'zod'
 import { VrtControlError } from 'openflare-control'
 import { type AdminDeps, hostname, key, parse, readJson, rows, workerId } from './context.js'
+import { autoPublishCell } from '../publish.js'
 
 async function assertEnvNameAvailable(
   client: PoolClient,
@@ -109,7 +110,8 @@ export function registerConfig(app: Hono, deps: AdminDeps): void {
     } finally {
       client.release()
     }
-    return c.json({ data: { key: k, value: body.value } })
+    const revision = await autoPublishCell(deps, c.req.param('cellId'), 'CONFIG', worker(c))
+    return c.json({ data: { key: k, value: body.value, revision } })
   })
 
   app.delete('/api/v1/cells/:cellId/teams/:teamId/workers/:name/vars/:key', async (c) => {
@@ -118,7 +120,8 @@ export function registerConfig(app: Hono, deps: AdminDeps): void {
       worker(c),
       c.req.param('key'),
     ])
-    return c.json({ data: { deleted: true } })
+    const revision = await autoPublishCell(deps, c.req.param('cellId'), 'CONFIG', worker(c))
+    return c.json({ data: { deleted: true, revision } })
   })
 
   app.get('/api/v1/cells/:cellId/teams/:teamId/workers/:name/secrets', async (c) => {
@@ -151,7 +154,8 @@ export function registerConfig(app: Hono, deps: AdminDeps): void {
     } finally {
       client.release()
     }
-    return c.json({ data: { key: k } })
+    const revision = await autoPublishCell(deps, c.req.param('cellId'), 'CONFIG', worker(c))
+    return c.json({ data: { key: k, revision } })
   })
 
   app.delete('/api/v1/cells/:cellId/teams/:teamId/workers/:name/secrets/:key', async (c) => {
@@ -160,7 +164,8 @@ export function registerConfig(app: Hono, deps: AdminDeps): void {
       worker(c),
       c.req.param('key'),
     ])
-    return c.json({ data: { deleted: true } })
+    const revision = await autoPublishCell(deps, c.req.param('cellId'), 'CONFIG', worker(c))
+    return c.json({ data: { deleted: true, revision } })
   })
 
   app.post('/api/v1/cells/:cellId/teams/:teamId/workers/:name/hostnames', async (c) => {
@@ -180,7 +185,8 @@ export function registerConfig(app: Hono, deps: AdminDeps): void {
        on conflict (hostname, worker_id) do nothing`,
       [`${id}:${body.hostname}`, body.hostname, id]
     )
-    return c.json({ data: { hostname: body.hostname } }, 201)
+    const revision = await autoPublishCell(deps, cell, 'CONFIG', id)
+    return c.json({ data: { hostname: body.hostname, revision } }, 201)
   })
 
   app.delete('/api/v1/cells/:cellId/teams/:teamId/workers/:name/hostnames/:hostname', async (c) => {
@@ -190,6 +196,7 @@ export function registerConfig(app: Hono, deps: AdminDeps): void {
       [worker(c), c.req.param('hostname')]
     )
     if (deleted.rowCount === 0) throw new VrtControlError(404, 'Hostname not found')
-    return c.json({ data: { deleted: true } })
+    const revision = await autoPublishCell(deps, c.req.param('cellId'), 'CONFIG', worker(c))
+    return c.json({ data: { deleted: true, revision } })
   })
 }

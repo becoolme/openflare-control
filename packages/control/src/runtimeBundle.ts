@@ -106,6 +106,12 @@ export function buildRuntimeBundle(input: RuntimeBundleInput): RuntimeBundle {
   const modules = [...input.modules].sort((a, b) =>
     a.name < b.name ? -1 : a.name > b.name ? 1 : 0
   )
+  // Fail closed at the build boundary: a bundle whose mainModule is not
+  // among the modules can never run, and the cell's re-validation rejects
+  // it as a corrupt artifact — catch it here where the error is actionable.
+  if (!modules.some((m) => m.name === input.mainModule)) {
+    throw new Error(`mainModule ${input.mainModule} is not among the modules`)
+  }
   const seen = new Set<string>()
   const manifestModules = modules.map((m) => {
     if (seen.has(m.name)) throw new Error(`duplicate module name: ${m.name}`)

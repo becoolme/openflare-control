@@ -873,6 +873,30 @@ class PlaneCellTx {
        where w.cluster_id=$1 and w.runtime='VRT' and w.status='ACTIVE'`,
       [this.clusterId]
     )
+    /* Env keys are worker-level hot state: a var/secret written through the
+     * console must reach the worker without a redeploy, so every row becomes
+     * a binding declaration here (values resolve per-generation through the
+     * render inputs). Write-side validation (config.ts) already guarantees
+     * the key is a valid binding name and cannot collide with a
+     * version-declared binding, jsonVar, versionMetadata or workflow name;
+     * the name check below is belt-and-braces for rows that predate it. */
+    const envKeys = new Map<string, { vars: string[]; secrets: string[] }>()
+    for (const [table, field] of [
+      ['plane_vars', 'vars'],
+      ['plane_secrets', 'secrets'],
+    ] as const) {
+      const keyRows = await this.rows(
+        `select worker_id, key from ${table} where worker_id in
+           (select id from plane_workers where cluster_id=$1)`,
+        [this.clusterId]
+      )
+      for (const row of keyRows) {
+        const wid = String(row.worker_id)
+        const entry = envKeys.get(wid) ?? { vars: [], secrets: [] }
+        entry[field].push(String(row.key))
+        envKeys.set(wid, entry)
+      }
+    }
     const d1Writers = new Map<string, { epoch: number; addr: string | null }>()
     const d1Rows = await this.rows(
       `select database_id, writer_epoch, writer_addr from plane_d1_databases where cluster_id=$1`,
@@ -916,6 +940,33 @@ class PlaneCellTx {
           where worker_id=$1 order by class_name`,
         [r.id as string]
       )
+      const declared = new Set(
+        (version.bindings ?? [])
+          .map((b) => b.name)
+          .filter((n): n is string => typeof n === 'string')
+      )
+      const env = envKeys.get(r.id as string)
+      const synthesized: VrtBindingRecord[] = []
+      for (const key of env?.vars ?? []) {
+        if (!declared.has(key))
+          synthesized.push({
+            type: 'VAR',
+            name: key,
+            resourceId: key,
+            permissionRead: true,
+            permissionWrite: true,
+          })
+      }
+      for (const key of env?.secrets ?? []) {
+        if (!declared.has(key))
+          synthesized.push({
+            type: 'SECRET',
+            name: key,
+            resourceId: key,
+            permissionRead: true,
+            permissionWrite: true,
+          })
+      }
       out.push({
         workerId: r.id as string,
         teamId: r.team_id as string,
@@ -924,7 +975,7 @@ class PlaneCellTx {
         artifactDigest: version.bundleSha256,
         compatibilityDate: version.compatibilityDate,
         compatibilityFlags: version.compatibilityFlags,
-        bindings: hydrateD1(version.bindings),
+        bindings: hydrateD1([...(version.bindings ?? []), ...synthesized]),
         hostnames: hostnames.map((h) => h.hostname as string),
         crons: version.crons,
         queueConsumers: version.queueConsumers ?? [],

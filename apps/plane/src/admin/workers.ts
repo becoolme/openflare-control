@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto'
 import type { Hono } from 'hono'
 import { z } from 'zod'
 import {
+  buildRuntimeBundle,
   VRT_DEFAULT_QUOTAS,
   VRT_MAX_JSON_BINDING_BYTES,
   VrtControlError,
@@ -14,7 +15,7 @@ import {
   type VrtCreateVersionInput,
   type VrtQueueConsumerDraft,
 } from 'openflare-control'
-import { publishCell } from '../publish.js'
+import { autoPublishCell, publishCell } from '../publish.js'
 import { bindingsSchema } from './bindingSchema.js'
 import {
   type AdminDeps,
@@ -134,6 +135,30 @@ const versionBody = z
     assetsRouting: z.enum(['ASSETS_FIRST', 'WORKER_FIRST']).nullable().optional(),
     assetsRunWorkerFirst: z.array(z.string()).optional(),
     exportedClassNames: z.array(workerDoClassNameSchema).optional(),
+  })
+  .strict()
+
+const moduleSource = z.object({
+  name: z.string().min(1).max(255),
+  type: z.enum(['esModule', 'commonJs']).default('esModule'),
+  text: z
+    .string()
+    .min(1)
+    .max(10 * 1024 * 1024),
+})
+
+const deploySourceBody = versionBody
+  .omit({ bundleSha256: true, bundleBytes: true, modules: true, versionId: true, mainModule: true })
+  .extend({
+    versionId: z.string().min(1).max(128).optional(),
+    // No static default: the entrypoint is inferred from the modules
+    // themselves (main.js → index.js → sole/first module), so a browser
+    // client that only pastes source can never produce a bundle whose
+    // mainModule points at a module that does not exist.
+    mainModule: z.string().min(1).max(255).optional(),
+    modules: z.array(moduleSource).min(1).max(64),
+    activate: z.boolean().default(true),
+    publish: z.boolean().default(true),
   })
   .strict()
 
@@ -728,7 +753,9 @@ export function registerWorkers(app: Hono, deps: AdminDeps): void {
       [id, cell, body.entrypoint ?? null, body.compatibilityDate ?? null, body.status ?? null]
     )
     if (!worker) throw new VrtControlError(404, 'Worker not found')
-    return c.json({ data: { worker: mapWorker(worker) } })
+    // Suspending must stop traffic and resuming must restore it: republish.
+    const revision = await autoPublishCell(deps, cell, 'CONFIG', id)
+    return c.json({ data: { worker: mapWorker(worker), revision } })
   })
 
   app.delete('/api/v1/cells/:cellId/teams/:teamId/workers/:name', async (c) => {
@@ -767,7 +794,10 @@ export function registerWorkers(app: Hono, deps: AdminDeps): void {
     } finally {
       client.release()
     }
-    return c.json({ data: { deleted: true } })
+    // Deleting a worker must stop it from serving: without a publication the
+    // cell keeps the worker in its desired state indefinitely.
+    const revision = await autoPublishCell(deps, cell, 'DELETE', id)
+    return c.json({ data: { deleted: true, revision } })
   })
 
   app.get('/api/v1/cells/:cellId/teams/:teamId/workers/:name/versions', async (c) => {
@@ -838,7 +868,109 @@ export function registerWorkers(app: Hono, deps: AdminDeps): void {
       const version = await deps.store.getVersionByVersionId(id, versionId)
       if (!version) throw new VrtControlError(404, 'Version not found')
       await activateVersionWithVars(deps, cell, team, id, version)
-      return c.json({ data: { workerId: id, versionId, activated: true } })
+      const revision = await autoPublishCell(deps, cell, 'ACTIVATE', id)
+      return c.json({ data: { workerId: id, versionId, activated: true, revision } })
     }
   )
+
+  /**
+   * Source-level deploy for browser/console clients: accepts raw module
+   * sources, builds the canonical runtime bundle server-side, stores it and
+   * runs the identical create/activate/publish pipeline as /deploy. Keeping
+   * bundling server-side means browser clients never need node primitives,
+   * and the deploy boundary validates the same way for every client.
+   */
+  app.post('/api/v1/cells/:cellId/teams/:teamId/workers/:name/deploy-source', async (c) => {
+    const { cellId: cell, teamId: team, name } = c.req.param()
+    const id = workerId(team, name)
+    const [worker] = await rows(
+      deps,
+      'select id from plane_workers where id=$1 and cluster_id=$2',
+      [id, cell]
+    )
+    if (!worker) throw new VrtControlError(404, 'Worker not found')
+    const rawBody = await readJson(c)
+    /* `vars` defaults to {} in the schema, so key presence in the raw body
+     * is the only signal of intent: absent means "inherit the worker's
+     * current rows" (the console settings flow), present — even empty —
+     * means exactly those vars. */
+    const clientSentVars =
+      rawBody !== null &&
+      typeof rawBody === 'object' &&
+      Object.prototype.hasOwnProperty.call(rawBody, 'vars')
+    const body = parse(deploySourceBody, rawBody)
+    if (body.publish && !deps.signing) {
+      throw new VrtControlError(501, 'Signing is not configured')
+    }
+    const moduleNames = body.modules.map((m) => m.name)
+    const mainModule =
+      body.mainModule ??
+      (moduleNames.includes('main.js')
+        ? 'main.js'
+        : moduleNames.includes('index.js')
+          ? 'index.js'
+          : moduleNames[0]!)
+    let bundle
+    try {
+      bundle = buildRuntimeBundle({
+        mainModule,
+        modules: body.modules,
+        compatibilityDate: body.compatibilityDate,
+        compatibilityFlags: body.compatibilityFlags,
+      })
+    } catch (error) {
+      throw new VrtControlError(
+        400,
+        `Cannot build a runnable bundle: ${error instanceof Error ? error.message : String(error)}`
+      )
+    }
+    const bytes = new Uint8Array(bundle.bytes)
+    await deps.store.registerBundleObject({
+      digest: bundle.digest,
+      bytes: bytes.byteLength,
+      createdById: 'plane-api',
+    })
+    await deps.bundleStore.put(bundleKeyFor(bundle.digest), bytes)
+    const { modules: sourceModules, activate, publish, versionId, ...rest } = body
+    /* Vars are version-scoped and activation reasserts the version's
+     * snapshot over plane_vars — so a deploy that carries no vars would wipe
+     * every key written through the settings API. The console's settings
+     * page is the source of truth for them: unless the request explicitly
+     * declares vars (even empty), the version inherits the worker's current
+     * rows, matching what the dashboard does on redeploy. */
+    if (!clientSentVars) {
+      const current = await deps.store.listVars(id)
+      if (current.length > 0) {
+        rest.vars = Object.fromEntries(current.map((row) => [row.key, row.value]))
+      }
+    }
+    const versionInput: VersionBody = {
+      ...rest,
+      versionId: versionId ?? `v-${Date.now().toString(36)}-${randomBytes(3).toString('hex')}`,
+      bundleSha256: bundle.digest,
+      bundleBytes: bytes.byteLength,
+      mainModule,
+      modules: sourceModules.map((m) => m.name),
+    }
+    const { version, created } = await createVersion(deps, id, versionInput)
+    let activated = false
+    let revision: number | null = null
+    if (activate) {
+      await activateVersionWithVars(deps, cell, team, id, version)
+      activated = true
+    }
+    if (publish) {
+      revision = await publishCell(deps.store, {
+        cellId: cell,
+        signing: deps.signing!,
+        cause: 'DEPLOY',
+        workerId: id,
+        versionId: version.versionId,
+      })
+    }
+    return c.json(
+      { data: { version, created, activated, revision, bundleDigest: bundle.digest } },
+      created ? 201 : 200
+    )
+  })
 }

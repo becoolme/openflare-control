@@ -32,9 +32,8 @@ describe('ShellSideNav', () => {
       'data-link': '',
     })
     const overview = nav.find('[data-k="Overview"]')
-    expect(overview.attributes('href')).toBe('#')
-    expect(overview.attributes('data-link')).toBeUndefined()
-    expect(nav.find('nuxtlink').exists()).toBe(false)
+    expect(overview.attributes('href')).toBe('/')
+    expect(overview.attributes('data-link')).toBe('')
   })
 
   it('marks only the active section', () => {
@@ -45,8 +44,9 @@ describe('ShellSideNav', () => {
     expect(active[0]!.classes()).toContain('on')
   })
 
-  it('shows counts from the fixture', () => {
-    expect(mountNav().find('[data-k="Workers"] .cnt').text()).toBe('27')
-    expect(mountNav().find('[data-k="Logs"] .cnt').exists()).toBe(false)
+  it('renders counts only for entries that carry one', () => {
+    // Counts are live data now (loaded by pages themselves), so nav entries
+    // ship without hardcoded numbers and no .cnt badge renders.
+    expect(mountNav().find('.cnt').exists()).toBe(false)
   })
 })

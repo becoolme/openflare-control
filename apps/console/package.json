@@ -21,9 +21,12 @@
     "vue-router": "^5.4.0"
   },
   "devDependencies": {
+    "@types/pg": "^8.11.10",
     "@vitejs/plugin-vue": "^6.0.1",
     "@vue/test-utils": "^2.4.6",
     "happy-dom": "^20.0.0",
+    "pg": "^8.13.0",
+    "playwright": "1.49.1",
     "typescript": "^5.7.2",
     "vitest": "^3.0.0",
     "vue-tsc": "^3.1.0"

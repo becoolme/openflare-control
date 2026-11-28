@@ -1,132 +1,181 @@
 <script setup lang="ts">
+/** Real D1 database detail: a working SQL console. Queries run as cell ops
+ *  (the data plane executes SQLite on the cell); results render as tables.
+ *  When no cell is connected the op stays PENDING and the UI says so. */
 definePageMeta({
   nav: 'D1',
-  crumbs: () => [{ label: 'storage', to: '/storage' }, { label: 'd1', to: '/d1' }, { label: 'checkumi-db' }],
-  validate: (route) => (route.params as Record<string, unknown>).db === 'checkumi-db',
+  crumbs: () => [{ label: 'storage', to: '/storage' }, { label: 'd1', to: '/d1' }, { label: 'database' }],
 })
+const route = useRoute()
+const dbName = computed(() => String((route.params as { db?: string }).db))
+const { activeCell } = useCellSelection()
+const action = useAction()
+
+/* resolve database row by name */
+interface D1Row {
+  database_id: string
+  team_id: string
+  cluster_id: string
+  name: string
+}
+const db = ref<D1Row | null>(null)
+const notFound = ref(false)
+async function resolveDb() {
+  if (!activeCell.value) return
+  const data = await consoleApi<{ databases: D1Row[] }>(
+    `/api/v1/cells/${encodeURIComponent(activeCell.value)}/d1/databases`
+  )
+  db.value = data.databases.find((d) => d.name === dbName.value) ?? null
+  notFound.value = !db.value
+}
+watch(activeCell, (c) => { if (c) void resolveDb() }, { immediate: true })
+
+interface OpResult {
+  status: string
+  result?: unknown
+  error?: string | null
+}
+async function runQuery(sql: string): Promise<OpResult | undefined> {
+  return action.run(
+    async () => {
+      const submitted = await consoleApi<{ opId: string }>(
+        `/api/v1/cells/${encodeURIComponent(activeCell.value)}/d1/databases/${encodeURIComponent(db.value!.database_id)}/query`,
+        { method: 'POST', body: { sql, params: [] } }
+      )
+      return waitForOp(activeCell.value, submitted.opId, 15_000)
+    },
+    { silent: true }
+  )
+}
+
+/* SQL console */
+const sql = ref('SELECT name, sql FROM sqlite_master WHERE type = \'table\' ORDER BY name;')
+const running = ref(false)
+const queryError = ref<string | null>(null)
+const resultRows = ref<Record<string, unknown>[] | null>(null)
+const resultMeta = ref('')
+async function execute() {
+  if (!sql.value.trim() || !db.value) return
+  running.value = true
+  queryError.value = null
+  resultRows.value = null
+  const op = await runQuery(sql.value)
+  running.value = false
+  if (!op) {
+    queryError.value = 'op submit failed'
+    return
+  }
+  if (op.status !== 'DONE') {
+    queryError.value =
+      op.status === 'PENDING'
+        ? 'query op is still PENDING — no cell is connected to execute it'
+        : op.error ?? `op ${op.status}`
+    return
+  }
+  const result = op.result as {
+    results?: Record<string, unknown>[]
+    rows?: Record<string, unknown>[]
+    meta?: { changes?: number; rows_read?: number; duration_ms?: number }
+  }
+  const rowsOut = result?.results ?? result?.rows ?? []
+  resultRows.value = rowsOut
+  const m = result?.meta
+  resultMeta.value = m
+    ? `${rowsOut.length} row${rowsOut.length === 1 ? '' : 's'} · ${m.changes ?? 0} changes · ${m.rows_read ?? '—'} read${m.duration_ms !== undefined ? ` · ${m.duration_ms} ms` : ''}`
+    : `${rowsOut.length} row${rowsOut.length === 1 ? '' : 's'}`
+}
+const columns = computed(() => {
+  if (!resultRows.value?.length) return []
+  const cols: string[] = []
+  for (const row of resultRows.value.slice(0, 50)) {
+    for (const k of Object.keys(row)) if (!cols.includes(k)) cols.push(k)
+  }
+  return cols
+})
+
+/* schema browser: tables through a real query */
+const tables = ref<string[]>([])
+async function loadSchema() {
+  if (!db.value) return
+  const op = await runQuery('SELECT name FROM sqlite_master WHERE type = \'table\' AND name NOT LIKE \'sqlite_%\' AND name NOT LIKE \'_litestream%\' ORDER BY name;')
+  if (op?.status === 'DONE') {
+    const result = op.result as { results?: { name: string }[]; rows?: { name: string }[] }
+    tables.value = (result?.results ?? result?.rows ?? []).map((r) => r.name)
+  }
+}
+watch(db, () => {
+  if (db.value) void loadSchema()
+})
+function browseTable(t: string) {
+  sql.value = `SELECT * FROM "${t}" LIMIT 100;`
+  void execute()
+}
+async function copyId() {
+  if (!db.value) return
+  await navigator.clipboard.writeText(db.value.database_id)
+  useToasts().ok('database id copied')
+}
 </script>
 
 <template><div class="wrap pg-d1" style="display: flex; flex-direction: column; gap: 18px">
-
+    <div v-if="notFound" style="padding: 30px 0">
+      <h1 style="font-size: 20px; margin: 0 0 8px">Database not found</h1>
+      <p class="muted" style="font-size: 13.5px">No D1 database named <span class="mono">{{ dbName }}</span> on this cell.</p>
+      <NuxtLink to="/d1" style="color: var(--accent); font-size: 13.5px">← Back to D1</NuxtLink>
+    </div>
+    <template v-else>
     <div style="display: flex; align-items: flex-end; justify-content: space-between; gap: 16px">
       <div>
-        <div class="gl" style="margin-bottom: 6px; display: flex; gap: 8px; align-items: center"><ResourceBindingChip kind="d1" />SQL database · SQLite</div>
-        <h1 style="margin: 0; font-size: 26px; font-weight: 600; letter-spacing: -0.03em; font-family: 'Geist Mono', monospace">checkumi-db</h1>
-        <p class="muted" style="margin: 6px 0 0; font-size: 13.5px; display: flex; gap: 14px; align-items: center"><span class="mono">d1_4be20f7a</span><UiIconButton icon="copy" :size="12" label="Copy ID" style="width: 22px; height: 22px" /><span>binding <span class="mono" style="color: var(--t2)">DB</span> in <span class="mono" style="color: var(--t2)">checkumi-edge</span></span><span>node <span class="mono">k3s-007</span></span><UiBadge tone="warn">2 pending migrations</UiBadge></p>
-      </div>
-      <div style="display: flex; gap: 8px">
-        <UiButton variant="secondary"><UiIcon name="arrup" :size="13" />Export .sql <span class="miss" style="margin-left: 4px">API</span></UiButton>
-        <UiButton variant="secondary"><UiIcon name="clock" :size="13" />Time Travel <span class="miss" style="margin-left: 4px">API</span></UiButton>
-        <UiButton variant="primary"><UiIcon name="play" :size="13" />Apply migrations</UiButton>
+        <div class="gl" style="margin-bottom: 6px; display: flex; gap: 8px; align-items: center"><ResourceBindingChip kind="d1" />D1 database</div>
+        <h1 style="margin: 0; font-size: 26px; font-weight: 600; letter-spacing: -0.03em; font-family: 'Geist Mono', monospace">{{ dbName }}</h1>
+        <p class="muted" style="margin: 6px 0 0; font-size: 13.5px; display: flex; gap: 10px; align-items: center">
+          <span class="mono">{{ db?.database_id }}</span>
+          <UiIconButton icon="copy" :size="12" label="Copy ID" style="width: 22px; height: 22px" @click="copyId" />
+          <span v-if="db">team <span class="mono" style="color: var(--t2)">{{ db.team_id }}</span></span>
+        </p>
       </div>
     </div>
 
-    <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px">
-      <UiMetricCard label="Database size"><template #value>184<small> MB</small></template><UiMetricFoot>7 tables · 12 indexes</UiMetricFoot></UiMetricCard>
-      <UiMetricCard label="Queries" hint="24h"><template #value>1.84<small> M</small></template><ChartSparkline seed="d1q" :width="240" :height="18" color="#B48CFF" /></UiMetricCard>
-      <UiMetricCard label="Rows read · written" hint="24h"><template #value>92<small> M · 310 k</small></template><ChartSparkline seed="d1r" :width="240" :height="18" color="var(--t2)" /></UiMetricCard>
-      <UiMetricCard label="Query p95"><template #value>3.8<small> ms</small></template><UiMetricFoot class="ok">● healthy · WAL 2.1 MB</UiMetricFoot></UiMetricCard>
-    </div>
+    <div style="display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 12px; align-items: start">
+      <section class="card" style="padding: 12px">
+        <div class="ch-h" style="margin-bottom: 8px"><span class="t">Tables</span><UiIconButton icon="redo" :size="12" label="Reload" style="width: 22px; height: 22px" @click="loadSchema" /></div>
+        <div v-if="tables.length === 0" class="muted" style="font-size: 12.5px">No user tables yet — or the schema query is still pending on the cell.</div>
+        <a v-for="t in tables" :key="t" href="#" class="mono" style="display: block; padding: 5px 6px; border-radius: 5px; font-size: 12.5px; color: var(--accent)" @click.prevent="browseTable(t)">{{ t }}</a>
+      </section>
 
-    <UiTabs>
-      <UiTab active>Console</UiTab><UiTab>Tables <span class="mono dim">7</span></UiTab><UiTab>Migrations <span class="mono dim" style="color: var(--warn)">2</span></UiTab><UiTab>Metrics</UiTab><UiTab>Settings</UiTab>
-    </UiTabs>
-
-    <div style="display: grid; grid-template-columns: 220px minmax(0, 1fr); border: 1px solid var(--b1); border-radius: 12px; overflow: hidden; background: var(--s1)">
-      <aside class="tside">
-        <UiInputBox style="height: 30px; margin-bottom: 6px"><UiIcon name="search" :size="13" /><span style="color: var(--t4)">Filter tables</span></UiInputBox>
-        <div class="gh">Tables</div>
-        <div class="ti"><UiIcon name="layers" :size="13" />checks<span class="c">48,210</span></div>
-        <div class="ti on"><UiIcon name="layers" :size="13" />check_runs<span class="c">2.1M</span></div>
-        <div class="ti"><UiIcon name="layers" :size="13" />items<span class="c">310,442</span></div>
-        <div class="ti"><UiIcon name="layers" :size="13" />lists<span class="c">18,906</span></div>
-        <div class="ti"><UiIcon name="layers" :size="13" />users<span class="c">9,418</span></div>
-        <div class="ti"><UiIcon name="layers" :size="13" />share_tokens<span class="c">2,207</span></div>
-        <div class="ti"><UiIcon name="layers" :size="13" />webhooks<span class="c">144</span></div>
-        <div class="gh">System</div>
-        <div class="ti" style="color: var(--t3)"><UiIcon name="layers" :size="13" />d1_migrations<span class="c">14</span></div>
-        <div style="flex: 1"></div>
-        <UiButton variant="secondary" size="sm" style="justify-content: center; margin-top: 8px"><UiIcon name="plus" :size="12" />New table</UiButton>
-      </aside>
-
-      <section style="min-width: 0">
-        <div style="display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--b1)">
-          <UiSegmented role="group" aria-label="Query tabs"><UiSegment pressed>Query 1</UiSegment><UiSegment>failed runs</UiSegment><UiSegment><UiIcon name="plus" :size="12" /></UiSegment></UiSegmented>
-          <div style="flex: 1"></div>
-          <span class="muted" style="font-size: 12px">read-write · statements run in one batch</span>
-          <UiButton variant="secondary" size="sm">Format</UiButton>
-          <UiButton variant="primary" size="sm"><UiIcon name="play" :size="12" />Run <kbd>⌘↵</kbd></UiButton>
+      <section class="card" style="padding: 0">
+        <div style="padding: 12px 14px; border-bottom: 1px solid var(--b1); display: flex; gap: 10px; align-items: center">
+          <span class="sec-t" style="font-size: 14px">SQL console</span>
+          <span class="muted" style="font-size: 12px">executes as a cell op against the real SQLite file</span>
         </div>
-        <div class="sqled"><div class="ln">1
-2
-3
-4
-5
-6
-7</div><div class="tx"><span class="k">SELECT</span> r.id, r.check_id, c.name, r.status, r.duration_ms, r.started_at
-  <span class="k">FROM</span> check_runs r
-  <span class="k">JOIN</span> checks c <span class="k">ON</span> c.id = r.check_id
- <span class="k">WHERE</span> r.status = <span class="s">'failed'</span>{{ "\n   " }}<span class="k">AND</span> r.started_at &gt;{{ " " }}<span class="v">datetime</span>(<span class="s">'now'</span>, <span class="s">'-1 day'</span>)
- <span class="k">ORDER BY</span> r.started_at <span class="k">DESC</span>{{ "\n " }}<span class="k">LIMIT</span>{{ " " }}<span class="p">50</span>;</div></div>
-        <div style="display: flex; gap: 16px; align-items: center; padding: 8px 14px; border-bottom: 1px solid var(--b1); font-size: 12px" class="muted">
-          <span class="ok"><UiIcon name="check" :size="11" /> success</span><span><span class="mono" style="color: var(--t1)">6</span> rows</span><span><span class="mono" style="color: var(--t1)">4.2 ms</span> duration</span><span><span class="mono" style="color: var(--t1)">2,184</span> rows read</span><span><span class="mono" style="color: var(--t1)">0</span> written</span>
-          <div style="flex: 1"></div>
-          <UiButton variant="secondary" size="sm"><UiIcon name="copy" :size="12" />Copy as CSV</UiButton>
-          <UiButton variant="secondary" size="sm">EXPLAIN</UiButton>
+        <div style="padding: 12px 14px; display: flex; flex-direction: column; gap: 10px">
+          <textarea
+            v-model="sql"
+            rows="5"
+            spellcheck="false"
+            class="mono"
+            style="padding: 10px; background: var(--s2); border: 1px solid var(--b1); border-radius: 6px; color: inherit; font-size: 12.5px; resize: vertical"
+            @keydown.meta.enter="execute"
+            @keydown.ctrl.enter="execute"
+          />
+          <div style="display: flex; align-items: center; gap: 10px">
+            <UiButton variant="primary" size="sm" :disabled="running" @click="execute">{{ running ? 'Running…' : 'Run query' }}</UiButton>
+            <span class="muted" style="font-size: 12px">⌘⏎ to run</span>
+            <div style="flex: 1"></div>
+            <span v-if="resultMeta" class="mono dim" style="font-size: 12px">{{ resultMeta }}</span>
+          </div>
+          <div v-if="queryError" style="color: var(--err); font-size: 12.5px">{{ queryError }}</div>
         </div>
-        <table class="tbl rg">
-          <thead><tr><th>id<small>INTEGER</small></th><th>check_id<small>TEXT</small></th><th>name<small>TEXT</small></th><th>status<small>TEXT</small></th><th style="text-align: right">duration_ms<small>INT</small></th><th>started_at<small>TEXT</small></th></tr></thead>
+        <table v-if="resultRows && resultRows.length > 0" class="tbl" style="border-top: 1px solid var(--b1)">
+          <thead><tr><th v-for="c in columns" :key="c" class="mono">{{ c }}</th></tr></thead>
           <tbody>
-            <tr><td class="dim">2104418</td><td>chk_9a1f</td><td>api /health</td><td class="err">failed</td><td style="text-align: right">10000</td><td>2026-11-21 14:38:02</td></tr>
-            <tr><td class="dim">2104377</td><td>chk_9a1f</td><td>api /health</td><td class="err">failed</td><td style="text-align: right">10000</td><td>2026-11-21 14:33:02</td></tr>
-            <tr><td class="dim">2103950</td><td>chk_02be</td><td>pg tcp 5432</td><td class="err">failed</td><td style="text-align: right">3011</td><td>2026-11-21 13:02:41</td></tr>
-            <tr><td class="dim">2101211</td><td>chk_77c0</td><td>cdn image</td><td class="err">failed</td><td style="text-align: right">842</td><td>2026-11-21 06:12:19</td></tr>
-            <tr><td class="dim">2099804</td><td>chk_5d14</td><td>webhook echo</td><td class="err">failed</td><td style="text-align: right"><span class="nul">NULL</span></td><td>2026-11-21 01:44:55</td></tr>
-            <tr><td class="dim">2098472</td><td>chk_02be</td><td>pg tcp 5432</td><td class="err">failed</td><td style="text-align: right">3008</td><td>2026-11-20 22:10:07</td></tr>
+            <tr v-for="(row, i) in resultRows.slice(0, 200)" :key="i">
+              <td v-for="c in columns" :key="c" class="mono sm" style="max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ row[c] === null ? 'NULL' : typeof row[c] === 'object' ? JSON.stringify(row[c]) : String(row[c]) }}</td>
+            </tr>
           </tbody>
         </table>
+        <div v-else-if="resultRows" class="muted" style="padding: 14px; font-size: 13px; border-top: 1px solid var(--b1)">Query succeeded — no rows returned.</div>
       </section>
     </div>
-
-    <div style="display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 12px">
-      <section class="card" style="padding: 16px 18px">
-        <div class="ch-h"><span class="t">Migrations</span><span class="v mono">migrations/ · 14 applied · 2 pending</span></div>
-        <div class="mig"><span class="warn"><UiIcon name="clock" :size="13" /></span><span class="n">0016_add_check_region.sql</span><span style="display: flex; gap: 8px; align-items: center"><UiBadge tone="warn">pending</UiBadge></span></div>
-        <div class="mig"><span class="warn"><UiIcon name="clock" :size="13" /></span><span class="n">0015_index_runs_status_started.sql</span><span style="display: flex; gap: 8px; align-items: center"><UiBadge tone="warn">pending</UiBadge></span></div>
-        <div class="mig"><span class="ok"><UiIcon name="check" :size="13" /></span><span class="n">0014_share_tokens_expiry.sql</span><span class="mono dim" style="font-size: 11.5px">Nov 18 · v43</span></div>
-        <div class="mig"><span class="ok"><UiIcon name="check" :size="13" /></span><span class="n">0013_webhooks.sql</span><span class="mono dim" style="font-size: 11.5px">Nov 02 · v39</span></div>
-        <div class="mig"><span class="ok"><UiIcon name="check" :size="13" /></span><span class="n">0012_items_position.sql</span><span class="mono dim" style="font-size: 11.5px">Oct 21 · v36</span></div>
-        <div style="display: flex; gap: 8px; align-items: center; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--b1)">
-          <span class="muted" style="font-size: 12px; flex: 1">Applied in order inside a transaction; the first failure rolls back the batch and stops.</span>
-          <UiButton variant="secondary" size="sm">Show 9 more</UiButton>
-          <UiButton variant="primary" size="sm"><UiIcon name="play" :size="12" />Apply 2</UiButton>
-        </div>
-      </section>
-
-      <div style="display: flex; flex-direction: column; gap: 12px">
-        <section class="card" style="padding: 16px">
-          <div class="ch-h"><span class="t">Queries / min</span><span class="v">peak 2.9k · 14:05</span></div>
-          <ChartArea seed="d1qm" :width="460" :height="70" color="#B48CFF" />
-          <div class="axis"><span>-24h</span><span>-12h</span><span>now</span></div>
-        </section>
-        <section class="card" style="padding: 16px">
-          <div class="ch-h"><span class="t">Query history</span><a href="#" class="muted" style="font-size: 12.5px">All →</a></div>
-          <div class="qh" style="border-top: 0"><span class="q">SELECT r.id, r.check_id, c.name … LIMIT 50</span><span class="mono dim">4.2 ms</span><span class="mono dim">now</span></div>
-          <div class="qh"><span class="q">UPDATE checks SET interval_s = 60 WHERE id = 'chk_9a1f'</span><span class="mono dim">1.1 ms</span><span class="mono dim">12 m</span></div>
-          <div class="qh"><span class="q">PRAGMA table_info(check_runs)</span><span class="mono dim">0.2 ms</span><span class="mono dim">40 m</span></div>
-          <div class="qh"><span class="q err">DELETE FROM items WHERE list_id = ? — SQLITE_CONSTRAINT</span><span class="mono dim">0.4 ms</span><span class="mono dim">2 h</span></div>
-        </section>
-      </div>
-    </div>
-
-    <section class="card" style="padding: 16px 18px; display: flex; gap: 14px; align-items: center">
-      <UiIcon name="shield" :size="18" />
-      <div style="flex: 1">
-        <div style="font-weight: 600; font-size: 13.5px">Backups &amp; point-in-time restore</div>
-        <div class="muted" style="font-size: 12.5px">The SQLite file lives on the worker's deployment volume. Snapshots, Time Travel bookmarks and restore are not exposed yet.</div>
-      </div>
-      <span class="miss">backup / restore API</span>
-      <UiButton variant="secondary" size="sm" disabled style="opacity: .5">Restore…</UiButton>
-    </section>
-
+    </template>
   </div></template>

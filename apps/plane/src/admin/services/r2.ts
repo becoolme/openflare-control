@@ -17,6 +17,56 @@ import {
 
 const R2_KINDS = ['R2_LIST', 'R2_HEAD', 'R2_GET', 'R2_PUT', 'R2_DELETE'] as const
 
+/**
+ * Same boundary rule as the KV ops: the cell deserializes payloads with
+ * `deny_unknown_fields` and expects camelCase keys, base64 bodies and
+ * plural `keys` for deletes. The plane API speaks friendly shapes — text
+ * `body`, singular `key` — and owns the wire encoding here so browser
+ * clients never hand-assemble cell contracts.
+ */
+function r2CellPayload(
+  kind: (typeof R2_KINDS)[number],
+  payload: Record<string, unknown>
+): Record<string, unknown> {
+  const key = typeof payload.key === 'string' && payload.key ? payload.key : null
+  switch (kind) {
+    case 'R2_GET':
+    case 'R2_HEAD':
+      if (!key) throw new VrtControlError(400, 'key is required')
+      return { key }
+    case 'R2_PUT': {
+      if (!key) throw new VrtControlError(400, 'key is required')
+      let bodyBase64: string
+      if (typeof payload.body === 'string') {
+        bodyBase64 = Buffer.from(payload.body, 'utf8').toString('base64')
+      } else if (typeof payload.bodyBase64 === 'string') {
+        bodyBase64 = payload.bodyBase64
+      } else {
+        throw new VrtControlError(400, 'body (text) or bodyBase64 is required')
+      }
+      const out: Record<string, unknown> = { key, bodyBase64 }
+      if (typeof payload.contentType === 'string') out.contentType = payload.contentType
+      if (payload.customMetadata !== undefined) out.customMetadata = payload.customMetadata
+      return out
+    }
+    case 'R2_DELETE': {
+      if (Array.isArray(payload.keys) && payload.keys.every((k) => typeof k === 'string')) {
+        return { keys: payload.keys }
+      }
+      if (key) return { keys: [key] }
+      throw new VrtControlError(400, 'key or keys is required')
+    }
+    case 'R2_LIST': {
+      const out: Record<string, unknown> = {}
+      if (typeof payload.prefix === 'string') out.prefix = payload.prefix
+      if (typeof payload.cursor === 'string') out.cursor = payload.cursor
+      if (typeof payload.limit === 'number') out.limit = payload.limit
+      if (typeof payload.delimiter === 'string') out.delimiter = payload.delimiter
+      return out
+    }
+  }
+}
+
 export function registerR2Service(app: Hono, deps: AdminDeps): void {
   app.get('/api/v1/cells/:cellId/r2/buckets', async (c) => {
     const team = c.req.query('teamId')
@@ -121,7 +171,11 @@ export function registerR2Service(app: Hono, deps: AdminDeps): void {
         cell,
         bucket.bucket_id,
         body.kind,
-        { tenantId: bucket.team_id, bucketId: bucket.bucket_id, ...body.payload },
+        {
+          tenantId: bucket.team_id,
+          bucketId: bucket.bucket_id,
+          ...r2CellPayload(body.kind, body.payload),
+        },
         body.expiresAt ?? null,
       ]
     )

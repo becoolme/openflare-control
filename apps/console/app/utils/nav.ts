@@ -21,50 +21,30 @@ export interface Crumb {
   to?: RouteLocationRaw
 }
 
-/** Side navigation of the v3 design, top section (above the CLI card). */
+/** Side navigation. Every entry links to a real page — an entry whose
+ *  page does not exist yet does not exist here either. Counts are loaded
+ *  live by the SideNav component, not hardcoded here. */
 export const NAV_GROUPS: readonly NavGroup[] = [
-  { items: [{ key: 'Overview', label: 'Overview' }] },
+  { items: [{ key: 'Overview', label: 'Overview', to: '/' }] },
   {
     heading: 'Compute',
     items: [
-      { key: 'Workers', label: 'Workers', count: 27, to: '/workers' },
-      { key: 'Workflows', label: 'Workflows', count: 6, to: '/workflows' },
+      { key: 'Workers', label: 'Workers', to: '/workers' },
+      { key: 'Workflows', label: 'Workflows', to: '/workflows' },
     ],
   },
   {
     heading: 'Storage & Databases',
     items: [
-      { key: 'KV', label: 'KV', count: 14, to: '/kv' },
-      { key: 'D1', label: 'D1 SQL', count: 9, to: '/d1' },
-      { key: 'R2', label: 'R2 Object Storage', count: 5, to: '/r2' },
-      { key: 'Queues', label: 'Queues', count: 7, to: '/queues' },
-      { key: 'DurableObjects', label: 'Durable Objects', count: 4, to: '/durable-objects' },
-      { key: 'Hyperdrive', label: 'Hyperdrive', count: 2, to: '/hyperdrive' },
-    ],
-  },
-  {
-    heading: 'Observability',
-    items: [
-      { key: 'Logs', label: 'Logs', to: '/workers/checkumi-edge/logs' },
-      { key: 'Metrics', label: 'Metrics' },
-    ],
-  },
-  {
-    heading: 'Network',
-    items: [
-      {
-        key: 'Domains',
-        label: 'Domains & Routes',
-        count: 31,
-        to: '/workers/checkumi-edge/settings',
-      },
+      { key: 'KV', label: 'KV', to: '/kv' },
+      { key: 'D1', label: 'D1 SQL', to: '/d1' },
+      { key: 'R2', label: 'R2 Object Storage', to: '/r2' },
+      { key: 'Queues', label: 'Queues', to: '/queues' },
+      { key: 'DurableObjects', label: 'Durable Objects', to: '/durable-objects' },
+      { key: 'Hyperdrive', label: 'Hyperdrive', to: '/hyperdrive' },
     ],
   },
 ]
 
 /** Side navigation below the CLI card. */
-export const NAV_FOOTER: readonly NavItem[] = [
-  { key: 'Metrics', label: 'API coverage', to: '/kit/api' },
-  { key: 'Tokens', label: 'API Tokens' },
-  { key: 'Settings', label: 'Settings' },
-]
+export const NAV_FOOTER: readonly NavItem[] = []

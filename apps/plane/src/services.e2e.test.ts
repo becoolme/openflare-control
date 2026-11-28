@@ -712,7 +712,7 @@ maybe('service resource API e2e', () => {
     const quota = await call('PATCH', `/api/v1/teams/${team}`, {
       quotas: { requestsMonth: 1000, workersMax: 5 },
     })
-    expect(quota.body.data.team.workers_max).toBe(5)
+    expect(quota.body.data.team.quotas.workersMax).toBe(5)
 
     // Hyperdrive metadata + binding identity
     const hd = await call('POST', `/api/v1/cells/${cell}/hyperdrive`, {
