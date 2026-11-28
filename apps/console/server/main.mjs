@@ -126,5 +126,6 @@ const server = createServer(async (req, res) => {
 })
 
 server.listen(port, () => {
-  console.log(`openflare-console listening on :${port} (plane ${planeUrl})`)
+  const bound = server.address()?.port ?? port
+  console.log(`openflare-console listening on :${bound} (plane ${planeUrl})`)
 })
