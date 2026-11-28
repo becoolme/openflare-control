@@ -52,17 +52,17 @@ export interface Harness {
 export async function bootHarness(): Promise<Harness> {
   const url = process.env.DATABASE_URL
   if (!url) throw new Error('DATABASE_URL required')
-  const pool = new Pool({ connectionString: url })
+  // hermetic database per harness: vitest runs test files in parallel, and
+  // concurrent schema application against one shared database races on
+  // catalog rows (pg_type_typname_nsp_index). each boot creates its own
+  // scratch database and drops it on close.
+  const base = new URL(url)
+  const dbName = `e2e_${Math.random().toString(16).slice(2, 12)}`
+  const maint = new Pool({ connectionString: url })
+  await maint.query(`CREATE DATABASE "${dbName}"`)
+  base.pathname = `/${dbName}`
+  const pool = new Pool({ connectionString: base.toString() })
   await pool.query(await readFile(join(process.cwd(), '../plane/src/schema.sql'), 'utf8'))
-  // deterministic state: the scratch database is shared across runs, so
-  // truncate every plane table — otherwise the console's cell/team
-  // auto-selection picks up residue from earlier runs and tests flake.
-  const tables = await pool.query<{ table_name: string }>(
-    "select table_name from information_schema.tables where table_schema='public' and table_name like 'plane_%'"
-  )
-  if (tables.rows.length > 0) {
-    await pool.query(`truncate ${tables.rows.map((t) => `"${t.table_name}"`).join(', ')} cascade`)
-  }
   const app = createApp({
     store: createPlaneStore(pool),
     pool,
@@ -123,17 +123,17 @@ export async function bootHarness(): Promise<Harness> {
       await new Promise((r) => setTimeout(r, 200))
     }
   }
-  return {
-    pool,
-    planeServer,
-    consoleProc,
-    consolePort,
-    close: async () => {
-      consoleProc?.kill()
-      planeServer?.close()
-      await pool?.end()
-    },
+  const close = async () => {
+    consoleProc?.kill()
+    planeServer?.close()
+    await pool?.end()
+    try {
+      await maint.query(`DROP DATABASE IF EXISTS "${dbName}"`)
+    } finally {
+      await maint.end()
+    }
   }
+  return { pool, planeServer, consoleProc, consolePort, close }
 }
 
 /** Minimal api helper through the console proxy (basic auth). */
