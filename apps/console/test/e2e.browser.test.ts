@@ -384,4 +384,66 @@ maybe('console browser e2e (real chromium clicks)', () => {
     expect(opList.some((o) => o.kind === 'KV_PUT')).toBe(true)
     await page.close()
   }, 60_000)
+
+  it('deployments tab: activate button flips the active version server-side', async () => {
+    // seed worker + two real versions through the API
+    const wname = `bv-${suffix}`
+    expect(
+      (
+        await api(harness.consolePort, 'POST', `/api/v1/cells/${cell}/workers`, {
+          teamId: team,
+          name: wname,
+        })
+      ).status
+    ).toBe(201)
+    const src = (v: string) => ({
+      modules: [
+        {
+          name: 'main.js',
+          type: 'esModule',
+          text: `export default { fetch() { return new Response("${v}") } }\n`,
+        },
+      ],
+    })
+    for (const v of ['one', 'two']) {
+      const d = await api(
+        harness.consolePort,
+        'POST',
+        `/api/v1/cells/${cell}/teams/${team}/workers/${wname}/deploy-source`,
+        src(v)
+      )
+      expect(d.status).toBe(201)
+    }
+    const detail = await api(
+      harness.consolePort,
+      'GET',
+      `/api/v1/cells/${cell}/teams/${team}/workers/${wname}`
+    )
+    const versions =
+      (detail.body.data as never as { versions: { versionId: string }[] })?.versions ?? []
+    expect(versions.length).toBe(2)
+    const first = versions[versions.length - 1]!.versionId // oldest
+    // open the deployments tab and activate the older version
+    const page = await openPage(`/workers/${wname}/deployments`)
+    await waitText(page, 'body', /activate/i)
+    const row = page.locator('tr', { hasText: first }).first()
+    await row.getByRole('button', { name: /activate/i }).click()
+    // server-side truth: the active version pointer moved
+    const deadline = Date.now() + 12_000
+    let activeNow = ''
+    while (Date.now() < deadline) {
+      const d2 = await api(
+        harness.consolePort,
+        'GET',
+        `/api/v1/cells/${cell}/teams/${team}/workers/${wname}`
+      )
+      activeNow =
+        (d2.body.data as never as { worker?: { activeVersionId: string } })?.worker
+          ?.activeVersionId ?? ''
+      if (activeNow === first) break
+      await new Promise((r) => setTimeout(r, 400))
+    }
+    expect(activeNow).toBe(first)
+    await page.close()
+  }, 60_000)
 })
