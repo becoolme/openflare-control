@@ -889,7 +889,16 @@ export function registerWorkers(app: Hono, deps: AdminDeps): void {
       [id, cell]
     )
     if (!worker) throw new VrtControlError(404, 'Worker not found')
-    const body = parse(deploySourceBody, await readJson(c))
+    const rawBody = await readJson(c)
+    /* `vars` defaults to {} in the schema, so key presence in the raw body
+     * is the only signal of intent: absent means "inherit the worker's
+     * current rows" (the console settings flow), present — even empty —
+     * means exactly those vars. */
+    const clientSentVars =
+      rawBody !== null &&
+      typeof rawBody === 'object' &&
+      Object.prototype.hasOwnProperty.call(rawBody, 'vars')
+    const body = parse(deploySourceBody, rawBody)
     if (body.publish && !deps.signing) {
       throw new VrtControlError(501, 'Signing is not configured')
     }
@@ -923,6 +932,18 @@ export function registerWorkers(app: Hono, deps: AdminDeps): void {
     })
     await deps.bundleStore.put(bundleKeyFor(bundle.digest), bytes)
     const { modules: sourceModules, activate, publish, versionId, ...rest } = body
+    /* Vars are version-scoped and activation reasserts the version's
+     * snapshot over plane_vars — so a deploy that carries no vars would wipe
+     * every key written through the settings API. The console's settings
+     * page is the source of truth for them: unless the request explicitly
+     * declares vars (even empty), the version inherits the worker's current
+     * rows, matching what the dashboard does on redeploy. */
+    if (!clientSentVars) {
+      const current = await deps.store.listVars(id)
+      if (current.length > 0) {
+        rest.vars = Object.fromEntries(current.map((row) => [row.key, row.value]))
+      }
+    }
     const versionInput: VersionBody = {
       ...rest,
       versionId: versionId ?? `v-${Date.now().toString(36)}-${randomBytes(3).toString('hex')}`,

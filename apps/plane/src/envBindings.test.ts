@@ -133,6 +133,49 @@ maybe('env keys become bindings in desired state', () => {
     expect(bindings.some((b) => b.name === 'MY_SECRET')).toBe(true)
   })
 
+  it('keeps console-written vars across redeploys', async () => {
+    // Activation reasserts the version's varValues over plane_vars — a deploy
+    // that never heard of the settings-page keys must inherit them, or every
+    // redeploy would silently wipe the worker's vars.
+    expect(
+      (
+        await call('PUT', `${base}/teams/${team}/workers/${worker}/vars/PERSIST_ME`, {
+          value: 'kept',
+        })
+      ).status
+    ).toBe(200)
+    const deploy = await call('POST', `${base}/teams/${team}/workers/${worker}/deploy-source`, {
+      modules: [
+        {
+          name: 'main.js',
+          type: 'esModule',
+          text: 'export default { fetch() { return new Response("z") } }\n',
+        },
+      ],
+    })
+    expect(deploy.status).toBe(201)
+    const vars = await call('GET', `${base}/teams/${team}/workers/${worker}/vars`)
+    const keys = (vars.body.data.vars as { key: string }[]).map((v) => v.key)
+    expect(keys).toContain('PERSIST_ME')
+  })
+
+  it('an explicit empty vars object still wipes, as version-scoped vars demand', async () => {
+    const deploy = await call('POST', `${base}/teams/${team}/workers/${worker}/deploy-source`, {
+      modules: [
+        {
+          name: 'main.js',
+          type: 'esModule',
+          text: 'export default { fetch() { return new Response("z") } }\n',
+        },
+      ],
+      vars: {},
+    })
+    expect(deploy.status).toBe(201)
+    const vars = await call('GET', `${base}/teams/${team}/workers/${worker}/vars`)
+    const keys = (vars.body.data.vars as { key: string }[]).map((v) => v.key)
+    expect(keys).not.toContain('PERSIST_ME')
+  })
+
   it('does not leak keys across workers', async () => {
     const other = `eb-other-${suffix}`
     expect((await call('POST', `${base}/workers`, { teamId: team, name: other })).status).toBe(201)
