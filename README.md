@@ -95,6 +95,10 @@ Details:
   tag (`OPENFLARE_REGISTRY` / `OPENFLARE_IMAGE_TAG` override in `.env`). The
   `v*` tag trigger publishes all six — cell images build from the _pinned_
   openflare contract revision, so the wire bytes always match the plane.
+  Releases are **linux/amd64 only**; on arm64 hosts (Apple Silicon, ARM
+  servers) either run them under emulation (`docker pull --platform
+linux/amd64 …` first, then compose uses the local images) or build for
+  your arch with the dev override.
 - **Public exposure**: `--profile tls` adds Traefik on :80/:443 with
   per-hostname Let's Encrypt certificates; see the compose file header.
   Without it everything stays on loopback (trusted-network dev mode).
