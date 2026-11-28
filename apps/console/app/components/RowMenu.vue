@@ -27,7 +27,7 @@ const emit = defineEmits<{ pick: [key: string]; close: [] }>()
         :class="{ danger: a.danger }"
         @click.prevent="emit('pick', a.key)"
       >
-        <UiIcon v-if="a.icon" :name="(a.icon as never)" :size="14" />{{ a.label }}
+        <UiIcon v-if="a.icon" :name="a.icon as never" :size="14" />{{ a.label }}
       </a>
     </div>
   </Teleport>

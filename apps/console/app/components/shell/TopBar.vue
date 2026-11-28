@@ -88,7 +88,9 @@ function goFirst() {
         style="border: 0; background: transparent; font: inherit; color: inherit; cursor: pointer"
       >
         <option v-if="teams.length === 0" :value="null">no team</option>
-        <option v-for="t in teams" :key="t.teamId" :value="t.teamId">{{ t.name ?? t.teamId }}</option>
+        <option v-for="t in teams" :key="t.teamId" :value="t.teamId">{{
+          t.name ?? t.teamId
+        }}</option>
       </select>
     </label>
     <span class="sep" aria-hidden="true">/</span>
@@ -131,17 +133,45 @@ function goFirst() {
       </svg>
       <span style="flex: 1">Search or run a command…</span><kbd>⌘K</kbd>
     </button>
-    <a href="https://github.com/becoolme/openflare-control/tree/main/docs" target="_blank" rel="noopener" class="btn btn-sm" style="color: var(--t3)">Docs</a>
+    <a
+      href="https://github.com/becoolme/openflare-control/tree/main/docs"
+      target="_blank"
+      rel="noopener"
+      class="btn btn-sm"
+      style="color: var(--t3)"
+      >Docs</a
+    >
     <Teleport to="body">
-      <div v-if="paletteOpen" class="dlg-backdrop" style="align-items: flex-start; padding-top: 14vh" @click.self="paletteOpen = false">
-        <div class="dlg" role="dialog" aria-label="Command palette" style="width: 520px; overflow: hidden">
+      <div
+        v-if="paletteOpen"
+        class="dlg-backdrop"
+        style="align-items: flex-start; padding-top: 14vh"
+        @click.self="paletteOpen = false"
+      >
+        <div
+          class="dlg"
+          role="dialog"
+          aria-label="Command palette"
+          style="width: 520px; overflow: hidden"
+        >
           <input
             ref="paletteInput"
             v-model="paletteQuery"
             type="text"
             placeholder="Jump to a page or worker…"
             aria-label="Search"
-            style="width: 100%; padding: 14px 16px; background: none; border: none; border-bottom: 1px solid var(--b1); outline: none; color: inherit; font: inherit; font-size: 14px; box-sizing: border-box"
+            style="
+              width: 100%;
+              padding: 14px 16px;
+              background: none;
+              border: none;
+              border-bottom: 1px solid var(--b1);
+              outline: none;
+              color: inherit;
+              font: inherit;
+              font-size: 14px;
+              box-sizing: border-box;
+            "
             @keydown.escape="paletteOpen = false"
             @keydown.enter="goFirst"
           />
@@ -150,12 +180,25 @@ function goFirst() {
               v-for="item in paletteItems"
               :key="item.to"
               href="#"
-              style="display: flex; gap: 10px; align-items: center; padding: 9px 10px; border-radius: 6px"
+              style="
+                display: flex;
+                gap: 10px;
+                align-items: center;
+                padding: 9px 10px;
+                border-radius: 6px;
+              "
               @click.prevent="go(item.to)"
             >
-              <span class="kind mono" style="font-size: 11px; min-width: 64px">{{ item.kind }}</span>{{ item.label }}
+              <span class="kind mono" style="font-size: 11px; min-width: 64px">{{
+                item.kind
+              }}</span>{{ item.label }}
             </a>
-            <div v-if="paletteItems.length === 0" class="muted" style="padding: 14px 10px; font-size: 13px">No matches.</div>
+            <div
+              v-if="paletteItems.length === 0"
+              class="muted"
+              style="padding: 14px 10px; font-size: 13px"
+              >No matches.</div
+            >
           </div>
         </div>
       </div>
