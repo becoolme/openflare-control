@@ -347,7 +347,12 @@ export function apiDeleteWorker(cell: string, teamId: string, name: string) {
   })
 }
 
-export function apiDeploySource(cell: string, teamId: string, name: string, input: DeploySourceInput) {
+export function apiDeploySource(
+  cell: string,
+  teamId: string,
+  name: string,
+  input: DeploySourceInput
+) {
   return consoleApi<{ revision: number | null; activated: boolean }>(
     `/api/v1/cells/${enc(cell)}/teams/${enc(teamId)}/workers/${enc(name)}/deploy-source`,
     { method: 'POST', body: input }

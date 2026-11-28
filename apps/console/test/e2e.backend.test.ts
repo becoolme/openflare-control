@@ -64,9 +64,7 @@ maybe('console backend e2e (real plane + real console server)', () => {
 
   beforeAll(async () => {
     pool = new Pool({ connectionString: url })
-    await pool.query(
-      await readFile(join(process.cwd(), '../plane/src/schema.sql'), 'utf8')
-    )
+    await pool.query(await readFile(join(process.cwd(), '../plane/src/schema.sql'), 'utf8'))
     const app = createApp({
       store: createPlaneStore(pool),
       pool,
@@ -76,19 +74,24 @@ maybe('console backend e2e (real plane + real console server)', () => {
       signing: resolvePlaneSigningKey('console-e2e-signing-secret-0123456789'),
     })
     planeServer = createServer((req, res) => {
-      app.fetch(new Request(`http://x${req.url}`, {
-        method: req.method,
-        headers: req.headers as never,
-        ...(req.method !== 'GET' && req.method !== 'HEAD'
-          ? { body: req, duplex: 'half' as const }
-          : {}),
-      })).then(async (r) => {
-        res.writeHead(r.status, Object.fromEntries(r.headers.entries()))
-        if (r.body) {
-          const buf = Buffer.from(await r.arrayBuffer())
-          res.end(buf)
-        } else res.end()
-      }).catch(() => res.writeHead(500).end())
+      app
+        .fetch(
+          new Request(`http://x${req.url}`, {
+            method: req.method,
+            headers: req.headers as never,
+            ...(req.method !== 'GET' && req.method !== 'HEAD'
+              ? { body: req, duplex: 'half' as const }
+              : {}),
+          })
+        )
+        .then(async (r) => {
+          res.writeHead(r.status, Object.fromEntries(r.headers.entries()))
+          if (r.body) {
+            const buf = Buffer.from(await r.arrayBuffer())
+            res.end(buf)
+          } else res.end()
+        })
+        .catch(() => res.writeHead(500).end())
     })
     await new Promise<void>((r) => planeServer.listen(0, '127.0.0.1', r))
     planePort = (planeServer.address() as { port: number }).port
@@ -104,7 +107,9 @@ maybe('console backend e2e (real plane + real console server)', () => {
       },
       stdio: 'pipe',
     })
-    consoleProc.stderr?.on('data', (d) => console.error('[console stderr]', String(d).slice(0, 300)))
+    consoleProc.stderr?.on('data', (d) =>
+      console.error('[console stderr]', String(d).slice(0, 300))
+    )
     consolePort = await new Promise<number>((resolvePort, reject) => {
       let buf = ''
       consoleProc.stdout?.on('data', (d) => {
@@ -163,7 +168,10 @@ maybe('console backend e2e (real plane + real console server)', () => {
     expect((await api('POST', '/api/v1/teams', { teamId: team, name: 'E2E' })).status).toBe(201)
 
     // create worker — same helper path as the Create button
-    const create = await api('POST', `/api/v1/cells/${cell}/workers`, { teamId: team, name: 'e2e-worker' })
+    const create = await api('POST', `/api/v1/cells/${cell}/workers`, {
+      teamId: team,
+      name: 'e2e-worker',
+    })
     expect(create.status).toBe(201)
 
     // deploy real source — same path as the Deploy dialog
@@ -172,7 +180,11 @@ maybe('console backend e2e (real plane + real console server)', () => {
       `/api/v1/cells/${cell}/teams/${team}/workers/e2e-worker/deploy-source`,
       {
         modules: [
-          { name: 'main.js', type: 'esModule', text: 'export default { fetch() { return new Response("ok") } }\n' },
+          {
+            name: 'main.js',
+            type: 'esModule',
+            text: 'export default { fetch() { return new Response("ok") } }\n',
+          },
         ],
       }
     )
@@ -182,22 +194,26 @@ maybe('console backend e2e (real plane + real console server)', () => {
     // list reflects it — same path as the index page table
     const list = await api('GET', `/api/v1/cells/${cell}/workers`)
     expect(
-      (list.body.data as never as { workers: { name: string; activeVersionId: string | null }[] }).workers.some(
-        (w) => w.name === 'e2e-worker' && w.activeVersionId !== null
-      )
+      (
+        list.body.data as never as { workers: { name: string; activeVersionId: string | null }[] }
+      ).workers.some((w) => w.name === 'e2e-worker' && w.activeVersionId !== null)
     ).toBe(true)
 
     // detail aggregate — same path as the detail shell
     const detail = await api('GET', `/api/v1/cells/${cell}/teams/${team}/workers/e2e-worker`)
     expect(detail.status).toBe(200)
-    expect((detail.body.data as never as { versions: unknown[] }).versions.length).toBeGreaterThan(0)
+    expect((detail.body.data as never as { versions: unknown[] }).versions.length).toBeGreaterThan(
+      0
+    )
 
     // delete — same path as the row menu
     const del = await api('DELETE', `/api/v1/cells/${cell}/teams/${team}/workers/e2e-worker`)
     expect(del.status).toBe(200)
     const after = await api('GET', `/api/v1/cells/${cell}/workers`)
     expect(
-      (after.body.data as never as { workers: { name: string }[] }).workers.some((w) => w.name === 'e2e-worker')
+      (after.body.data as never as { workers: { name: string }[] }).workers.some(
+        (w) => w.name === 'e2e-worker'
+      )
     ).toBe(false)
   })
 
@@ -207,7 +223,11 @@ maybe('console backend e2e (real plane + real console server)', () => {
       [`/api/v1/cells/${cell}/kv/namespaces`, 'kv', { teamId: team, title: 'e2e-ns' }],
       [`/api/v1/cells/${cell}/r2/buckets`, 'r2', { teamId: team, bucketName: 'e2e-bucket' }],
       [`/api/v1/cells/${cell}/queues`, 'queue', { teamId: team, name: 'e2e-queue' }],
-      [`/api/v1/cells/${cell}/hyperdrive`, 'hyperdrive', { teamId: team, name: 'e2e-hd', origin: 'postgres://host/db' }],
+      [
+        `/api/v1/cells/${cell}/hyperdrive`,
+        'hyperdrive',
+        { teamId: team, name: 'e2e-hd', origin: 'postgres://host/db' },
+      ],
     ]
     for (const [path, label, body] of resources) {
       const r = await api('POST', path, body)

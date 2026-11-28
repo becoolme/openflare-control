@@ -116,9 +116,7 @@ maybe('deploy-source endpoint', () => {
   })
 
   it('builds, stores and deploys a bundle from raw sources', async () => {
-    expect((await call('POST', `${base}/workers`, { teamId: team, name: worker })).status).toBe(
-      201
-    )
+    expect((await call('POST', `${base}/workers`, { teamId: team, name: worker })).status).toBe(201)
     const r = await call('POST', `${base}/teams/${team}/workers/${worker}/deploy-source`, source)
     expect(r.status).toBe(201)
     const data = r.body.data

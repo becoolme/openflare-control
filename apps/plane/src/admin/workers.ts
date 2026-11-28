@@ -138,11 +138,13 @@ const versionBody = z
   })
   .strict()
 
-
 const moduleSource = z.object({
   name: z.string().min(1).max(255),
   type: z.enum(['esModule', 'commonJs']).default('esModule'),
-  text: z.string().min(1).max(10 * 1024 * 1024),
+  text: z
+    .string()
+    .min(1)
+    .max(10 * 1024 * 1024),
 })
 
 const deploySourceBody = versionBody
@@ -893,13 +895,7 @@ export function registerWorkers(app: Hono, deps: AdminDeps): void {
       createdById: 'plane-api',
     })
     await deps.bundleStore.put(bundleKeyFor(bundle.digest), bytes)
-    const {
-      modules: sourceModules,
-      activate,
-      publish,
-      versionId,
-      ...rest
-    } = body
+    const { modules: sourceModules, activate, publish, versionId, ...rest } = body
     const versionInput: VersionBody = {
       ...rest,
       versionId: versionId ?? `v-${Date.now().toString(36)}-${randomBytes(3).toString('hex')}`,
@@ -929,4 +925,3 @@ export function registerWorkers(app: Hono, deps: AdminDeps): void {
     )
   })
 }
-
