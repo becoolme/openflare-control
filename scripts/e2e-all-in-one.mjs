@@ -7,6 +7,14 @@ import { execFileSync } from 'node:child_process'
 import { request } from 'node:http'
 import { buildRuntimeBundle } from '../packages/control/dist/index.js'
 
+// Compose invocations honor COMPOSE_FILE (colon-separated, the docker
+// compose convention) so the dev override layers in without editing
+// call sites; default is the prebuilt base file alone.
+const composeFiles = (process.env.COMPOSE_FILE ?? 'docker-compose.all-in-one.yml')
+  .split(':')
+  .filter(Boolean)
+const composeArgs = composeFiles.flatMap((f) => ['-f', f])
+
 const PLANE = 'http://127.0.0.1:8787'
 const CONSOLE = 'http://127.0.0.1:8788'
 const INGRESS = 'http://127.0.0.1:8080'
@@ -55,11 +63,9 @@ await waitFor(async () => (await fetch(`${PLANE}/healthz`)).ok, 'plane healthz',
 
 // cell-init must have finished cleanly — the whole cell wiring depends
 // on the token/config/secrets it seeds.
-const ps = execFileSync(
-  'docker',
-  ['compose', '-f', 'docker-compose.all-in-one.yml', 'ps', '-a', '--format', 'json'],
-  { encoding: 'utf8' }
-)
+const ps = execFileSync('docker', ['compose', ...composeArgs, 'ps', '-a', '--format', 'json'], {
+  encoding: 'utf8',
+})
 // `--format json` is NDJSON on older compose, a JSON array on newer.
 const trimmed = ps.trim()
 const states = trimmed.startsWith('[')
@@ -194,8 +200,7 @@ try {
     'docker',
     [
       'compose',
-      '-f',
-      'docker-compose.all-in-one.yml',
+      ...composeArgs,
       'exec',
       '-T',
       'vrt-host',

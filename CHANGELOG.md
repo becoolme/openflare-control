@@ -1,5 +1,27 @@
 # Changelog
 
+## 2026-11-27 — 0.7.4: prebuilt release images + one-command all-in-one
+
+- The `Release images` workflow now triggers on `v*` tags (previously manual
+  dispatch only), authenticates to ghcr (previously no login step at all),
+  builds the cell images from the _pinned_ `OPENFLARE_CONTRACT_REV` instead of
+  openflare main, and additionally publishes `openflare-plane` and
+  `openflare-console` — six images per release, all under one tag.
+- `docker-compose.all-in-one.yml` pulls the published image set by default
+  (`OPENFLARE_REGISTRY`/`OPENFLARE_IMAGE_TAG` override); no openflare
+  checkout, workerd fetch or Rust build is needed. Source builds move to the
+  new `docker-compose.all-in-one.dev.yml` override, which CI exercises on
+  every PR so the build path cannot rot.
+- `scripts/all-in-one-setup.mjs` writes a `.env` with generated secrets
+  (idempotent; `--force` to rotate) and `scripts/hello-all-in-one.mjs` proves
+  the deployment end to end — team, worker, bundle, deploy, publish, cell
+  ack and a real ingress invocation — using only Docker on the host (the
+  proof itself, `apps/plane/src/hello.ts`, ships inside the plane image).
+- The e2e compose invocations honor `COMPOSE_FILE` (colon-separated, the
+  docker compose convention), which is how CI layers the dev override.
+- plane/console Dockerfiles pin `node:22-bookworm-slim` by digest, matching
+  the cell-image pinning discipline.
+
 ## 2026-11-27 — 0.7.3: Workers Cache enablement through the deploy path
 
 - Version creation accepts a `cache` object (`enabled`, `crossVersionCache`,

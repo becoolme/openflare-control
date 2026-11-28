@@ -38,12 +38,16 @@ Kvrocks/S3 asymmetry between provider and cell-controller, or a
 
 ## Images
 
-Four images are built from the pinned OpenFlare checkout:
-`vrt-host`, `vrt-provider`, `vrt-sql`, `vrt-cell-controller`. The `Release
-images` workflow builds them on a `v*` tag and pushes to
-`ghcr.io/<owner>/vrt/*`; the build script prints `IMAGE name@sha256:<digest>`
-lines that replace the `images:` block in the overlay. Tags alone are
-rejected by the render gate — pin digests.
+Pushing a `v*` tag runs the `Release images` workflow, which publishes six
+images under that tag: the four cell images (`openflare-host`,
+`openflare-provider`, `openflare-sql`, `openflare-cell-controller` — built
+from the _pinned_ `OPENFLARE_CONTRACT_REV` openflare checkout, never main)
+plus `openflare-plane` and `openflare-console`, all pushed to
+`ghcr.io/<owner>/`. The build prints `IMAGE name@sha256:<digest>` lines that
+replace the `images:` block in the overlay. Tags alone are rejected by the
+render gate — pin digests. The compose deployment consumes the same images
+by tag (`OPENFLARE_IMAGE_TAG`, defaulting to the current release); the
+packages must be public on ghcr for anyone outside the org to pull them.
 
 ## Production cutover
 

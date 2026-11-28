@@ -1,4 +1,4 @@
-FROM node:22-bookworm-slim AS build
+FROM node:22-bookworm-slim@sha256:be979e5523c76fa4d5ca4ebd3099078f220aa47ec39c48ad5b5df9314debd6eb AS build
 WORKDIR /src
 RUN corepack enable
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
@@ -16,7 +16,7 @@ RUN pnpm --filter openflare-control build && pnpm --filter openflare-plane build
 # devDependency (tsc, vitest, tsx…) into the runtime image.
 RUN pnpm --filter openflare-plane deploy --prod /deploy
 
-FROM node:22-bookworm-slim
+FROM node:22-bookworm-slim@sha256:be979e5523c76fa4d5ca4ebd3099078f220aa47ec39c48ad5b5df9314debd6eb
 WORKDIR /app
 ENV NODE_ENV=production
 # `pnpm deploy` materializes prod deps plus the workspace `openflare-control`

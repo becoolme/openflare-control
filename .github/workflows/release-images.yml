@@ -1,23 +1,32 @@
 name: Release images
 
 on:
+  push:
+    # Cutting a v* tag publishes the matching image set with no further
+    # operator action: ghcr.io/<owner>/openflare-{host,provider,sql,
+    # cell-controller,plane,console}:<tag>.
+    tags: ['v*']
   workflow_dispatch:
     inputs:
       registry:
         description: 'Image registry/repository prefix, e.g. ghcr.io/becoolme'
-        required: true
+        required: false
+        default: 'ghcr.io/becoolme'
       tag:
-        description: 'Image tag (date-based, e.g. openflare-20261121)'
-        required: true
+        description: 'Image tag (empty = the git ref name, e.g. v0.7.4)'
+        required: false
+        default: ''
       rust_image:
         description: 'Pinned Rust builder image (name@sha256:...)'
-        required: true
+        required: false
+        default: 'rust:1.93.0-bookworm@sha256:d0a4aa3ca2e1088ac0c81690914a0d810f2eee188197034edf366ed010a2b382'
       debian_image:
         description: 'Pinned Debian runtime image (name@sha256:...)'
-        required: true
+        required: false
+        default: 'debian:bookworm-slim@sha256:e67eeead736ff7bbe258ef088bff683635c561b1fcfefad0806c1df4ab49ce0e'
       platform:
         description: 'linux/amd64 or linux/arm64'
-        required: true
+        required: false
         default: linux/amd64
 
 permissions:
@@ -29,30 +38,64 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+      - name: Resolve release coordinates
+        env:
+          IN_REGISTRY: ${{ inputs.registry }}
+          IN_TAG: ${{ inputs.tag }}
+          IN_RUST: ${{ inputs.rust_image }}
+          IN_DEBIAN: ${{ inputs.debian_image }}
+          IN_PLATFORM: ${{ inputs.platform }}
+        run: |
+          {
+            echo "VRT_REGISTRY=${IN_REGISTRY:-ghcr.io/becoolme}"
+            # Tag pushes carry no inputs; the ref name is the release tag.
+            echo "VRT_IMAGE_TAG=${IN_TAG:-$GITHUB_REF_NAME}"
+            echo "VRT_PLATFORM=${IN_PLATFORM:-linux/amd64}"
+            echo "VRT_RUST_IMAGE=${IN_RUST:-rust:1.93.0-bookworm@sha256:d0a4aa3ca2e1088ac0c81690914a0d810f2eee188197034edf366ed010a2b382}"
+            echo "VRT_DEBIAN_IMAGE=${IN_DEBIAN:-debian:bookworm-slim@sha256:e67eeead736ff7bbe258ef088bff683635c561b1fcfefad0806c1df4ab49ce0e}"
+          } >> "$GITHUB_ENV"
+      - name: Read the pinned openflare contract revision
+        run: echo "CONTRACT_REV=$(cat OPENFLARE_CONTRACT_REV)" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
         with:
           repository: becoolme/openflare
           path: openflare
+          # The release builds the pinned runtime, never whatever main
+          # happens to be — image contents must match the control plane's
+          # vendored wire contract byte for byte.
+          ref: ${{ env.CONTRACT_REV }}
       - uses: pnpm/action-setup@v4
         with: { version: 9.15.3 }
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: pnpm }
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - run: pnpm install --frozen-lockfile
       - name: Fetch the pinned workerd binary
-        env:
-          OPENFLARE_DIR: openflare
-          ARCH: ${{ inputs.platform == 'linux/arm64' && 'linux-arm64' || 'linux-x64' }}
-        run: node scripts/vrt-fetch-workerd.mjs --arch "$ARCH"
+        run: |
+          # Shell-side mapping: GITHUB_ENV-written variables are not reliably
+          # visible to expressions in the env context.
+          ARCH=linux-x64; [ "$VRT_PLATFORM" = "linux/arm64" ] && ARCH=linux-arm64
+          node scripts/vrt-fetch-workerd.mjs --arch "$ARCH" | tee /dev/stderr | grep '^WORKERD_SHA256=' >> "$GITHUB_ENV"
       - name: Build and push the four cell images
         env:
           OPENFLARE_DIR: openflare
-          VRT_REGISTRY: ${{ inputs.registry }}
-          VRT_PLATFORM: ${{ inputs.platform }}
-          VRT_RUST_IMAGE: ${{ inputs.rust_image }}
-          VRT_DEBIAN_IMAGE: ${{ inputs.debian_image }}
-          VRT_IMAGE_TAG: ${{ inputs.tag }}
-          WORKERD_SHA256: ${{ env.WORKERD_SHA256 }}
-          GHCR: ${{ secrets.GITHUB_TOKEN }}
+        run: ./scripts/vrt-build-images.sh --push --tag "$VRT_IMAGE_TAG"
+      - name: Build and push the plane image
         run: |
-          SHA=$(node -e "const l=require('./openflare/deploy/docker/workerd.lock');const a=l.artifacts[process.env.VRT_PLATFORM==='linux/arm64'?'linux-arm64':'linux-x64'];process.stdout.write(a.binarySha256)")
-          WORKERD_SHA256=$SHA ./scripts/vrt-build-images.sh --push --tag "$VRT_IMAGE_TAG"
+          docker buildx build --platform "$VRT_PLATFORM" \
+            -f apps/plane/Dockerfile \
+            -t "${VRT_REGISTRY}/openflare-plane:${VRT_IMAGE_TAG}" \
+            --push --metadata-file /tmp/plane-meta.json .
+          node -e 'const m=require("/tmp/plane-meta.json");process.stdout.write(`IMAGE ${process.env.VRT_REGISTRY}/openflare-plane@${m["containerimage.digest"]}\n`)'
+      - name: Build and push the console image
+        run: |
+          docker buildx build --platform "$VRT_PLATFORM" \
+            -f apps/console/Dockerfile \
+            -t "${VRT_REGISTRY}/openflare-console:${VRT_IMAGE_TAG}" \
+            --push --metadata-file /tmp/console-meta.json .
+          node -e 'const c=require("/tmp/console-meta.json");process.stdout.write(`IMAGE ${process.env.VRT_REGISTRY}/openflare-console@${c["containerimage.digest"]}\n`)'

@@ -4,15 +4,16 @@
 # The management API is literally the control plane's — same code as
 # the k8s layout — so the surface is identical in both deploys.
 #
-#   OPENFLARE_DIR=../openflare PLANE_ADMIN_TOKEN=<64hex> \
-#   PLANE_SIGNING_SECRET=<seed> PLANE_SECRETS_KEY=<key> \
-#   CONSOLE_AUTH_PASSWORD=<pw> docker compose \
-#     -f docker-compose.all-in-one.yml up --build
+#   node scripts/all-in-one-setup.mjs   # writes .env once (secrets)
+#   docker compose -f docker-compose.all-in-one.yml up -d
 #
-# The cell images build from the sibling openflare checkout
-# (OPENFLARE_DIR, the same convention scripts/vrt-build-images.sh uses).
-# `cell-init` provisions the cell, issues its pull token, renders the
-# service configs and seeds the shared secrets — all idempotent.
+# Images pull from the published release set
+# (${OPENFLARE_REGISTRY:-ghcr.io/becoolme}/openflare-*:
+# ${OPENFLARE_IMAGE_TAG:-<release-tag>}); no openflare checkout, no
+# workerd fetch and no Rust build are needed. To build everything from
+# source instead, layer docker-compose.all-in-one.dev.yml on top (see
+# its header). `cell-init` provisions the cell, issues its pull token,
+# renders the service configs and seeds the shared secrets — idempotent.
 #
 # Required secrets: PLANE_ADMIN_TOKEN, PLANE_SIGNING_SECRET, PLANE_SECRETS_KEY,
 # CONSOLE_AUTH_PASSWORD, POSTGRES_PASSWORD, REDIS_PASSWORD (no defaults).
@@ -48,8 +49,7 @@ services:
       retries: 30
 
   plane:
-    image: openflare-plane:local
-    build: { context: ., dockerfile: apps/plane/Dockerfile }
+    image: ${OPENFLARE_REGISTRY:-ghcr.io/becoolme}/openflare-plane:${OPENFLARE_IMAGE_TAG:-v0.7.4}
     depends_on:
       postgres:
         condition: service_healthy
@@ -61,6 +61,8 @@ services:
       PLANE_SECRETS_KEY_FILE: /run/secrets/plane_secrets_key
       PLANE_BUNDLE_DIR: /data/bundles
       PORT: '8787'
+      # Cosmetic: hello.js prints the host-side curl with this port.
+      VRT_PORT: ${VRT_PORT:-8080}
     secrets:
       - plane_admin_token
       - plane_signing_secret
@@ -95,7 +97,7 @@ services:
       traefik.http.services.plane-api.loadbalancer.server.port: '8787'
 
   console:
-    build: { context: ., dockerfile: apps/console/Dockerfile }
+    image: ${OPENFLARE_REGISTRY:-ghcr.io/becoolme}/openflare-console:${OPENFLARE_IMAGE_TAG:-v0.7.4}
     depends_on: [plane]
     environment:
       PLANE_URL: http://plane:8787
@@ -120,11 +122,9 @@ services:
   # One-shot bootstrap: cell row + pull token + signing key + secrets +
   # rendered configs. Idempotent — never rotates existing files.
   cell-init:
-    # Rebuilds the plane Dockerfile rather than reusing the plane service's
-    # image: an image-only service triggers a registry pull before the
-    # build completes; a second build section just hits the layer cache.
-    image: openflare-cell-init:local
-    build: { context: ., dockerfile: apps/plane/Dockerfile }
+    # The init tooling ships inside the plane image; only the entrypoint
+    # differs (overridden below).
+    image: ${OPENFLARE_REGISTRY:-ghcr.io/becoolme}/openflare-plane:${OPENFLARE_IMAGE_TAG:-v0.7.4}
     user: '0:0'
     depends_on:
       plane:
@@ -156,16 +156,7 @@ services:
   #      the FileEnvelopePodChannel contract requires loopback readyz) ----
   vrt-host:
     <<: *vrt-cell
-    build:
-      context: ${OPENFLARE_DIR:-../openflare}
-      dockerfile: deploy/docker/Dockerfile.vrt-host
-      args:
-        WORKERD_SOURCE: ${WORKERD_SOURCE:-file}
-        WORKERD_SHA256: ${WORKERD_SHA256:-}
-        VRT_UID: ${VRT_UID:-10001}
-        VRT_GID: ${VRT_GID:-10001}
-    image: openflare-cell-host:local
-    pull_policy: never
+    image: ${OPENFLARE_REGISTRY:-ghcr.io/becoolme}/openflare-host:${OPENFLARE_IMAGE_TAG:-v0.7.4}
     entrypoint: ['/usr/local/bin/vrt-host', '--config', '/etc/vrt/vrt-host.toml']
     environment:
       # Workers Cache purge gate — same value in the cell-controller
@@ -173,7 +164,7 @@ services:
       # /internal/cache/purge on its loopback control listener only
       # when set). Dev-grade fixed value, override for anything real.
       VRT_CACHE_PURGE_TOKEN: ${VRT_CACHE_PURGE_TOKEN:-dev-cache-purge-token}
-    ports: ['${VRT_BIND:-127.0.0.1}:8080:8080']
+    ports: ['${VRT_BIND:-127.0.0.1}:${VRT_PORT:-8080}:8080']
     volumes:
       - cell-run:/run/vrt
       - cell-config:/etc/vrt:ro
@@ -204,11 +195,7 @@ services:
 
   cell-controller:
     <<: *vrt-cell
-    build:
-      context: ${OPENFLARE_DIR:-../openflare}
-      dockerfile: deploy/docker/Dockerfile.cell-controller
-    image: openflare-cell-controller:local
-    pull_policy: never
+    image: ${OPENFLARE_REGISTRY:-ghcr.io/becoolme}/openflare-cell-controller:${OPENFLARE_IMAGE_TAG:-v0.7.4}
     # Shares vrt-host's netns: [[pods]].readyz is loopback-only and the
     # delivery dir is on the shared cell-run volume.
     network_mode: 'service:vrt-host'
@@ -257,11 +244,7 @@ services:
 
   vrt-provider:
     <<: *vrt-cell
-    build:
-      context: ${OPENFLARE_DIR:-../openflare}
-      dockerfile: deploy/docker/Dockerfile.vrt-provider
-    image: openflare-cell-provider:local
-    pull_policy: never
+    image: ${OPENFLARE_REGISTRY:-ghcr.io/becoolme}/openflare-provider:${OPENFLARE_IMAGE_TAG:-v0.7.4}
     entrypoint: ['/usr/local/bin/vrt-provider', '--config', '/etc/vrt/vrt-provider.toml']
     environment:
       VRT_KVROCKS_URL: ${VRT_KVROCKS_URL:-redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD}@redis:6379}
@@ -285,11 +268,7 @@ services:
 
   vrt-sql:
     <<: *vrt-cell
-    build:
-      context: ${OPENFLARE_DIR:-../openflare}
-      dockerfile: deploy/docker/Dockerfile.vrt-sql
-    image: openflare-cell-sql:local
-    pull_policy: never
+    image: ${OPENFLARE_REGISTRY:-ghcr.io/becoolme}/openflare-sql:${OPENFLARE_IMAGE_TAG:-v0.7.4}
     entrypoint: ['/usr/local/bin/vrt-sql', '--config', '/etc/vrt/vrt-sql.toml']
     volumes:
       - cell-run:/run/vrt:ro
@@ -316,8 +295,7 @@ services:
   vrt-sql-follower:
     <<: *vrt-cell
     profiles: ['failover']
-    image: openflare-cell-sql:local
-    pull_policy: never
+    image: ${OPENFLARE_REGISTRY:-ghcr.io/becoolme}/openflare-sql:${OPENFLARE_IMAGE_TAG:-v0.7.4}
     entrypoint:
       ['/usr/local/bin/vrt-sql', 'follower', '--config', '/etc/vrt-follower/follower.toml']
     volumes:
