@@ -1056,7 +1056,7 @@ maybe('management API edges', () => {
     ).toBe(201)
     const r2op = await call(app, 'POST', `${base}/r2/buckets/${bucket}/ops`, {
       kind: 'R2_GET',
-      payload: { object: 'o' },
+      payload: { key: 'o' },
     })
     expect(r2op.status).toBe(202)
     expect((await call(app, 'DELETE', `${base}/r2/buckets/${bucket}`)).status).toBe(200)
