@@ -1,9 +1,4 @@
 <script setup lang="ts">
-definePageMeta({
-  nav: 'Hyperdrive',
-  crumbs: () => [{ label: 'storage', to: '/storage' }, { label: 'hyperdrive' }],
-})
-const { activeCell } = useCellSelection()
 interface HyperdriveRow {
   hyperdrive_id: string
   team_id: string
@@ -11,73 +6,154 @@ interface HyperdriveRow {
   name: string
   origin: string
   caching: boolean
-  created_at: string
 }
-const { data, pending, error } = await useAsyncData(
+
+definePageMeta({
+  nav: 'Hyperdrive',
+  crumbs: () => [{ label: 'storage', to: '/storage' }, { label: 'hyperdrive' }],
+})
+const { activeCell } = useCellSelection()
+const { activeTeam, teams, refresh: refreshTeams } = useTeamSelection()
+const action = useAction()
+onMounted(() => { if (teams.value.length === 0) void refreshTeams() })
+
+const { data, pending, error, refresh } = await useAsyncData(
   () => `hyperdrive:${activeCell.value}`,
   () =>
     activeCell.value
-      ? consoleApi<{ hyperdrives: HyperdriveRow[] }>(
-          `/api/v1/cells/${encodeURIComponent(activeCell.value)}/hyperdrive`
-        )
+      ? consoleApi<{ hyperdrives: HyperdriveRow[] }>(`/api/v1/cells/${encodeURIComponent(activeCell.value)}/hyperdrive`)
       : Promise.resolve({ hyperdrives: [] }),
   { watch: [activeCell] }
 )
-const hyperdrives = computed(() => data.value?.hyperdrives ?? [])
+const items = computed(() => data.value?.hyperdrives ?? [])
+
+const query = ref('')
+const filtered = computed(() => {
+  const q = query.value.trim().toLowerCase()
+  if (!q) return items.value
+  return items.value.filter((it) => String(it.name).toLowerCase().includes(q) || String(it.hyperdrive_id).toLowerCase().includes(q))
+})
+
+const createOpen = ref(false)
+const createName = ref('')
+const createOrigin = ref('')
+const createError = ref<string | null>(null)
+async function submitCreate() {
+  createError.value = null
+  const name = createName.value.trim()
+  if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(name)) {
+    createError.value = 'Lowercase letters, digits and dashes.'
+    return
+  }
+  const origin = createOrigin.value.trim()
+  if (!/^[a-z][a-z0-9+.-]*:\/\//.test(origin) || /@/.test(origin.split('//')[1] ?? '')) {
+    createError.value = 'Origin must be a URL without embedded credentials, like postgres://host:5432/db.'
+    return
+  }
+  const done = await action.run(() => apiCreateHyperdrive(activeCell.value, activeTeam.value, name, createOrigin.value.trim()), { success: `config created` })
+  if (done !== undefined) {
+    createOpen.value = false
+    createName.value = ''
+    createOrigin.value = ''
+    await refresh()
+  } else createError.value = 'Create failed — the name may already exist in this team.'
+}
+
+const rowMenu = reactive<{ open: boolean; x: number; y: number; item: HyperdriveRow | null }>({ open: false, x: 0, y: 0, item: null })
+function openRowMenu(event: MouseEvent, it: HyperdriveRow) {
+  event.preventDefault()
+  event.stopPropagation()
+  rowMenu.x = Math.min(event.clientX, window.innerWidth - 200)
+  rowMenu.y = Math.min(event.clientY, window.innerHeight - 150)
+  rowMenu.item = it
+  rowMenu.open = true
+}
+const rowActions = [{ key: 'delete', label: 'Delete', icon: 'trash', danger: true }]
+const router = useRouter()
+const confirmDelete = ref(false)
+function pickRowAction(key: string) {
+  const it = rowMenu.item
+  rowMenu.open = false
+  if (!it) return
+  
+  if (key === 'delete') confirmDelete.value = true
+}
+async function submitDelete() {
+  const it = rowMenu.item
+  if (!it) return
+  const done = await action.run(() => apiDeleteHyperdrive(activeCell.value, rowMenu.item!.hyperdrive_id), { success: `config deleted` })
+  if (done !== undefined) {
+    confirmDelete.value = false
+    await refresh()
+  }
+}
 </script>
 
-<template><div class="wrap pg-hyperdrive-list" style="display: flex; flex-direction: column; gap: 20px">
-
+<template><div class="wrap" style="display: flex; flex-direction: column; gap: 20px">
     <div style="display: flex; align-items: flex-end; justify-content: space-between; gap: 16px">
       <div>
-        <div class="gl" style="margin-bottom: 6px; display: flex; gap: 8px; align-items: center"><ResourceBindingChip kind="hd" />Storage &amp; Databases</div>
+        <div class="gl" style="margin-bottom: 6px">Storage &amp; Databases</div>
         <h1 style="margin: 0; font-size: 26px; font-weight: 600; letter-spacing: -0.03em">Hyperdrive</h1>
-        <p class="muted" style="margin: 6px 0 0; font-size: 13.5px">Pooled, cached Postgres connections from workers, bound with <span class="mono" style="color: var(--t2)">[[hyperdrive]]</span>. Point a config at a managed database or an external origin.</p>
+        <p class="muted" style="margin: 6px 0 0; font-size: 13.5px">Connection pooling and caching for existing PostgreSQL databases.</p>
       </div>
-      <div style="display: flex; gap: 8px">
-        <UiButton variant="secondary"><UiIcon name="term" :size="13" />vrt hyperdrive create</UiButton>
-        <UiButton variant="primary" disabled style="opacity: .5"><UiIcon name="plus" />Create config</UiButton>
-      </div>
-    </div>
-
-    <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px">
-      <UiMetricCard label="Configs"><template #value>—</template><UiMetricFoot>no Hyperdrive API</UiMetricFoot></UiMetricCard>
-      <UiMetricCard label="Cache hit" hint="24h"><template #value>—</template><UiMetricFoot>no Hyperdrive metrics API</UiMetricFoot></UiMetricCard>
-      <UiMetricCard label="Query p50"><template #value>—</template><UiMetricFoot>no Hyperdrive metrics API</UiMetricFoot></UiMetricCard>
-      <UiMetricCard label="Pooled connections"><template #value>—</template><UiMetricFoot>no Hyperdrive stats API</UiMetricFoot></UiMetricCard>
+      <UiButton variant="primary" @click="createOpen = true"><UiIcon name="plus" />Create config</UiButton>
     </div>
 
     <section class="card" style="padding: 0">
       <div style="display: flex; gap: 10px; align-items: center; padding: 12px 14px; border-bottom: 1px solid var(--b1)">
-        <UiInputBox style="width: 280px"><UiIcon name="search" /><span>Filter by config, origin or worker…</span><kbd style="margin-left: auto">/</kbd></UiInputBox>
-        <UiSegmented role="group" aria-label="Origin"><UiSegment pressed>All <span class="n">2</span></UiSegment><UiSegment>Managed Postgres <span class="n">1</span></UiSegment><UiSegment>External <span class="n">1</span></UiSegment></UiSegmented>
+        <div class="inp" style="width: 280px; display: flex; align-items: center; gap: 8px; padding: 0 10px">
+          <UiIcon name="search" />
+          <input v-model="query" type="search" placeholder="Filter…" aria-label="Filter" style="background: none; border: none; outline: none; color: inherit; font: inherit; width: 100%; padding: 7px 0" />
+        </div>
         <div style="flex: 1"></div>
-        <UiButton variant="secondary" size="sm"><UiIcon name="updown" :size="12" />Name ↑</UiButton>
+        <span class="muted" style="font-size: 12.5px">{{ filtered.length }} of {{ items.length }}</span>
       </div>
       <table class="tbl">
-        <thead><tr><th>Config</th><th>Origin</th><th>Bound by</th><th>Caching</th><th style="text-align: right">Pool</th><th style="text-align: right">Cache hit</th><th style="text-align: right">Query p50</th><th></th></tr></thead>
+        <thead><tr><th>Config</th><th>Origin</th><th>Team</th><th>Caching</th><th></th></tr></thead>
         <tbody>
-          <tr v-if="pending"><td colspan="8" class="muted" style="padding: 18px">Loading Hyperdrive configs…</td></tr>
+          <tr v-if="pending"><td colspan="8" class="muted" style="padding: 18px">Loading…</td></tr>
           <tr v-else-if="error"><td colspan="8" style="padding: 18px; color: var(--err)">{{ error.message }}</td></tr>
-          <tr v-else-if="hyperdrives.length === 0"><td colspan="8" class="muted" style="padding: 18px">No Hyperdrive configs.</td></tr>
-          <tr v-for="h in hyperdrives" :key="h.hyperdrive_id">
+          <tr v-else-if="filtered.length === 0"><td colspan="8" class="muted" style="padding: 18px">No hyperdrive configs — create one above.</td></tr>
+          <tr v-for="h in filtered" :key="h.hyperdrive_id" @contextmenu="openRowMenu($event, h)">
             <td><div class="nm">{{ h.name }}</div><div class="sm">{{ h.hyperdrive_id }}</div></td>
-            <td><div class="num">{{ h.origin }}</div><div class="sm">{{ h.team_id }}</div></td>
+            <td class="mono sm">{{ h.origin }}</td>
             <td><span class="wk">{{ h.team_id }}</span></td>
-            <td><UiBadge :tone="h.caching ? 'ok' : 'neu'" dot>{{ h.caching ? 'ON' : 'OFF' }}</UiBadge></td>
-            <td class="num dim" style="text-align: right">—</td>
-            <td class="num dim" style="text-align: right">—</td>
-            <td class="num dim" style="text-align: right">—</td>
-            <td style="text-align: right"><UiIconButton icon="more" :size="15" label="More" /></td>
+            <td><UiBadge :tone="h.caching ? 'ok' : 'neu'">{{ h.caching ? 'on' : 'off' }}</UiBadge></td>
+            <td style="text-align: right"><UiIconButton icon="more" :size="15" label="More" @click.stop="openRowMenu($event, h)" /></td>
           </tr>
         </tbody>
       </table>
-      <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; border-top: 1px solid var(--b1); font-size: 12.5px" class="muted">
-        <span>2 of 2</span>
-        <div style="display: flex; gap: 6px"><UiButton variant="secondary" size="sm" disabled style="opacity: .5">Previous</UiButton><UiButton variant="secondary" size="sm" disabled style="opacity: .5">Next</UiButton></div>
-      </div>
     </section>
 
-    <UiBanner tone="info" icon="info"><div>Configs are read from worker bindings. <span class="miss"><UiIcon name="warn" :size="10" />config CRUD API</span> <span class="miss"><UiIcon name="warn" :size="10" />config detail page</span> Until they ship, edit configs in <span class="mono">wrangler.toml</span> and redeploy.</div></UiBanner>
-
+    <Teleport to="body">
+      <div v-if="createOpen" class="dlg-backdrop" @click.self="createOpen = false">
+        <div class="dlg" role="dialog" style="width: 420px">
+          <div style="padding: 16px 18px; border-bottom: 1px solid var(--b1); font-weight: 600">Create config</div>
+          <form style="padding: 16px 18px; display: flex; flex-direction: column; gap: 12px" @submit.prevent="submitCreate">
+            <input v-model="createName" placeholder="config name" autofocus style="padding: 8px 10px; background: var(--s2); border: 1px solid var(--b1); border-radius: 6px; color: inherit; font: inherit; outline: none" />
+<input v-model="createOrigin" placeholder="postgres://host:5432/dbname" style="padding: 8px 10px; background: var(--s2); border: 1px solid var(--b1); border-radius: 6px; color: inherit; font: inherit; outline: none" />
+            <p v-if="createError" style="color: var(--err); font-size: 12.5px; margin: 0">{{ createError }}</p>
+            <div style="display: flex; justify-content: flex-end; gap: 8px">
+              <UiButton variant="secondary" type="button" @click="createOpen = false">Cancel</UiButton>
+              <UiButton variant="primary" type="submit" :disabled="action.pending.value">Create</UiButton>
+            </div>
+          </form>
+        </div>
+      </div>
+    </Teleport>
+    <Teleport to="body">
+      <div v-if="confirmDelete" class="dlg-backdrop" @click.self="confirmDelete = false">
+        <div class="dlg" role="alertdialog" style="width: 400px">
+          <div style="padding: 16px 18px; border-bottom: 1px solid var(--b1); font-weight: 600">Delete {{ rowMenu.item?.name }}?</div>
+          <div style="padding: 16px 18px; display: flex; flex-direction: column; gap: 12px">
+            <p class="muted" style="font-size: 13px; margin: 0">Workers bound to this config lose database connectivity. This cannot be undone.</p>
+            <div style="display: flex; justify-content: flex-end; gap: 8px">
+              <UiButton variant="secondary" @click="confirmDelete = false">Cancel</UiButton>
+              <UiButton variant="primary" style="background: var(--err)" :disabled="action.pending.value" @click="submitDelete">Delete</UiButton>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+    <RowMenu v-if="rowMenu.open" :actions="rowActions" :x="rowMenu.x" :y="rowMenu.y" @pick="pickRowAction" @close="rowMenu.open = false" />
   </div></template>

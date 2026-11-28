@@ -1,124 +1,147 @@
 <script setup lang="ts">
-import type { R2BucketInfo, R2StatsInfo } from '../../composables/useConsoleApi'
+
 definePageMeta({
   nav: 'R2',
   crumbs: () => [{ label: 'storage', to: '/storage' }, { label: 'r2' }],
 })
 const { activeCell } = useCellSelection()
-const { data, pending, error } = await useAsyncData(
+const { activeTeam, teams, refresh: refreshTeams } = useTeamSelection()
+const action = useAction()
+onMounted(() => { if (teams.value.length === 0) void refreshTeams() })
+
+const { data, pending, error, refresh } = await useAsyncData(
   () => `r2:${activeCell.value}`,
   () =>
     activeCell.value
-      ? consoleApi<{ buckets: R2BucketInfo[] }>(
-          `/api/v1/cells/${encodeURIComponent(activeCell.value)}/r2/buckets`
-        )
+      ? consoleApi<{ buckets: R2BucketInfo[] }>(`/api/v1/cells/${encodeURIComponent(activeCell.value)}/r2/buckets`)
       : Promise.resolve({ buckets: [] }),
   { watch: [activeCell] }
 )
-const buckets = computed(() => data.value?.buckets ?? [])
-const statsById = ref<Record<string, R2StatsInfo>>({})
-let statsSeq = 0
-const refreshing = ref(false)
-const formatBytes = (n: number | null | undefined) => {
-  if (n === null || n === undefined) return '—'
-  if (n < 1024) return `${n} B`
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KiB`
-  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MiB`
-  return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GiB`
-}
-const totalObjects = computed(() =>
-  Object.values(statsById.value).reduce((n, s) => n + (s.objects ?? 0), 0)
-)
-const totalBytes = computed(() =>
-  Object.values(statsById.value).reduce((n, s) => n + (s.sizeBytes ?? 0), 0)
-)
-const totalClassA = computed(() =>
-  Object.values(statsById.value).reduce((n, s) => n + s.classAOps, 0)
-)
-const totalClassB = computed(() =>
-  Object.values(statsById.value).reduce((n, s) => n + s.classBOps, 0)
-)
-async function loadStats(waitMs: number) {
-  const seq = ++statsSeq
-  if (!activeCell.value || buckets.value.length === 0) {
-    statsById.value = {}
+const items = computed(() => data.value?.buckets ?? [])
+
+const query = ref('')
+const filtered = computed(() => {
+  const q = query.value.trim().toLowerCase()
+  if (!q) return items.value
+  return items.value.filter((it) => String(it.bucket_name).toLowerCase().includes(q) || String(it.bucket_name).toLowerCase().includes(q))
+})
+
+const createOpen = ref(false)
+const createName = ref('')
+
+const createError = ref<string | null>(null)
+async function submitCreate() {
+  createError.value = null
+  const name = createName.value.trim()
+  if (!/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/.test(name)) {
+    createError.value = 'Invalid bucket name (3-63 chars: lowercase, digits, dots, dashes).'
     return
   }
-  refreshing.value = waitMs > 0
-  try {
-    const query = waitMs > 0 ? `waitMs=${waitMs}&refresh=1` : 'waitMs=0'
-    const entries = await Promise.all(
-      buckets.value.slice(0, 20).map(async (b) => {
-        try {
-          const stats = await consoleApi<R2StatsInfo>(
-            `/api/v1/cells/${encodeURIComponent(activeCell.value)}/r2/buckets/${encodeURIComponent(b.bucket_name)}/stats?${query}`
-          )
-          return [b.bucket_id, stats] as const
-        } catch {
-          return [b.bucket_id, null] as const
-        }
-      })
-    )
-    if (seq !== statsSeq) return
-    statsById.value = Object.fromEntries(entries.filter(([, v]) => v)) as Record<string, R2StatsInfo>
-  } finally {
-    if (seq === statsSeq) refreshing.value = false
+  const done = await action.run(() => apiCreateR2(activeCell.value, activeTeam.value, name), { success: `bucket created` })
+  if (done !== undefined) {
+    createOpen.value = false
+    createName.value = ''
+
+    await refresh()
+  } else createError.value = 'Create failed — the name may already exist in this team.'
+}
+
+const rowMenu = reactive<{ open: boolean; x: number; y: number; item: R2BucketInfo | null }>({ open: false, x: 0, y: 0, item: null })
+function openRowMenu(event: MouseEvent, it: R2BucketInfo) {
+  event.preventDefault()
+  event.stopPropagation()
+  rowMenu.x = Math.min(event.clientX, window.innerWidth - 200)
+  rowMenu.y = Math.min(event.clientY, window.innerHeight - 150)
+  rowMenu.item = it
+  rowMenu.open = true
+}
+const rowActions = [
+  { key: 'open', label: 'Open', icon: 'chev' },
+  { key: 'delete', label: 'Delete', icon: 'trash', danger: true },
+]
+const router = useRouter()
+const confirmDelete = ref(false)
+function pickRowAction(key: string) {
+  const it = rowMenu.item
+  rowMenu.open = false
+  if (!it) return
+  if (key === 'open') void router.push(`/r2/${encodeURIComponent(it.bucket_name)}/objects`)
+  if (key === 'delete') confirmDelete.value = true
+}
+async function submitDelete() {
+  const it = rowMenu.item
+  if (!it) return
+  const done = await action.run(() => apiDeleteR2(activeCell.value, rowMenu.item!.bucket_name), { success: `bucket deleted` })
+  if (done !== undefined) {
+    confirmDelete.value = false
+    await refresh()
   }
 }
-watch([activeCell, buckets], () => loadStats(0), { immediate: true })
 </script>
 
-<template><div class="wrap pg-r2-list" style="display: flex; flex-direction: column; gap: 20px">
-
+<template><div class="wrap" style="display: flex; flex-direction: column; gap: 20px">
     <div style="display: flex; align-items: flex-end; justify-content: space-between; gap: 16px">
       <div>
-        <div class="gl" style="margin-bottom: 6px; display: flex; gap: 8px; align-items: center"><ResourceBindingChip kind="r2" />Storage &amp; Databases</div>
+        <div class="gl" style="margin-bottom: 6px">Storage &amp; Databases</div>
         <h1 style="margin: 0; font-size: 26px; font-weight: 600; letter-spacing: -0.03em">R2 buckets</h1>
-        <p class="muted" style="margin: 6px 0 0; font-size: 13.5px">S3-compatible object storage bound with <span class="mono" style="color: var(--t2)">[[r2_buckets]]</span>. Buckets are served by the cluster's MinIO; no egress fees between workers and buckets.</p>
+        <p class="muted" style="margin: 6px 0 0; font-size: 13.5px">S3-compatible object storage bound with <span class="mono" style="color: var(--t2)">[[r2_buckets]]</span>.</p>
       </div>
-      <div style="display: flex; gap: 8px">
-        <UiButton variant="secondary"><UiIcon name="term" :size="13" />vrt r2 bucket create</UiButton>
-        <UiButton variant="primary"><UiIcon name="plus" />Create bucket</UiButton>
-      </div>
-    </div>
-
-    <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px">
-      <UiMetricCard label="Buckets"><template #value>{{ buckets.length }}</template><UiMetricFoot>{{ activeCell || 'no cell selected' }}</UiMetricFoot></UiMetricCard>
-      <UiMetricCard label="Objects"><template #value>{{ totalObjects }}</template><UiMetricFoot>{{ buckets.length > 20 ? 'first 20 buckets' : 'bounded list scan' }} · {{ formatBytes(totalBytes) }}</UiMetricFoot></UiMetricCard>
-      <UiMetricCard label="Class A / B ops" hint="24h"><template #value>{{ totalClassA }} / {{ totalClassB }}</template><UiMetricFoot>from the control-plane op ledger</UiMetricFoot></UiMetricCard>
-      <UiMetricCard label="Public buckets"><template #value>—</template><UiMetricFoot><span class="miss"><UiIcon name="warn" :size="10" />no public URL API</span></UiMetricFoot></UiMetricCard>
+      <UiButton variant="primary" @click="createOpen = true"><UiIcon name="plus" />Create bucket</UiButton>
     </div>
 
     <section class="card" style="padding: 0">
       <div style="display: flex; gap: 10px; align-items: center; padding: 12px 14px; border-bottom: 1px solid var(--b1)">
-        <UiInputBox style="width: 280px"><UiIcon name="search" /><span>Filter by bucket or worker…</span><kbd style="margin-left: auto">/</kbd></UiInputBox>
-        <UiSegmented role="group" aria-label="Binding"><UiSegment pressed>All <span class="n">5</span></UiSegment><UiSegment>Bound <span class="n">4</span></UiSegment><UiSegment>Unbound <span class="n">1</span></UiSegment></UiSegmented>
+        <div class="inp" style="width: 280px; display: flex; align-items: center; gap: 8px; padding: 0 10px">
+          <UiIcon name="search" />
+          <input v-model="query" type="search" placeholder="Filter…" aria-label="Filter" style="background: none; border: none; outline: none; color: inherit; font: inherit; width: 100%; padding: 7px 0" />
+        </div>
         <div style="flex: 1"></div>
-        <UiButton variant="secondary" size="sm" :disabled="refreshing" @click="loadStats(8000)"><UiIcon name="updown" :size="12" />{{ refreshing ? 'Refreshing…' : 'Refresh stats' }}</UiButton>
+        <span class="muted" style="font-size: 12.5px">{{ filtered.length }} of {{ items.length }}</span>
       </div>
       <table class="tbl">
-        <thead><tr><th>Bucket</th><th>Bound by</th><th style="text-align: right">Objects</th><th style="text-align: right">Size</th><th>Public access</th><th style="text-align: right">Class A / B 24h</th><th>Node</th><th>Created</th><th></th></tr></thead>
+        <thead><tr><th>Bucket</th><th>Team</th><th></th></tr></thead>
         <tbody>
-          <tr v-if="pending"><td colspan="9" class="muted" style="padding: 18px">Loading buckets…</td></tr>
-          <tr v-else-if="error"><td colspan="9" style="padding: 18px; color: var(--err)">{{ error.message }}</td></tr>
-          <tr v-else-if="buckets.length === 0"><td colspan="9" class="muted" style="padding: 18px">No R2 buckets.</td></tr>
-          <UiLinkRow v-for="b in buckets" :key="b.bucket_name" :to="`/r2/${encodeURIComponent(b.bucket_name)}/objects`">
+          <tr v-if="pending"><td colspan="8" class="muted" style="padding: 18px">Loading…</td></tr>
+          <tr v-else-if="error"><td colspan="8" style="padding: 18px; color: var(--err)">{{ error.message }}</td></tr>
+          <tr v-else-if="filtered.length === 0"><td colspan="8" class="muted" style="padding: 18px">No R2 buckets — create one above.</td></tr>
+          <UiLinkRow v-for="b in filtered" :key="b.bucket_name" :to="`/r2/${encodeURIComponent(b.bucket_name)}/objects`" @contextmenu="openRowMenu($event, b)">
             <td><div class="nm"><NuxtLink :to="`/r2/${encodeURIComponent(b.bucket_name)}/objects`">{{ b.bucket_name }}</NuxtLink></div><div class="sm">{{ b.bucket_id }}</div></td>
             <td><span class="wk">{{ b.team_id }}</span></td>
-            <td class="num dim" style="text-align: right">{{ statsById[b.bucket_id]?.objects ?? '—' }}</td>
-            <td class="num dim" style="text-align: right">{{ formatBytes(statsById[b.bucket_id]?.sizeBytes) }}</td>
-            <td><UiBadge tone="neu" dot>PRIVATE</UiBadge></td>
-            <td class="num dim" style="text-align: right">{{ statsById[b.bucket_id]?.classAOps ?? '—' }} / {{ statsById[b.bucket_id]?.classBOps ?? '—' }}</td>
-            <td class="num muted">{{ b.cluster_id }}</td>
-            <td class="num muted">{{ new Date(b.created_at).toLocaleDateString() }}</td>
-            <td style="text-align: right"><UiIconButton icon="more" :size="15" label="More" /></td>
+            <td style="text-align: right"><UiIconButton icon="more" :size="15" label="More" @click.stop="openRowMenu($event, b)" /></td>
           </UiLinkRow>
         </tbody>
       </table>
-      <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; border-top: 1px solid var(--b1); font-size: 12.5px" class="muted">
-        <span>5 of 5 · sorted by size</span>
-        <div style="display: flex; gap: 6px"><UiButton variant="secondary" size="sm" disabled style="opacity: .5">Previous</UiButton><UiButton variant="secondary" size="sm" disabled style="opacity: .5">Next</UiButton></div>
-      </div>
     </section>
 
+    <Teleport to="body">
+      <div v-if="createOpen" class="dlg-backdrop" @click.self="createOpen = false">
+        <div class="dlg" role="dialog" style="width: 420px">
+          <div style="padding: 16px 18px; border-bottom: 1px solid var(--b1); font-weight: 600">Create bucket</div>
+          <form style="padding: 16px 18px; display: flex; flex-direction: column; gap: 12px" @submit.prevent="submitCreate">
+            <input v-model="createName" placeholder="my-bucket" autofocus style="padding: 8px 10px; background: var(--s2); border: 1px solid var(--b1); border-radius: 6px; color: inherit; font: inherit; outline: none" />
+
+            <p v-if="createError" style="color: var(--err); font-size: 12.5px; margin: 0">{{ createError }}</p>
+            <div style="display: flex; justify-content: flex-end; gap: 8px">
+              <UiButton variant="secondary" type="button" @click="createOpen = false">Cancel</UiButton>
+              <UiButton variant="primary" type="submit" :disabled="action.pending.value">Create</UiButton>
+            </div>
+          </form>
+        </div>
+      </div>
+    </Teleport>
+    <Teleport to="body">
+      <div v-if="confirmDelete" class="dlg-backdrop" @click.self="confirmDelete = false">
+        <div class="dlg" role="alertdialog" style="width: 400px">
+          <div style="padding: 16px 18px; border-bottom: 1px solid var(--b1); font-weight: 600">Delete {{ rowMenu.item?.bucket_name }}?</div>
+          <div style="padding: 16px 18px; display: flex; flex-direction: column; gap: 12px">
+            <p class="muted" style="font-size: 13px; margin: 0">Every object in the bucket is destroyed. This cannot be undone.</p>
+            <div style="display: flex; justify-content: flex-end; gap: 8px">
+              <UiButton variant="secondary" @click="confirmDelete = false">Cancel</UiButton>
+              <UiButton variant="primary" style="background: var(--err)" :disabled="action.pending.value" @click="submitDelete">Delete</UiButton>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+    <RowMenu v-if="rowMenu.open" :actions="rowActions" :x="rowMenu.x" :y="rowMenu.y" @pick="pickRowAction" @close="rowMenu.open = false" />
   </div></template>
