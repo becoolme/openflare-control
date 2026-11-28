@@ -10,6 +10,7 @@ import {
   missingCapabilities,
   requiredCapabilities,
 } from 'openflare-control'
+import { autoPublishCell } from '../../publish.js'
 import {
   type AdminDeps,
   generatedId,
@@ -284,7 +285,10 @@ export function registerWorkflowService(app: Hono, deps: AdminDeps): void {
       'select * from plane_workflows where worker_id=$1 and name=$2',
       [id, body.name]
     )
-    return c.json({ data: { workflow } }, 201)
+    // Workflow declarations are part of the worker's desired-state binding
+    // surface — without a republish the cell never learns the class exists.
+    const revision = await autoPublishCell(deps, cell, 'CONFIG', id)
+    return c.json({ data: { workflow, revision } }, 201)
   })
 
   app.delete(`${base}/:workflowName`, async (c) => {
@@ -307,13 +311,14 @@ export function registerWorkflowService(app: Hono, deps: AdminDeps): void {
       )
       await client.query('commit')
       if (deleted.rowCount === 0) throw new VrtControlError(404, 'Workflow not found')
-      return c.json({ data: { deleted: true } })
     } catch (error) {
       await client.query('rollback')
       throw error
     } finally {
       client.release()
     }
+    const revision = await autoPublishCell(deps, cell, 'CONFIG', id)
+    return c.json({ data: { deleted: true, revision } })
   })
 
   app.post(`${base}/:workflowName/ops`, async (c) => {

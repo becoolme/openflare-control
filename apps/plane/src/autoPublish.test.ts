@@ -113,6 +113,29 @@ maybe('auto-publish on lifecycle mutations', () => {
     expect(await revisionCount()).toBe(before + 2)
   })
 
+  it('publishes when a workflow is created and deleted', async () => {
+    // The capability gate is real: a cell without workflows support rejects
+    // the declaration. Grant the test cell the bits a full cell reports.
+    await pool.query('update plane_cells set capabilities=$1 where cluster_id=$2', [
+      JSON.stringify({ workflows: true, workflowsOps: true }),
+      cell,
+    ])
+    const before = await revisionCount()
+    const create = await call('POST', `${base}/teams/${team}/workers/${worker}/workflows`, {
+      name: 'wfPublishTest',
+      className: 'PublishTestWorkflow',
+    })
+    expect(create.status).toBe(201)
+    expect(create.body.data.revision).toEqual(expect.any(Number))
+    const afterCreate = await revisionCount()
+    expect(afterCreate).toBe(before + 1)
+    expect(
+      (await call('DELETE', `${base}/teams/${team}/workers/${worker}/workflows/wfPublishTest`))
+        .status
+    ).toBe(200)
+    expect(await revisionCount()).toBe(afterCreate + 1)
+  })
+
   it('publishes when a worker is suspended', async () => {
     const before = await revisionCount()
     const res = await call('PATCH', `${base}/teams/${team}/workers/${worker}`, {
