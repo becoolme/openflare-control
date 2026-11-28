@@ -76,9 +76,11 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - run: pnpm install --frozen-lockfile
       - name: Fetch the pinned workerd binary
-        env:
-          ARCH: ${{ env.VRT_PLATFORM == 'linux/arm64' && 'linux-arm64' || 'linux-x64' }}
-        run: node scripts/vrt-fetch-workerd.mjs --arch "$ARCH" | tee /dev/stderr | grep '^WORKERD_SHA256=' >> "$GITHUB_ENV"
+        run: |
+          # Shell-side mapping: GITHUB_ENV-written variables are not reliably
+          # visible to expressions in the env context.
+          ARCH=linux-x64; [ "$VRT_PLATFORM" = "linux/arm64" ] && ARCH=linux-arm64
+          node scripts/vrt-fetch-workerd.mjs --arch "$ARCH" | tee /dev/stderr | grep '^WORKERD_SHA256=' >> "$GITHUB_ENV"
       - name: Build and push the four cell images
         env:
           OPENFLARE_DIR: openflare

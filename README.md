@@ -48,38 +48,64 @@ vars) for compatibility with existing cells and must not be renamed casually.
 | `scripts`          | Render/invariant gate (`vrt-k8s-check`), image build, pinned workerd fetch, sanitization and sync gates                  |
 | `docs`             | Architecture, Kubernetes, API, operations, conformance and migration notes                                               |
 
-## Try it locally
+## Try it: the whole platform in one command
+
+Everything — control plane **and** a real workerd cell — on one Docker host,
+pulling the published release images (no Rust build, no workerd fetch, no
+second checkout):
 
 ```sh
-pnpm install
-pnpm --filter openflare-control build
+git clone https://github.com/becoolme/openflare-control
+cd openflare-control
 
-export PLANE_ADMIN_TOKEN="$(openssl rand -hex 32)"
-export PLANE_SIGNING_SECRET="$(openssl rand -hex 32)"
-export PLANE_SECRETS_KEY="$(openssl rand -hex 32)"
-export CONSOLE_AUTH_PASSWORD="$(openssl rand -hex 16)"
-docker compose up -d --build
-
-# create the cell, then issue its per-cell pull credential exactly once
-curl -fsS -X POST -H "Authorization: Bearer $PLANE_ADMIN_TOKEN" \
-  -H 'content-type: application/json' -d '{"cellId":"dev-cell"}' \
-  http://127.0.0.1:8787/api/v1/cells >/dev/null
-CELL_TOKEN=$(curl -fsS -X POST -H "Authorization: Bearer $PLANE_ADMIN_TOKEN" \
-  http://127.0.0.1:8787/api/v1/cells/dev-cell/token |
-  sed -E 's/.*"token":"([0-9a-f]+)".*/\1/')
-
-# store a bundle and publish a signed snapshot
-DIGEST=$(printf 'hello' | shasum -a 256 | cut -d' ' -f1)
-docker compose exec plane node dist/seed.js \
-  --cluster dev-cell --team demo --name hello \
-  --version ver-1 --digest "$DIGEST" --var GREETING=hi
-
-curl -H "Authorization: Bearer $CELL_TOKEN" \
-  http://127.0.0.1:8787/api/internal/clusters/dev-cell/vrt/desired
+node scripts/all-in-one-setup.mjs    # writes .env once (generated secrets)
+docker compose -f docker-compose.all-in-one.yml up -d
 ```
 
-The response is the signed envelope a cell would verify. `docker compose
-down -v` removes the plane database and bundle volume.
+`cell-init` provisions the cell, issues its pull token, renders every config
+and seeds the shared secrets — all idempotent. Two or three minutes later:
+
+```sh
+node scripts/hello-all-in-one.mjs
+```
+
+This runs inside the plane image, so it needs nothing on the host: it
+creates a team, worker and hostname, uploads a real bundle, deploys and
+publishes it, waits for the cell to apply the signed snapshot, then invokes
+the worker through the tenant ingress. You should end with:
+
+```
+worker response: hello from openflare: one click works
+```
+
+Invoke it yourself — the ingress routes on the Host header:
+
+```sh
+curl -H "Host: <hostname-printed-by-hello>" http://127.0.0.1:8080/
+```
+
+The console is on [http://127.0.0.1:8788](http://127.0.0.1:8788)
+(`admin:` + the `CONSOLE_AUTH_PASSWORD` in `.env`); the management API on
+`127.0.0.1:8787`. `docker compose -f docker-compose.all-in-one.yml down -v`
+removes everything including the volumes.
+
+Details:
+
+- **Images** come from `ghcr.io/becoolme/openflare-*` pinned to the release
+  tag (`OPENFLARE_REGISTRY` / `OPENFLARE_IMAGE_TAG` override in `.env`). The
+  `v*` tag trigger publishes all six — cell images build from the *pinned*
+  openflare contract revision, so the wire bytes always match the plane.
+- **Public exposure**: `--profile tls` adds Traefik on :80/:443 with
+  per-hostname Let's Encrypt certificates; see the compose file header.
+  Without it everything stays on loopback (trusted-network dev mode).
+- **Building from source** instead of pulling: layer the dev override —
+  `docker compose -f docker-compose.all-in-one.yml -f docker-compose.all-in-one.dev.yml up -d --build`
+  — which needs the sibling openflare checkout (`OPENFLARE_DIR`) and the
+  pinned workerd binary (`node scripts/vrt-fetch-workerd.mjs --arch linux-x64`).
+  CI exercises that path on every PR so it cannot rot.
+- The **plane-only** compose (`docker-compose.yml`) is a control-plane
+  smoke test without a cell — snapshots are signed but nothing executes
+  them. Prefer the all-in-one for evaluation.
 
 ## Deploy on Kubernetes
 
