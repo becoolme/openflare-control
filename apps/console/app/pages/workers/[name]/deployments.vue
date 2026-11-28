@@ -66,13 +66,19 @@ const workerPubs = computed(() => {
   const id = `${w.teamId}:${w.name}`
   return publications.value.filter((p) => p.workerId === id)
 })
-/* Newest rollout touching this worker that has not fully applied. Because a
- * publication is whole-cell atomic, a failed one blocks every later state
- * too — so the newest non-APPLIED entry is the honest rollout state. */
+/* Rollouts are whole-cell and sequential, so the newest publication is the
+ * honest current state: once one lands APPLIED, every older failure is
+ * history. Only a newest entry that has not converged means the cell is
+ * still rolling out — or, when the ack carries a failure reason, that the
+ * generation was rejected and the previous one keeps serving. */
 const stuckPub = computed(() => {
-  const pubs = workerPubs.value.length > 0 ? workerPubs.value : publications.value
-  return pubs.find((p) => p.ackStatus !== 'APPLIED' && p.ackStatus !== 'SUPERSEDED') ?? null
+  const newest = publications.value[0]
+  if (!newest || newest.ackStatus === 'APPLIED' || newest.ackStatus === 'SUPERSEDED') return null
+  return newest
 })
+const stuckFailed = computed(
+  () => !!(stuckPub.value?.ackReason || stuckPub.value?.ackTenantFailures?.length)
+)
 const pubByVersion = computed(() => {
   const m = new Map<string, Publication>()
   for (const p of workerPubs.value) if (p.versionId && !m.has(p.versionId)) m.set(p.versionId, p)
@@ -91,7 +97,7 @@ const pubByVersion = computed(() => {
     <div v-if="stuckPub" style="padding: 10px 16px; border-bottom: 1px solid var(--b1); background: color-mix(in srgb, var(--warn, #d97706) 8%, transparent)">
       <div style="font-size: 13px">
         <strong>Rollout {{ stuckPub.ackStatus.toLowerCase() }}</strong>
-        <span class="muted"> — rev {{ stuckPub.revision }} ({{ (stuckPub.cause ?? '').toLowerCase() }}){{ stuckPub.ackReason ? ': ' + stuckPub.ackReason : '' }}. The previous generation keeps serving.</span>
+        <span class="muted"> — rev {{ stuckPub.revision }} ({{ (stuckPub.cause ?? '').toLowerCase() }}){{ stuckPub.ackReason ? ': ' + stuckPub.ackReason : '' }}. {{ stuckFailed ? 'The previous generation keeps serving.' : 'Waiting for the cell to converge…' }}</span>
       </div>
       <pre v-if="stuckPub.ackTenantFailures?.[0]?.detail" class="mono" style="margin: 8px 0 0; font-size: 11px; white-space: pre-wrap; word-break: break-all; max-height: 120px; overflow: auto; color: var(--warn, #d97706)">{{ stuckPub.ackTenantFailures[0].detail }}</pre>
     </div>
