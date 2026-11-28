@@ -28,7 +28,7 @@ async function resolveDb() {
   db.value = data.databases.find((d) => d.name === dbName.value) ?? null
   notFound.value = !db.value
 }
-onMounted(resolveDb)
+watch(activeCell, (c) => { if (c) void resolveDb() }, { immediate: true })
 
 interface OpResult {
   status: string

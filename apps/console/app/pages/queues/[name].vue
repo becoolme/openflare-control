@@ -32,7 +32,7 @@ async function load() {
     }
   }
 }
-onMounted(() => void load())
+watch(activeCell, (c) => { if (c) void load() }, { immediate: true })
 
 /* delivery delay edit — real PATCH */
 const editing = ref(false)

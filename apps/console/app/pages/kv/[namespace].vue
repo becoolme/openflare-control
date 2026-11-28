@@ -22,7 +22,7 @@ async function resolveNs() {
   ns.value = data.namespaces.find((n) => n.namespace_id === nsId.value) ?? null
   notFound.value = !ns.value
 }
-onMounted(resolveNs)
+watch(activeCell, (c) => { if (c) void resolveNs() }, { immediate: true })
 
 /* op runner: submit + poll, surface the real terminal state */
 interface OpResult {

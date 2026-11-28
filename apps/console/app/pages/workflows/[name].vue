@@ -35,7 +35,7 @@ async function resolveWf() {
   wf.value = (data.workflows ?? []).find((w) => w.name === wfName.value) ?? null
   notFound.value = !wf.value
 }
-onMounted(resolveWf)
+watch(activeCell, (c) => { if (c) void resolveWf() }, { immediate: true })
 
 const wfBase = computed(() => {
   const w = workerRef.value

@@ -351,4 +351,37 @@ maybe('console browser e2e (real chromium clicks)', () => {
     expect(filtered.join(' ')).toContain(`bf-${suffix}`)
     await page.close()
   }, 60_000)
+
+  it('kv detail: write-key submits a real op and reports the honest PENDING state', async () => {
+    // create the namespace through the API, then drive the detail page
+    const created = await api(harness.consolePort, 'POST', `/api/v1/cells/${cell}/kv/namespaces`, {
+      teamId: team,
+      title: `kd-${suffix}`,
+    })
+    expect(created.status).toBe(201)
+    const nsId = (created.body.data as never as { namespace: { namespace_id: string } }).namespace
+      .namespace_id
+    const page = await openPage(`/kv/${encodeURIComponent(nsId)}`)
+    await waitText(page, 'body', new RegExp(`kd-${suffix}`))
+    // open the write dialog and submit a key
+    await page
+      .getByRole('button', { name: /write|add|new key/i })
+      .first()
+      .click()
+    await visible(page, '.dlg')
+    await page.locator('.dlg input').first().fill('browser-key')
+    await page.locator('.dlg textarea, .dlg input').nth(1).fill('written-by-chromium')
+    await page.locator('.dlg button[type="submit"]').last().click()
+    // no cell is connected in this harness — the page must say so honestly,
+    // and the op must exist server-side in the plane
+    await waitText(page, 'body', /pending|no cell/i, 20_000)
+    const ops = await api(
+      harness.consolePort,
+      'GET',
+      `/api/v1/cells/${cell}/kv/namespaces/${encodeURIComponent(nsId)}/ops`
+    )
+    const opList = (ops.body.data as never as { ops?: { kind: string }[] })?.ops ?? []
+    expect(opList.some((o) => o.kind === 'KV_PUT')).toBe(true)
+    await page.close()
+  }, 60_000)
 })
