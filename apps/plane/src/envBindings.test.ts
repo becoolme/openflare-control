@@ -96,7 +96,7 @@ maybe('env keys become bindings in desired state', () => {
         payload: { tenants: { workers: { workerId: string; bindings: EnvBinding[] }[] }[] }
       }
     }[]
-    const tenants = row.envelope.payload.tenants ?? []
+    const tenants = row?.envelope.payload.tenants ?? []
     for (const tenant of tenants) {
       for (const w of tenant.workers) {
         if (w.workerId === `${team}:${worker}`) return w.bindings
@@ -156,7 +156,7 @@ maybe('env keys become bindings in desired state', () => {
         payload: { tenants: { workers: { workerId: string; bindings: EnvBinding[] }[] }[] }
       }
     }[]
-    const tenants = row.envelope.payload.tenants ?? []
+    const tenants = row?.envelope.payload.tenants ?? []
     for (const tenant of tenants) {
       for (const w of tenant.workers) {
         if (w.workerId === `${team}:${other}`) {
