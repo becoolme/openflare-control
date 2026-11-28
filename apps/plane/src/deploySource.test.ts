@@ -157,4 +157,38 @@ maybe('deploy-source endpoint', () => {
     })
     expect(r.status).toBe(400)
   })
+
+  it('infers mainModule from the modules when omitted', async () => {
+    const w = `ds-infer-${suffix}`
+    expect((await call('POST', `${base}/workers`, { teamId: team, name: w })).status).toBe(201)
+    const res = await call('POST', `${base}/teams/${team}/workers/${w}/deploy-source`, {
+      modules: [
+        {
+          name: 'main.js',
+          type: 'esModule',
+          text: 'export default { fetch() { return new Response("inferred") } }\n',
+        },
+      ],
+    })
+    expect(res.status).toBe(201)
+    expect((res.body.data as { version: { mainModule: string } }).version.mainModule).toBe(
+      'main.js'
+    )
+  })
+
+  it('rejects an explicit mainModule that is not among the modules', async () => {
+    const w = `ds-badmain-${suffix}`
+    expect((await call('POST', `${base}/workers`, { teamId: team, name: w })).status).toBe(201)
+    const res = await call('POST', `${base}/teams/${team}/workers/${w}/deploy-source`, {
+      mainModule: 'does-not-exist.js',
+      modules: [
+        {
+          name: 'main.js',
+          type: 'esModule',
+          text: 'export default { fetch() { return new Response("x") } }\n',
+        },
+      ],
+    })
+    expect(res.status).toBe(400)
+  })
 })

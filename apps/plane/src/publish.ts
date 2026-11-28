@@ -34,3 +34,29 @@ export async function publishCell(
     return revision
   })
 }
+
+/**
+ * Best-effort automatic publish after a mutation that changes the cell's
+ * desired state. Explicit deploys batch-create+activate+publish in one call,
+ * but lifecycle mutations (worker delete, hostname/vars/secrets changes,
+ * version activation) have no console-side "publish" step — without an
+ * automatic publish the mutation would land in the database yet never reach
+ * a cell, so e.g. a deleted worker would keep serving traffic. When signing
+ * is not configured nothing can ever propagate, so the publish is skipped
+ * silently; with signing configured a failure is a real infrastructure error
+ * and surfaces to the caller.
+ */
+export async function autoPublishCell(
+  deps: { store: VrtControlStore; signing?: SnapshotSigningContext | null },
+  cellId: string,
+  cause: string,
+  workerId?: string | null
+): Promise<number | null> {
+  if (!deps.signing) return null
+  return publishCell(deps.store, {
+    cellId,
+    signing: deps.signing,
+    cause,
+    workerId: workerId ?? null,
+  })
+}

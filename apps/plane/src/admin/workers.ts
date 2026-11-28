@@ -15,7 +15,7 @@ import {
   type VrtCreateVersionInput,
   type VrtQueueConsumerDraft,
 } from 'openflare-control'
-import { publishCell } from '../publish.js'
+import { autoPublishCell, publishCell } from '../publish.js'
 import { bindingsSchema } from './bindingSchema.js'
 import {
   type AdminDeps,
@@ -148,9 +148,14 @@ const moduleSource = z.object({
 })
 
 const deploySourceBody = versionBody
-  .omit({ bundleSha256: true, bundleBytes: true, modules: true, versionId: true })
+  .omit({ bundleSha256: true, bundleBytes: true, modules: true, versionId: true, mainModule: true })
   .extend({
     versionId: z.string().min(1).max(128).optional(),
+    // No static default: the entrypoint is inferred from the modules
+    // themselves (main.js → index.js → sole/first module), so a browser
+    // client that only pastes source can never produce a bundle whose
+    // mainModule points at a module that does not exist.
+    mainModule: z.string().min(1).max(255).optional(),
     modules: z.array(moduleSource).min(1).max(64),
     activate: z.boolean().default(true),
     publish: z.boolean().default(true),
@@ -787,7 +792,10 @@ export function registerWorkers(app: Hono, deps: AdminDeps): void {
     } finally {
       client.release()
     }
-    return c.json({ data: { deleted: true } })
+    // Deleting a worker must stop it from serving: without a publication the
+    // cell keeps the worker in its desired state indefinitely.
+    const revision = await autoPublishCell(deps, cell, 'DELETE', id)
+    return c.json({ data: { deleted: true, revision } })
   })
 
   app.get('/api/v1/cells/:cellId/teams/:teamId/workers/:name/versions', async (c) => {
@@ -858,7 +866,8 @@ export function registerWorkers(app: Hono, deps: AdminDeps): void {
       const version = await deps.store.getVersionByVersionId(id, versionId)
       if (!version) throw new VrtControlError(404, 'Version not found')
       await activateVersionWithVars(deps, cell, team, id, version)
-      return c.json({ data: { workerId: id, versionId, activated: true } })
+      const revision = await autoPublishCell(deps, cell, 'ACTIVATE', id)
+      return c.json({ data: { workerId: id, versionId, activated: true, revision } })
     }
   )
 
@@ -882,12 +891,28 @@ export function registerWorkers(app: Hono, deps: AdminDeps): void {
     if (body.publish && !deps.signing) {
       throw new VrtControlError(501, 'Signing is not configured')
     }
-    const bundle = buildRuntimeBundle({
-      mainModule: body.mainModule,
-      modules: body.modules,
-      compatibilityDate: body.compatibilityDate,
-      compatibilityFlags: body.compatibilityFlags,
-    })
+    const moduleNames = body.modules.map((m) => m.name)
+    const mainModule =
+      body.mainModule ??
+      (moduleNames.includes('main.js')
+        ? 'main.js'
+        : moduleNames.includes('index.js')
+          ? 'index.js'
+          : moduleNames[0]!)
+    let bundle
+    try {
+      bundle = buildRuntimeBundle({
+        mainModule,
+        modules: body.modules,
+        compatibilityDate: body.compatibilityDate,
+        compatibilityFlags: body.compatibilityFlags,
+      })
+    } catch (error) {
+      throw new VrtControlError(
+        400,
+        `Cannot build a runnable bundle: ${error instanceof Error ? error.message : String(error)}`
+      )
+    }
     const bytes = new Uint8Array(bundle.bytes)
     await deps.store.registerBundleObject({
       digest: bundle.digest,
@@ -901,6 +926,7 @@ export function registerWorkers(app: Hono, deps: AdminDeps): void {
       versionId: versionId ?? `v-${Date.now().toString(36)}-${randomBytes(3).toString('hex')}`,
       bundleSha256: bundle.digest,
       bundleBytes: bytes.byteLength,
+      mainModule,
       modules: sourceModules.map((m) => m.name),
     }
     const { version, created } = await createVersion(deps, id, versionInput)
