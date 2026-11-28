@@ -315,3 +315,151 @@ export async function waitForOp(cellId: string, opId: string, timeoutMs = 15_000
     await new Promise((r) => setTimeout(r, 250))
   }
 }
+
+/* ---------- typed mutation helpers ----------
+ * One helper per plane mutation the console drives. They exist so pages
+ * never hand-assemble paths or bodies, and so the e2e tests exercise the
+ * exact same code path the buttons do.
+ */
+
+const enc = encodeURIComponent
+
+export interface DeploySourceInput {
+  mainModule?: string
+  modules: { name: string; type?: 'esModule' | 'commonJs'; text: string }[]
+  compatibilityDate?: string
+  vars?: Record<string, string>
+  bindings?: Record<string, unknown>[]
+  activate?: boolean
+  publish?: boolean
+}
+
+export function apiCreateWorker(cell: string, teamId: string, name: string) {
+  return consoleApi<{ worker: WorkerInfo }>(`/api/v1/cells/${enc(cell)}/workers`, {
+    method: 'POST',
+    body: { teamId, name },
+  })
+}
+
+export function apiDeleteWorker(cell: string, teamId: string, name: string) {
+  return consoleApi(`/api/v1/cells/${enc(cell)}/teams/${enc(teamId)}/workers/${enc(name)}`, {
+    method: 'DELETE',
+  })
+}
+
+export function apiDeploySource(cell: string, teamId: string, name: string, input: DeploySourceInput) {
+  return consoleApi<{ revision: number | null; activated: boolean }>(
+    `/api/v1/cells/${enc(cell)}/teams/${enc(teamId)}/workers/${enc(name)}/deploy-source`,
+    { method: 'POST', body: input }
+  )
+}
+
+export function apiCreateD1(cell: string, teamId: string, name: string) {
+  return consoleApi<{ database: D1DatabaseInfo }>(`/api/v1/cells/${enc(cell)}/d1/databases`, {
+    method: 'POST',
+    body: { teamId, name },
+  })
+}
+
+export function apiDeleteD1(cell: string, databaseId: string) {
+  return consoleApi(`/api/v1/cells/${enc(cell)}/d1/databases/${enc(databaseId)}`, {
+    method: 'DELETE',
+  })
+}
+
+export function apiD1Query(cell: string, databaseId: string, sql: string, params: unknown[] = []) {
+  return consoleApi<{ op: OpInfo }>(
+    `/api/v1/cells/${enc(cell)}/d1/databases/${enc(databaseId)}/query`,
+    { method: 'POST', body: { sql, params } }
+  )
+}
+
+export function apiCreateKv(cell: string, teamId: string, title: string) {
+  return consoleApi<{ namespace: KvNamespaceInfo }>(`/api/v1/cells/${enc(cell)}/kv/namespaces`, {
+    method: 'POST',
+    body: { teamId, title },
+  })
+}
+
+export function apiDeleteKv(cell: string, namespaceId: string) {
+  return consoleApi(`/api/v1/cells/${enc(cell)}/kv/namespaces/${enc(namespaceId)}`, {
+    method: 'DELETE',
+  })
+}
+
+export function apiCreateR2(cell: string, teamId: string, name: string) {
+  return consoleApi<{ bucket: R2BucketInfo }>(`/api/v1/cells/${enc(cell)}/r2/buckets`, {
+    method: 'POST',
+    body: { teamId, bucketName: name },
+  })
+}
+
+export function apiDeleteR2(cell: string, bucketName: string) {
+  return consoleApi(`/api/v1/cells/${enc(cell)}/r2/buckets/${enc(bucketName)}`, {
+    method: 'DELETE',
+  })
+}
+
+export function apiCreateQueue(cell: string, teamId: string, name: string) {
+  return consoleApi<{ queue: QueueInfo }>(`/api/v1/cells/${enc(cell)}/queues`, {
+    method: 'POST',
+    body: { teamId, name },
+  })
+}
+
+export function apiDeleteQueue(cell: string, queueId: string) {
+  return consoleApi(`/api/v1/cells/${enc(cell)}/queues/${enc(queueId)}`, { method: 'DELETE' })
+}
+
+export function apiCreateHyperdrive(
+  cell: string,
+  teamId: string,
+  name: string,
+  origin: string,
+  caching = true
+) {
+  return consoleApi<{ hyperdrive: unknown }>(`/api/v1/cells/${enc(cell)}/hyperdrive`, {
+    method: 'POST',
+    body: { teamId, name, origin, caching },
+  })
+}
+
+export function apiDeleteHyperdrive(cell: string, hyperdriveId: string) {
+  return consoleApi(`/api/v1/cells/${enc(cell)}/hyperdrive/${enc(hyperdriveId)}`, {
+    method: 'DELETE',
+  })
+}
+
+export interface TeamInfo {
+  teamId: string
+  name: string
+  plan?: string | null
+  workers?: number
+}
+
+/** Active team selection, mirroring useCellSelection: first team is the
+ *  default and the choice persists in a cookie. */
+export function useTeamSelection() {
+  const teamId = useCookie<string | null>('openflare-team', {
+    sameSite: 'lax',
+    default: () => null,
+  })
+  const teams = useState<TeamInfo[]>('openflare-teams', () => [])
+  const pending = useState('openflare-teams-pending', () => false)
+
+  async function refresh() {
+    pending.value = true
+    try {
+      const data = await consoleApi<{ teams: TeamInfo[] }>('/api/v1/teams')
+      teams.value = data.teams
+      if (!teamId.value || !data.teams.some((t) => t.teamId === teamId.value)) {
+        teamId.value = data.teams[0]?.teamId ?? null
+      }
+    } finally {
+      pending.value = false
+    }
+  }
+
+  const activeTeam = computed(() => teamId.value ?? teams.value[0]?.teamId ?? '')
+  return { teamId, activeTeam, teams, pending, refresh }
+}

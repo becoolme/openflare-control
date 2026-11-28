@@ -14,6 +14,7 @@ const crumbs = computed(() => route.meta.crumbs?.(route) ?? [])
       <main class="main">
         <slot />
       </main>
+      <UiToasts />
     </div>
   </div>
 </template>

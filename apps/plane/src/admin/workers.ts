@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto'
 import type { Hono } from 'hono'
 import { z } from 'zod'
 import {
+  buildRuntimeBundle,
   VRT_DEFAULT_QUOTAS,
   VRT_MAX_JSON_BINDING_BYTES,
   VrtControlError,
@@ -134,6 +135,23 @@ const versionBody = z
     assetsRouting: z.enum(['ASSETS_FIRST', 'WORKER_FIRST']).nullable().optional(),
     assetsRunWorkerFirst: z.array(z.string()).optional(),
     exportedClassNames: z.array(workerDoClassNameSchema).optional(),
+  })
+  .strict()
+
+
+const moduleSource = z.object({
+  name: z.string().min(1).max(255),
+  type: z.enum(['esModule', 'commonJs']).default('esModule'),
+  text: z.string().min(1).max(10 * 1024 * 1024),
+})
+
+const deploySourceBody = versionBody
+  .omit({ bundleSha256: true, bundleBytes: true, modules: true, versionId: true })
+  .extend({
+    versionId: z.string().min(1).max(128).optional(),
+    modules: z.array(moduleSource).min(1).max(64),
+    activate: z.boolean().default(true),
+    publish: z.boolean().default(true),
   })
   .strict()
 
@@ -841,4 +859,74 @@ export function registerWorkers(app: Hono, deps: AdminDeps): void {
       return c.json({ data: { workerId: id, versionId, activated: true } })
     }
   )
+
+  /**
+   * Source-level deploy for browser/console clients: accepts raw module
+   * sources, builds the canonical runtime bundle server-side, stores it and
+   * runs the identical create/activate/publish pipeline as /deploy. Keeping
+   * bundling server-side means browser clients never need node primitives,
+   * and the deploy boundary validates the same way for every client.
+   */
+  app.post('/api/v1/cells/:cellId/teams/:teamId/workers/:name/deploy-source', async (c) => {
+    const { cellId: cell, teamId: team, name } = c.req.param()
+    const id = workerId(team, name)
+    const [worker] = await rows(
+      deps,
+      'select id from plane_workers where id=$1 and cluster_id=$2',
+      [id, cell]
+    )
+    if (!worker) throw new VrtControlError(404, 'Worker not found')
+    const body = parse(deploySourceBody, await readJson(c))
+    if (body.publish && !deps.signing) {
+      throw new VrtControlError(501, 'Signing is not configured')
+    }
+    const bundle = buildRuntimeBundle({
+      mainModule: body.mainModule,
+      modules: body.modules,
+      compatibilityDate: body.compatibilityDate,
+      compatibilityFlags: body.compatibilityFlags,
+    })
+    const bytes = new Uint8Array(bundle.bytes)
+    await deps.store.registerBundleObject({
+      digest: bundle.digest,
+      bytes: bytes.byteLength,
+      createdById: 'plane-api',
+    })
+    await deps.bundleStore.put(bundleKeyFor(bundle.digest), bytes)
+    const {
+      modules: sourceModules,
+      activate,
+      publish,
+      versionId,
+      ...rest
+    } = body
+    const versionInput: VersionBody = {
+      ...rest,
+      versionId: versionId ?? `v-${Date.now().toString(36)}-${randomBytes(3).toString('hex')}`,
+      bundleSha256: bundle.digest,
+      bundleBytes: bytes.byteLength,
+      modules: sourceModules.map((m) => m.name),
+    }
+    const { version, created } = await createVersion(deps, id, versionInput)
+    let activated = false
+    let revision: number | null = null
+    if (activate) {
+      await activateVersionWithVars(deps, cell, team, id, version)
+      activated = true
+    }
+    if (publish) {
+      revision = await publishCell(deps.store, {
+        cellId: cell,
+        signing: deps.signing!,
+        cause: 'DEPLOY',
+        workerId: id,
+        versionId: version.versionId,
+      })
+    }
+    return c.json(
+      { data: { version, created, activated, revision, bundleDigest: bundle.digest } },
+      created ? 201 : 200
+    )
+  })
 }
+
