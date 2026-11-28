@@ -975,7 +975,7 @@ class PlaneCellTx {
         artifactDigest: version.bundleSha256,
         compatibilityDate: version.compatibilityDate,
         compatibilityFlags: version.compatibilityFlags,
-        bindings: hydrateD1([...version.bindings, ...synthesized]),
+        bindings: hydrateD1([...(version.bindings ?? []), ...synthesized]),
         hostnames: hostnames.map((h) => h.hostname as string),
         crons: version.crons,
         queueConsumers: version.queueConsumers ?? [],
