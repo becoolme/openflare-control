@@ -463,3 +463,57 @@ export function useTeamSelection() {
   const activeTeam = computed(() => teamId.value ?? teams.value[0]?.teamId ?? '')
   return { teamId, activeTeam, teams, pending, refresh }
 }
+
+/** Worker detail aggregate — one call returns everything the tabs need. */
+export interface WorkerDetail {
+  worker: WorkerInfo
+  versions: VersionInfo[]
+  vars: { key: string; value: string }[]
+  jsonVars: Record<string, unknown> | null
+  observability: unknown
+  cache: { enabled: boolean } | null
+  secretKeys: string[]
+  hostnames: { hostname: string; status: string; kind: string }[]
+  queueConsumers: unknown[]
+  tailConsumers: string[]
+}
+
+/**
+ * Resolve a route `:name` to the full detail. The plane API is team-scoped
+ * and the console route is not, so resolution goes through the cell-wide
+ * worker list (teamId is on every row).
+ */
+export function useWorkerDetail(name: Ref<string>) {
+  const { activeCell } = useCellSelection()
+  const detail = useState<WorkerDetail | null>('console-worker-detail', () => null)
+  const pending = useState('console-worker-detail-pending', () => false)
+  const error = useState<string | null>('console-worker-detail-error', () => null)
+  const notFound = useState('console-worker-detail-404', () => false)
+
+  async function refresh() {
+    if (!activeCell.value) return
+    pending.value = true
+    error.value = null
+    notFound.value = false
+    try {
+      const list = await consoleApi<{ workers: WorkerInfo[] }>(
+        `/api/v1/cells/${encodeURIComponent(activeCell.value)}/workers`
+      )
+      const found = list.workers.find((w) => w.name === name.value)
+      if (!found) {
+        notFound.value = true
+        detail.value = null
+        return
+      }
+      detail.value = await consoleApi<WorkerDetail>(
+        `/api/v1/cells/${encodeURIComponent(activeCell.value)}/teams/${encodeURIComponent(found.teamId)}/workers/${encodeURIComponent(found.name)}`
+      )
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : String(e)
+    } finally {
+      pending.value = false
+    }
+  }
+
+  return { detail, pending, error, notFound, refresh }
+}
