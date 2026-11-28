@@ -1,7 +1,7 @@
 import type { Hono } from 'hono'
 import { z } from 'zod'
 import { VrtControlError } from 'openflare-control'
-import { type AdminDeps, parse, readJson, rows, teamId } from './context.js'
+import { type AdminDeps, mapTeam, parse, readJson, rows, teamId } from './context.js'
 
 export function registerTeams(app: Hono, deps: AdminDeps): void {
   app.get('/api/v1/teams', async (c) => {
@@ -12,7 +12,7 @@ export function registerTeams(app: Hono, deps: AdminDeps): void {
          from plane_teams t left join plane_team_quotas q using (team_id)
         order by t.team_id`
     )
-    return c.json({ data: { teams: list } })
+    return c.json({ data: { teams: list.map(mapTeam) } })
   })
 
   app.post('/api/v1/teams', async (c) => {
@@ -52,7 +52,8 @@ export function registerTeams(app: Hono, deps: AdminDeps): void {
         where t.team_id=$1`,
       [body.teamId]
     )
-    return c.json({ data: { team } }, 201)
+    if (!team) throw new VrtControlError(500, 'Team insert did not round-trip')
+    return c.json({ data: { team: mapTeam(team) } }, 201)
   })
 
   app.get('/api/v1/teams/:teamId', async (c) => {
@@ -65,7 +66,7 @@ export function registerTeams(app: Hono, deps: AdminDeps): void {
       [c.req.param('teamId')]
     )
     if (!team) throw new VrtControlError(404, 'Team not found')
-    return c.json({ data: { team } })
+    return c.json({ data: { team: mapTeam(team) } })
   })
 
   app.patch('/api/v1/teams/:teamId', async (c) => {
@@ -126,7 +127,8 @@ export function registerTeams(app: Hono, deps: AdminDeps): void {
         where t.team_id=$1`,
       [id]
     )
-    return c.json({ data: { team } })
+    if (!team) throw new VrtControlError(404, 'Team not found')
+    return c.json({ data: { team: mapTeam(team) } })
   })
 
   app.delete('/api/v1/teams/:teamId', async (c) => {

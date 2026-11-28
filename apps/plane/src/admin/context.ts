@@ -167,6 +167,23 @@ export const mapCell = (r: Row) => ({
       }),
 })
 
+export const mapTeam = (r: Row) => ({
+  teamId: s(r.team_id),
+  name: s(r.name),
+  plan: nullableString(r.plan),
+  createdAt: iso(r.created_at),
+  ...(r.workers === undefined ? {} : { workers: n(r.workers) }),
+  ...(r.requests_month === undefined && r.cpu_ms_month === undefined && r.workers_max === undefined
+    ? {}
+    : {
+        quotas: {
+          requestsMonth: r.requests_month == null ? null : n(r.requests_month),
+          cpuMsMonth: r.cpu_ms_month == null ? null : n(r.cpu_ms_month),
+          workersMax: r.workers_max == null ? null : n(r.workers_max),
+        },
+      }),
+})
+
 export const mapWorker = (r: Row) => ({
   workerId: s(r.id),
   teamId: s(r.team_id),

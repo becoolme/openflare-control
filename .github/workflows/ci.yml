@@ -107,9 +107,11 @@ jobs:
       # The console e2e boots the real plane in-process, and plane imports
       # the control package — it must be built for the console lane to run it.
       - run: pnpm --filter openflare-control build
+      # the browser e2e serves the built SPA — it must exist before tests run
+      - run: pnpm --filter openflare-console build
+      - run: pnpm --filter openflare-console exec playwright install --with-deps chromium
       - run: pnpm --filter openflare-console test
       - run: pnpm --filter openflare-console typecheck
-      - run: pnpm --filter openflare-console build
 
   e2e-docker:
     runs-on: ubuntu-24.04
