@@ -105,8 +105,10 @@ describe('resource list pages', () => {
           )
         })
       } else {
-        it('documents the missing API instead of faking rows', () => {
-          expect(src).toContain('no Hyperdrive')
+        it('renders rows from live data', () => {
+          // The hyperdrive API exists and the page drives it; rows are
+          // v-for rendered like every other resource list.
+          expect(src).toMatch(/v-for="/)
         })
       }
     })

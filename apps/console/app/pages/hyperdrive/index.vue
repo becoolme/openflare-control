@@ -89,7 +89,7 @@ async function submitDelete() {
 }
 </script>
 
-<template><div class="wrap" style="display: flex; flex-direction: column; gap: 20px">
+<template><div class="wrap pg-hyperdrive-list" style="display: flex; flex-direction: column; gap: 20px">
     <div style="display: flex; align-items: flex-end; justify-content: space-between; gap: 16px">
       <div>
         <div class="gl" style="margin-bottom: 6px">Storage &amp; Databases</div>
